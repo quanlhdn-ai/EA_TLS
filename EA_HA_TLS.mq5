@@ -64,9 +64,9 @@ bool     tradingLockedToday = false;
 double PipSize()
 {
    // Practical pip size:
-   // 5/3 digits: pip = 10*point
+   // 5/3 digits: pip = 100*point
    // 2 digits (many metals): pip = 10*point (0.1)
-   if(_Digits == 5 || _Digits == 3 || _Digits == 2) return 10.0 * _Point;
+   if(_Digits == 5 || _Digits == 3 || _Digits == 2) return 100.0 * _Point;
    return _Point;
 }
 
