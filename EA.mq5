@@ -1,27 +1,3 @@
-//+------------------------------------------------------------------+
-//| TLS_EA.mq5                                                       |
-//|                                                                  |
-//| Reads ONLY from indicators:                                      |
-//|  - TLS_HA  (buffers 0..4): HA O/H/L/C + Color (0 bull, 1 bear)   |
-//|  - TLS_EMA (buffers 2,3,4): CrossDot + HighLineData + LowLineData|
-//|                                                                  |
-//| Added (per your latest request):                                 |
-//|  - buffer -> scan -> object for HighLine/LowLine                 |
-//|  - Last Cross state: "Cross Up/Down at PRICE at TIME"            |
-//|  - On-chart Comment() showing HighLine/LowLine + LastCross        |
-//|                                                                  |
-//| Trading rules implemented (as you confirmed 100%):               |
-//|  - Entry uses Cross + Breakout + normal candle color + HA color  |
-//|  - SL from nearest 2 consecutive opposite HA candles + buffer    |
-//|  - SL_MAX: market if within max, else limit at max risk distance |
-//|  - TP = 2R, BE at 1R - buffer                                    |
-//|  - Opposite cross reaction on open positions (SL->Entry / TP->ET)|
-//|  - Exposure limit Option 1: per direction 1 exposure max         |
-//|  - Hedge allowed: 1 BUY + 1 SELL max total exposures=2           |
-//|  - Cancel pending on opposite cross while waiting (SL_MAX plan)  |
-//|  - Cancel pending if price hits TP before fill                   |
-//|  - Daily realized DD stop (3% of start-day balance)              |
-//+------------------------------------------------------------------+
 #property strict
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -30,7 +6,7 @@ CTrade trade;
 input string InpHAIndicatorName  = "TLS_HA";
 input string InpEMAIndicatorName = "TLS_EMA";
 
-// (These exist only because iCustom needs to match your indicator inputs)
+// iCustom inputs must match indicator inputs
 input color InpBullColor = C'8,153,129';
 input color InpBearColor = C'242,54,69';
 
@@ -47,8 +23,11 @@ input int    BufferPips            = 5;     // buffer in PIPS (converted by PipS
 input double SLMaxPips             = 50.0;  // SL_MAX in PIPS
 input int    InpSL_LookbackBars    = 200;   // lookback to find nearest HA pair
 
-// buffer->scan lookback for lines (avoid miss when buffer returns 0/EMPTY)
+// buffer->scan lookback for lines
 input int    LineScanLookbackBars  = 300;
+
+// Cross scan for auto-arm/comment
+input int    CrossScanLookbackBars = 500;  // scan to find latest cross dot
 
 // Daily DD
 input double InpDailyDD_Percent    = 3.0;   // realized daily DD limit (% of start-day balance)
@@ -56,6 +35,9 @@ input bool   InpCancelPendingsWhenDDHit = true;
 
 // Chart comment
 input bool   InpShowChartComment   = true;
+
+// Debug
+input bool   InpDebugOnce          = true;
 
 //------------------------- Indicator handles ------------------------
 int haHandle  = INVALID_HANDLE;
@@ -70,20 +52,23 @@ double   dayStartBalance = 0.0;
 double   dayLossLimit = 0.0;
 bool     ddBlocked = false;
 
-// LastCross state (for comment/debug and robust cross detection)
-enum CrossType { CROSS_NONE=0, CROSS_UP=1, CROSS_DOWN=2 };
-CrossType lastCross      = CROSS_NONE;
-datetime  lastCrossTime  = 0;
-double    lastCrossPrice = 0.0;
+// waiting state
+bool     waitingBUY  = false;
+bool     waitingSELL = false;
 
-// For object-based cross fallback
-double lastHighObjPrice = 0.0;
-double lastLowObjPrice  = 0.0;
+// current cross (for comment)
+string   currentCrossText  = "None";  // "Cross Up" / "Cross Down" / "Cross" / "None"
+double   currentCrossPrice = 0.0;
+datetime currentCrossTime  = 0;
+
+// last BarsCalculated (for comment)
+int lastHaBars  = 0;
+int lastEmaBars = 0;
 
 //============================== BASIC UTILS ==============================
 double PipSize()
 {
-   // EXACTLY as you requested:
+   // EXACTLY as requested:
    // 5/3 digits: pip=10*point ; 2 digits metals: pip=10*point ; others: point
    if(_Digits == 5 || _Digits == 3 || _Digits == 2) return 100.0 * _Point;
    return _Point;
@@ -201,6 +186,20 @@ void UpdateDailyDDGate()
    }
 }
 
+//=========================== INDICATOR READY ==========================
+bool IndicatorsReady()
+{
+   if(haHandle == INVALID_HANDLE || emaHandle == INVALID_HANDLE) return false;
+
+   lastHaBars  = BarsCalculated(haHandle);
+   lastEmaBars = BarsCalculated(emaHandle);
+
+   if(lastHaBars < 10) return false;
+   if(lastEmaBars < (InpLongPeriod + 5)) return false;
+
+   return true;
+}
+
 //=========================== INDICATOR READS ===========================
 bool ReadHA(int shift, double &haOpen, double &haHigh, double &haLow, double &haClose, double &haColor)
 {
@@ -213,38 +212,7 @@ bool ReadHA(int shift, double &haOpen, double &haHigh, double &haLow, double &ha
    return true;
 }
 
-// Cross events from EMA indicator buffers:
-// crossUp   => LowLineData (buffer 4) changes/appears
-// crossDown => HighLineData(buffer 3) changes/appears
-bool DetectCrossUpOnClosedBar_Buffer()
-{
-   double a1[1], a2[1];
-   if(CopyBuffer(emaHandle, 4, 1, 1, a1) != 1) return false;
-   if(CopyBuffer(emaHandle, 4, 2, 1, a2) != 1) return false;
-
-   double low1 = a1[0];
-   double low2 = a2[0];
-
-   if(low1 == EMPTY_VALUE || low1 == 0.0) return false;
-   if(low2 == EMPTY_VALUE || low2 == 0.0) return true;
-   return (low1 != low2);
-}
-
-bool DetectCrossDownOnClosedBar_Buffer()
-{
-   double a1[1], a2[1];
-   if(CopyBuffer(emaHandle, 3, 1, 1, a1) != 1) return false;
-   if(CopyBuffer(emaHandle, 3, 2, 1, a2) != 1) return false;
-
-   double hi1 = a1[0];
-   double hi2 = a2[0];
-
-   if(hi1 == EMPTY_VALUE || hi1 == 0.0) return false;
-   if(hi2 == EMPTY_VALUE || hi2 == 0.0) return true;
-   return (hi1 != hi2);
-}
-
-//=================== buffer -> scan -> object (LINES) ==================
+// buffer->scan helper (do NOT filter v==0; only EMPTY_VALUE)
 bool GetLatestNonEmptyFromBuffer(int handle, int bufferIndex, int startShift, int lookback, double &outVal)
 {
    outVal = EMPTY_VALUE;
@@ -252,14 +220,11 @@ bool GetLatestNonEmptyFromBuffer(int handle, int bufferIndex, int startShift, in
 
    for(int sh = startShift; sh <= startShift + lookback; sh++)
    {
-      ResetLastError();
       if(CopyBuffer(handle, bufferIndex, sh, 1, tmp) != 1)
          continue;
 
       double v = tmp[0];
-
-      // treat EMPTY_VALUE and 0 as "not available"
-      if(v != EMPTY_VALUE && v != 0.0)
+      if(v != EMPTY_VALUE)
       {
          outVal = v;
          return true;
@@ -268,107 +233,34 @@ bool GetLatestNonEmptyFromBuffer(int handle, int bufferIndex, int startShift, in
    return false;
 }
 
-bool GetObjectLinePrice(const string name, double &priceOut)
-{
-   priceOut = EMPTY_VALUE;
-   if(ObjectFind(0, name) < 0) return false;
-
-   double p = ObjectGetDouble(0, name, OBJPROP_PRICE, 0);
-   if(p == 0.0) return false;
-
-   priceOut = p;
-   return true;
-}
-
+// HighLineData buffer index 3, LowLineData buffer index 4
 bool GetEffectiveHighLine(double &v)
 {
-   // TLS_EMA HighLineData = buffer 3
-   if(GetLatestNonEmptyFromBuffer(emaHandle, 3, 1, LineScanLookbackBars, v)) return true;
-   if(GetObjectLinePrice("TLS_HighLine", v)) return true;
-   return false;
+   return GetLatestNonEmptyFromBuffer(emaHandle, 3, 0, LineScanLookbackBars, v);
 }
-
 bool GetEffectiveLowLine(double &v)
 {
-   // TLS_EMA LowLineData = buffer 4
-   if(GetLatestNonEmptyFromBuffer(emaHandle, 4, 1, LineScanLookbackBars, v)) return true;
-   if(GetObjectLinePrice("TLS_LowLine", v)) return true;
-   return false;
+   return GetLatestNonEmptyFromBuffer(emaHandle, 4, 0, LineScanLookbackBars, v);
 }
 
-//=================== buffer -> scan -> object (CROSS) ==================
-// Update lastCross state for the last closed bar, and return event flags
-void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown)
+// Read line exactly at shift (no scan)
+bool ReadHighLineAtShift(int shift, double &v)
 {
-   crossUp = false;
-   crossDown = false;
-
-   datetime tCross = iTime(_Symbol, _Period, 1);
-
-   // 1) buffer-based event first
-   bool upBuf = DetectCrossUpOnClosedBar_Buffer();
-   bool dnBuf = DetectCrossDownOnClosedBar_Buffer();
-
-   if(upBuf && !dnBuf)
-   {
-      crossUp = true;
-      lastCross = CROSS_UP;
-      lastCrossTime = tCross;
-
-      double lowLine = EMPTY_VALUE;
-      if(GetEffectiveLowLine(lowLine)) lastCrossPrice = lowLine;
-      else lastCrossPrice = 0.0;
-
-      return;
-   }
-   if(dnBuf && !upBuf)
-   {
-      crossDown = true;
-      lastCross = CROSS_DOWN;
-      lastCrossTime = tCross;
-
-      double highLine = EMPTY_VALUE;
-      if(GetEffectiveHighLine(highLine)) lastCrossPrice = highLine;
-      else lastCrossPrice = 0.0;
-
-      return;
-   }
-
-   // 2) object fallback (line first appearance or price change)
-   double highP = EMPTY_VALUE, lowP = EMPTY_VALUE;
-   bool hasHigh = GetObjectLinePrice("TLS_HighLine", highP);
-   bool hasLow  = GetObjectLinePrice("TLS_LowLine",  lowP);
-
-   // CrossUp: LowLine object changed/appeared
-   if(hasLow)
-   {
-      if(lastLowObjPrice == 0.0 || MathAbs(lowP - lastLowObjPrice) > (_Point * 0.5))
-      {
-         lastLowObjPrice = lowP;
-         crossUp = true;
-
-         lastCross = CROSS_UP;
-         lastCrossTime = tCross;
-         lastCrossPrice = lowP;
-      }
-   }
-
-   // CrossDown: HighLine object changed/appeared
-   if(hasHigh)
-   {
-      if(lastHighObjPrice == 0.0 || MathAbs(highP - lastHighObjPrice) > (_Point * 0.5))
-      {
-         lastHighObjPrice = highP;
-         crossDown = true;
-
-         lastCross = CROSS_DOWN;
-         lastCrossTime = tCross;
-         lastCrossPrice = highP;
-      }
-   }
+   double a[1];
+   if(CopyBuffer(emaHandle, 3, shift, 1, a) != 1) return false;
+   v = a[0];
+   return (v != EMPTY_VALUE);
 }
 
-//=========================== EXPOSURE HELPERS ===========================
+bool ReadLowLineAtShift(int shift, double &v)
+{
+   double a[1];
+   if(CopyBuffer(emaHandle, 4, shift, 1, a) != 1) return false;
+   v = a[0];
+   return (v != EMPTY_VALUE);
+}
+
+//=================== EXPOSURE HELPERS ===============================
 bool HasPending(ENUM_ORDER_TYPE otype, ulong &ticketOut)
 {
    ticketOut = 0;
@@ -470,14 +362,14 @@ void CancelPendingIfTPHit()
    }
 }
 
-//=========================== SL FROM HA PAIR ===========================
-// BUY: nearest 2 HA red in a row -> SL = min(low1,low2) - buffer
-// SELL: nearest 2 HA green in a row -> SL = max(high1,high2) + buffer
+//=================== SL FROM HA PAIR ===============================
+// BUY: 2 HA red consecutive -> SL = min(low1,low2) - buffer
+// SELL: 2 HA green consecutive -> SL = max(high1,high2) + buffer
 bool FindSLFromNearestOppositeHAPair(bool isBuy, double &slPrice)
 {
    double pip = PipSize();
-
    int maxSh = MathMax(2, InpSL_LookbackBars);
+
    for(int sh = 1; sh <= maxSh - 1; sh++)
    {
       double o1,h1,l1,c1,col1;
@@ -513,59 +405,7 @@ bool FindSLFromNearestOppositeHAPair(bool isBuy, double &slPrice)
    return false;
 }
 
-//=========================== ENTRY CHECKS ==============================
-// Note: entry requires cross + breakout on the same last-closed bar.
-bool CheckBuySignalOnClosedBar()
-{
-   // normal candle must be green
-   double o1 = iOpen(_Symbol, _Period, 1);
-   double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 <= o1) return false;
-
-   // HA must be green
-   double haO,haH,haL,haC,haCol;
-   if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
-   if(haCol != 0.0) return false;
-
-   // crossUp (robust)
-   bool crossUp=false, crossDown=false;
-   GetCrossEventOnClosedBar(crossUp, crossDown);
-   if(!crossUp) return false;
-
-   // breakout above HighLine (buffer->scan->object)
-   double highLine = EMPTY_VALUE;
-   if(!GetEffectiveHighLine(highLine)) return false;
-
-   return (c1 > highLine);
-}
-
-bool CheckSellSignalOnClosedBar()
-{
-   // normal candle must be red
-   double o1 = iOpen(_Symbol, _Period, 1);
-   double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 >= o1) return false;
-
-   // HA must be red
-   double haO,haH,haL,haC,haCol;
-   if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
-   if(haCol != 1.0) return false;
-
-   // crossDown (robust)
-   bool crossUp=false, crossDown=false;
-   GetCrossEventOnClosedBar(crossUp, crossDown);
-   if(!crossDown) return false;
-
-   // breakout below LowLine (buffer->scan->object)
-   double lowLine = EMPTY_VALUE;
-   if(!GetEffectiveLowLine(lowLine)) return false;
-
-   return (c1 < lowLine);
-}
-
-//=========================== LOT SIZING ===============================
-// lots = RiskUSD / (SL_pips * pipValuePer1Lot)
-// pipValuePer1Lot = tickValue * (pipSize / tickSize)
+//=================== LOT SIZING ===============================
 double CalcLotsByRiskUSD(double entry, double sl)
 {
    double pip = PipSize();
@@ -583,12 +423,259 @@ double CalcLotsByRiskUSD(double entry, double sl)
    return NormalizeVolume(lots);
 }
 
-//=========================== EXECUTE ENTRY =============================
+//=================== CROSS SCAN + AUTO ARM ==========================
+bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirOut, datetime &timeOut)
+{
+   shiftOut = -1;
+   priceOut = 0.0;
+   dirOut   = "None";
+   timeOut  = 0;
+
+   double dot[1];
+
+   for(int sh = 1; sh <= lookback; sh++)
+   {
+      if(CopyBuffer(emaHandle, 2, sh, 1, dot) != 1)
+         continue;
+
+      double d = dot[0];
+      if(d == 0.0 || d == EMPTY_VALUE)
+         continue;
+
+      // found latest cross dot at shift=sh
+      shiftOut = sh;
+      priceOut = d;
+      timeOut  = iTime(_Symbol, _Period, sh);
+
+      // infer direction using line buffer at sh vs sh+1
+      double low1[1], low2[1], high1[1], high2[1];
+      int rL1 = CopyBuffer(emaHandle, 4, sh,   1, low1);
+      int rL2 = CopyBuffer(emaHandle, 4, sh+1, 1, low2);
+      int rH1 = CopyBuffer(emaHandle, 3, sh,   1, high1);
+      int rH2 = CopyBuffer(emaHandle, 3, sh+1, 1, high2);
+
+      if(rL1==1 && rL2==1)
+      {
+         bool lowNow  = (low1[0] != EMPTY_VALUE);
+         bool lowPrev = (low2[0] != EMPTY_VALUE);
+         if(lowNow && (!lowPrev || MathAbs(low1[0]-low2[0]) > (_Point*0.5)))
+         {
+            dirOut = "Cross Up";
+            return true;
+         }
+      }
+
+      if(rH1==1 && rH2==1)
+      {
+         bool highNow  = (high1[0] != EMPTY_VALUE);
+         bool highPrev = (high2[0] != EMPTY_VALUE);
+         if(highNow && (!highPrev || MathAbs(high1[0]-high2[0]) > (_Point*0.5)))
+         {
+            dirOut = "Cross Down";
+            return true;
+         }
+      }
+
+      // dot exists but ambiguous
+      dirOut = "Cross";
+      return true;
+   }
+
+   return false;
+}
+
+// If breakout already happened AFTER that cross (between crossShift-1 .. 1) => skip arm
+bool BreakoutOccurredSinceCross(bool isBuy, int crossShift)
+{
+   if(crossShift <= 1) return false; // no bars after cross
+
+   for(int sh = crossShift - 1; sh >= 1; sh--)
+   {
+      double o = iOpen(_Symbol, _Period, sh);
+      double c = iClose(_Symbol, _Period, sh);
+
+      if(isBuy)
+      {
+         if(c <= o) continue;
+
+         double haO,haH,haL,haC,haCol;
+         if(!ReadHA(sh, haO,haH,haL,haC,haCol)) continue;
+         if(haCol != 0.0) continue;
+
+         double highLine;
+         if(!ReadHighLineAtShift(sh, highLine)) continue;
+
+         if(c > highLine) return true;
+      }
+      else
+      {
+         if(c >= o) continue;
+
+         double haO,haH,haL,haC,haCol;
+         if(!ReadHA(sh, haO,haH,haL,haC,haCol)) continue;
+         if(haCol != 1.0) continue;
+
+         double lowLine;
+         if(!ReadLowLineAtShift(sh, lowLine)) continue;
+
+         if(c < lowLine) return true;
+      }
+   }
+   return false;
+}
+
+void AutoArmFromLatestCross()
+{
+   if(waitingBUY || waitingSELL) return;
+
+   int sh; double p; string dir; datetime t;
+   if(!FindLatestCross(CrossScanLookbackBars, sh, p, dir, t))
+      return;
+
+   // update cross for comment
+   currentCrossText  = dir;
+   currentCrossPrice = p;
+   currentCrossTime  = t;
+
+   if(dir == "Cross Up")
+   {
+      if(BreakoutOccurredSinceCross(true, sh))
+         return;
+
+      if(!HasBuyExposure())
+         waitingBUY = true;
+
+      waitingSELL = false;
+      return;
+   }
+
+   if(dir == "Cross Down")
+   {
+      if(BreakoutOccurredSinceCross(false, sh))
+         return;
+
+      if(!HasSellExposure())
+         waitingSELL = true;
+
+      waitingBUY = false;
+      return;
+   }
+
+   // ambiguous: do not arm
+}
+
+//=================== REAL CROSS EVENT (bar1 only) =====================
+// Used for live arming on new bars
+void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice)
+{
+   crossUp = false;
+   crossDown = false;
+   eventPrice = 0.0;
+
+   currentCrossTime = iTime(_Symbol, _Period, 1);
+
+   double dot1Arr[1];
+   if(CopyBuffer(emaHandle, 2, 1, 1, dot1Arr) != 1)
+   {
+      currentCrossText  = "None";
+      currentCrossPrice = 0.0;
+      return;
+   }
+
+   double dot1 = dot1Arr[0];
+   if(dot1 == 0.0 || dot1 == EMPTY_VALUE)
+   {
+      // keep previous cross for comment (auto-arm scan may set it)
+      return;
+   }
+
+   currentCrossPrice = dot1;
+   eventPrice = dot1;
+
+   double low1Arr[1], low2Arr[1], high1Arr[1], high2Arr[1];
+   int rL1 = CopyBuffer(emaHandle, 4, 1, 1, low1Arr);
+   int rL2 = CopyBuffer(emaHandle, 4, 2, 1, low2Arr);
+   int rH1 = CopyBuffer(emaHandle, 3, 1, 1, high1Arr);
+   int rH2 = CopyBuffer(emaHandle, 3, 2, 1, high2Arr);
+
+   if(rL1 != 1 || rL2 != 1 || rH1 != 1 || rH2 != 1)
+   {
+      currentCrossText = "Cross";
+      return;
+   }
+
+   double low1  = low1Arr[0];
+   double low2  = low2Arr[0];
+   double high1 = high1Arr[0];
+   double high2 = high2Arr[0];
+
+   bool lowNow    = (low1  != EMPTY_VALUE);
+   bool lowPrev   = (low2  != EMPTY_VALUE);
+   bool highNow   = (high1 != EMPTY_VALUE);
+   bool highPrev  = (high2 != EMPTY_VALUE);
+
+   if(lowNow && (!lowPrev || MathAbs(low1 - low2) > (_Point * 0.5)))
+   {
+      crossUp = true;
+      currentCrossText = "Cross Up";
+      return;
+   }
+
+   if(highNow && (!highPrev || MathAbs(high1 - high2) > (_Point * 0.5)))
+   {
+      crossDown = true;
+      currentCrossText = "Cross Down";
+      return;
+   }
+
+   currentCrossText = "Cross";
+}
+
+//=================== BREAKOUT CHECKS (waiting) =========================
+bool CheckBuyBreakoutOnClosedBar()
+{
+   if(!waitingBUY) return false;
+   if(HasBuyExposure()) { waitingBUY = false; return false; }
+
+   double o1 = iOpen(_Symbol, _Period, 1);
+   double c1 = iClose(_Symbol, _Period, 1);
+   if(c1 <= o1) return false;
+
+   double haO,haH,haL,haC,haCol;
+   if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
+   if(haCol != 0.0) return false;
+
+   double highLine = EMPTY_VALUE;
+   if(!GetEffectiveHighLine(highLine)) return false;
+
+   return (c1 > highLine);
+}
+
+bool CheckSellBreakoutOnClosedBar()
+{
+   if(!waitingSELL) return false;
+   if(HasSellExposure()) { waitingSELL = false; return false; }
+
+   double o1 = iOpen(_Symbol, _Period, 1);
+   double c1 = iClose(_Symbol, _Period, 1);
+   if(c1 >= o1) return false;
+
+   double haO,haH,haL,haC,haCol;
+   if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
+   if(haCol != 1.0) return false;
+
+   double lowLine = EMPTY_VALUE;
+   if(!GetEffectiveLowLine(lowLine)) return false;
+
+   return (c1 < lowLine);
+}
+
+//=================== EXECUTE ENTRY ===============================
 void ExecuteEntry(bool isBuy)
 {
    if(ddBlocked) return;
 
-   // Exposure limit (Option 1)
+   // exposure rule (Option 1)
    if(isBuy)
    {
       if(HasBuyExposure()) return;
@@ -623,8 +710,7 @@ void ExecuteEntry(bool isBuy)
       double lots = CalcLotsByRiskUSD(entryNow, sl);
       if(lots <= 0) return;
 
-      double R  = riskDist;
-      double tp = isBuy ? (entryNow + 2.0 * R) : (entryNow - 2.0 * R);
+      double tp = isBuy ? (entryNow + 2.0 * riskDist) : (entryNow - 2.0 * riskDist);
       tp = NormalizePrice(tp);
 
       if(isBuy) trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY HA+EMA");
@@ -641,10 +727,6 @@ void ExecuteEntry(bool isBuy)
    double tpLimit = isBuy ? (entryLimit + 2.0 * maxDist) : (entryLimit - 2.0 * maxDist);
    tpLimit = NormalizePrice(tpLimit);
 
-   // exposure re-check
-   if(isBuy && HasBuyExposure()) return;
-   if(!isBuy && HasSellExposure()) return;
-
    double lots2 = CalcLotsByRiskUSD(entryLimit, sl);
    if(lots2 <= 0) return;
 
@@ -654,10 +736,9 @@ void ExecuteEntry(bool isBuy)
       trade.SellLimit(lots2, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "SELL LIMIT SL_MAX");
 }
 
-//=========================== MANAGEMENT ===============================
+//=================== MANAGEMENT ===============================
 void CancelWaitingOnOppositeCross(bool crossUpNow, bool crossDownNow)
 {
-   // Waiting = pending from SL_MAX plan
    if(crossDownNow) CancelPending(ORDER_TYPE_BUY_LIMIT);
    if(crossUpNow)   CancelPending(ORDER_TYPE_SELL_LIMIT);
 }
@@ -690,7 +771,6 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
       double R = (ptype == POSITION_TYPE_BUY) ? (entry - sl) : (sl - entry);
       if(R <= 0) continue;
 
-      // BE at 1R - buffer
       double threshold = R - (double)BufferPips * pip;
       if(threshold < 0) threshold = 0;
 
@@ -701,23 +781,21 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
             if(sl < entry) trade.PositionModify(ticket, entry, tp);
          }
 
-         // opposite cross while BUY exists
          if(crossDownNow)
          {
             if(isProfitable)
-               trade.PositionModify(ticket, entry, tp);  // SL -> Entry
+               trade.PositionModify(ticket, entry, tp);
             else
-               trade.PositionModify(ticket, sl, entry);  // TP -> Entry
+               trade.PositionModify(ticket, sl, entry);
          }
       }
-      else // SELL
+      else
       {
          if((entry - ask) >= threshold)
          {
             if(sl > entry) trade.PositionModify(ticket, entry, tp);
          }
 
-         // opposite cross while SELL exists
          if(crossUpNow)
          {
             if(isProfitable)
@@ -729,34 +807,49 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
    }
 }
 
-//=========================== CHART COMMENT =============================
-string CrossTypeToText(CrossType t)
+//=================== DEBUG ONCE ===============================
+void DebugPrintEMAOnce()
 {
-   if(t == CROSS_UP)   return "Cross Up";
-   if(t == CROSS_DOWN) return "Cross Down";
-   return "None";
+   static bool done=false;
+   if(done || !InpDebugOnce) return;
+   done = true;
+
+   double b2[1], b3[1], b4[1];
+   int r2 = CopyBuffer(emaHandle, 2, 1, 1, b2); // CrossDot bar1
+   int r3 = CopyBuffer(emaHandle, 3, 0, 1, b3); // HighLine current
+   int r4 = CopyBuffer(emaHandle, 4, 0, 1, b4); // LowLine current
+
+   Print("DEBUG EMA: r2=",r2," dot1=", (r2==1?DoubleToString(b2[0],_Digits):"NA"),
+         " r3=",r3," high0=", (r3==1?DoubleToString(b3[0],_Digits):"NA"),
+         " r4=",r4," low0=",  (r4==1?DoubleToString(b4[0],_Digits):"NA"),
+         " haBars=", BarsCalculated(haHandle),
+         " emaBars=", BarsCalculated(emaHandle),
+         " err=", GetLastError());
 }
 
+//=================== CHART COMMENT ===============================
 string FormatPriceOrNA(double v)
 {
-   if(v == EMPTY_VALUE || v == 0.0) return "N/A";
+   if(v == EMPTY_VALUE) return "N/A";
    return DoubleToString(v, _Digits);
 }
 
-string FormatTimeOrNA(datetime t)
+string CrossDirShort(string t)
 {
-   if(t <= 0) return "N/A";
-   return TimeToString(t, TIME_DATE | TIME_MINUTES);
+   if(t == "Cross Up")   return "Up";
+   if(t == "Cross Down") return "Down";
+   if(t == "Cross")      return "Cross";
+   return "None";
 }
 
-string FormatLastCrossLine()
+string FormatCrossLine()
 {
-   if(lastCross == CROSS_NONE)
-      return "Last Cross : None";
+   if(currentCrossText == "None")
+      return "Cross : None";
 
-   return "Last Cross : " + CrossTypeToText(lastCross) +
-          " at " + FormatPriceOrNA(lastCrossPrice) +
-          " at " + FormatTimeOrNA(lastCrossTime);
+   return "Cross : " + CrossDirShort(currentCrossText) +
+          " at " + DoubleToString(currentCrossPrice, _Digits) +
+          " at " + TimeToString(currentCrossTime, TIME_DATE|TIME_MINUTES);
 }
 
 void UpdateChartComment()
@@ -767,35 +860,45 @@ void UpdateChartComment()
       return;
    }
 
+   if(!IndicatorsReady())
+   {
+      string txt =
+         "Indicators not ready...\n";
+      Comment(txt);
+      return;
+   }
+
    double highLine = EMPTY_VALUE, lowLine = EMPTY_VALUE;
-   GetEffectiveHighLine(highLine);
-   GetEffectiveLowLine(lowLine);
+   bool hasH = GetEffectiveHighLine(highLine);
+   bool hasL = GetEffectiveLowLine(lowLine);
 
    string txt =
-      "HighLine : " + FormatPriceOrNA(highLine) + "\n"
-      "LowLine  : " + FormatPriceOrNA(lowLine)  + "\n" +
-      FormatLastCrossLine() + "\n"
-      "BUY Exposure  : " + (HasBuyExposure()  ? "YES" : "NO") + "\n"
-      "SELL Exposure : " + (HasSellExposure() ? "YES" : "NO") + "\n"
-      "Daily DD Hit  : " + (ddBlocked ? "YES" : "NO");
+      "HighLine      : " + (hasH ? FormatPriceOrNA(highLine) : "N/A") + "\n"
+      "LowLine       : " + (hasL ? FormatPriceOrNA(lowLine)  : "N/A") + "\n"
+      + FormatCrossLine() + "\n"
+      "waitingBUY    : " + (waitingBUY  ? "YES" : "NO") + "\n"
+      "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n"
+      // "BUY Exposure  : " + (HasBuyExposure()  ? "YES" : "NO") + "\n"
+      // "SELL Exposure : " + (HasSellExposure() ? "YES" : "NO") + "\n"
+      "Daily DD Hit  : " + (ddBlocked ? "YES" : "NO") + "\n";
 
    Comment(txt);
 }
 
-//=========================== INIT/DEINIT ==============================
+//=================== INIT/DEINIT ===============================
 int OnInit()
 {
    haHandle = iCustom(_Symbol, _Period, InpHAIndicatorName, InpBullColor, InpBearColor);
    if(haHandle == INVALID_HANDLE)
    {
-      Print("Failed HA handle. Name=", InpHAIndicatorName);
+      Print("Failed HA handle. Name=", InpHAIndicatorName, " err=", GetLastError());
       return INIT_FAILED;
    }
 
    emaHandle = iCustom(_Symbol, _Period, InpEMAIndicatorName, InpShortPeriod, InpLongPeriod, InpMethod);
    if(emaHandle == INVALID_HANDLE)
    {
-      Print("Failed EMA handle. Name=", InpEMAIndicatorName);
+      Print("Failed EMA handle. Name=", InpEMAIndicatorName, " err=", GetLastError());
       return INIT_FAILED;
    }
 
@@ -804,10 +907,9 @@ int OnInit()
 
    ResetDayIfNeeded();
 
-   // initialize object prices if lines already exist on chart
-   double tmp = EMPTY_VALUE;
-   if(GetObjectLinePrice("TLS_HighLine", tmp)) lastHighObjPrice = tmp;
-   if(GetObjectLinePrice("TLS_LowLine",  tmp)) lastLowObjPrice  = tmp;
+   currentCrossText  = "None";
+   currentCrossPrice = 0.0;
+   currentCrossTime  = 0;
 
    return INIT_SUCCEEDED;
 }
@@ -819,32 +921,74 @@ void OnDeinit(const int reason)
    if(emaHandle != INVALID_HANDLE) IndicatorRelease(emaHandle);
 }
 
-//=============================== TICK =================================
+//=================== TICK ===============================
 void OnTick()
 {
    UpdateDailyDDGate();
    CancelPendingIfTPHit();
 
+   // Always update comment (also shows readiness)
+   UpdateChartComment();
+
+   if(!IndicatorsReady())
+      return;
+
+   DebugPrintEMAOnce();
+
+   // Auto-arm exactly once after indicators ready
+   static bool didAutoArm = false;
+   if(!didAutoArm)
+   {
+      AutoArmFromLatestCross();
+      didAutoArm = true;
+   }
+
    bool crossUpNow = false;
    bool crossDownNow = false;
+   double crossPriceNow = 0.0;
 
    if(IsNewBar())
    {
-      // robust cross detection (buffer -> object), updates LastCross state too
-      GetCrossEventOnClosedBar(crossUpNow, crossDownNow);
+      // Detect REAL cross on last closed bar (updates currentCross* for comment)
+      GetCrossEventOnClosedBar(crossUpNow, crossDownNow, crossPriceNow);
 
-      // cancel pending (waiting) on opposite cross
+      // Cancel pending on opposite cross
       CancelWaitingOnOppositeCross(crossUpNow, crossDownNow);
 
+      // Arm waiting states ONLY on real cross
+      if(crossUpNow)
+      {
+         if(!HasBuyExposure())
+            waitingBUY = true;
+         waitingSELL = false;
+      }
+      if(crossDownNow)
+      {
+         if(!HasSellExposure())
+            waitingSELL = true;
+         waitingBUY = false;
+      }
+
+      // Trigger entries on breakout candle AFTER cross
       if(!ddBlocked)
       {
-         // hedge allowed, but exposure limit per direction enforced in ExecuteEntry()
-         if(CheckBuySignalOnClosedBar())  ExecuteEntry(true);
-         if(CheckSellSignalOnClosedBar()) ExecuteEntry(false);
+         if(CheckBuyBreakoutOnClosedBar())
+         {
+            ExecuteEntry(true);
+            waitingBUY = false;
+         }
+
+         if(CheckSellBreakoutOnClosedBar())
+         {
+            ExecuteEntry(false);
+            waitingSELL = false;
+         }
       }
    }
 
+   // Manage positions (BE + opposite cross reaction)
    ManageBreakEvenAndCrossRules(crossUpNow, crossDownNow);
 
+   // refresh comment with latest states
    UpdateChartComment();
 }

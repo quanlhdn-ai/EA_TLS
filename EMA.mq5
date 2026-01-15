@@ -1,6 +1,6 @@
 #property indicator_chart_window
 #property indicator_buffers 5       // Tăng lên 5 buffer
-#property indicator_plots   3       // Tăng lên 3 hình vẽ (2 đường MA + 1 Chấm)
+#property indicator_plots   5       // Tăng lên 3 hình vẽ (2 đường MA + 1 Chấm)
 
 //--- Plot 1: Short MA
 #property indicator_label1  "Short MA"
