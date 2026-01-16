@@ -529,7 +529,7 @@ void AutoArmFromLatestCross()
    }
 }
 
-//=================== REAL CROSS EVENT (bar1 only) =====================
+//=================== CROSS EVENT =====================
 void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice)
 {
    crossUp = false;
@@ -538,6 +538,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
 
    currentCrossTime = iTime(_Symbol, _Period, 1);
 
+   // 1) Require DOT on bar1 (indicator buffer 2)
    double dot1Arr[1];
    if(CopyBuffer(emaHandle, 2, 1, 1, dot1Arr) != 1)
    {
@@ -549,48 +550,45 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    double dot1 = dot1Arr[0];
    if(dot1 == 0.0 || dot1 == EMPTY_VALUE)
    {
+      currentCrossText = "None";
       return;
    }
 
    currentCrossPrice = dot1;
-   eventPrice = dot1;
+   eventPrice        = dot1;
 
-   double low1Arr[1], low2Arr[1], high1Arr[1], high2Arr[1];
-   int rL1 = CopyBuffer(emaHandle, 4, 1, 1, low1Arr);
-   int rL2 = CopyBuffer(emaHandle, 4, 2, 1, low2Arr);
-   int rH1 = CopyBuffer(emaHandle, 3, 1, 1, high1Arr);
-   int rH2 = CopyBuffer(emaHandle, 3, 2, 1, high2Arr);
+   // 2) Read EMA10 (buffer 0) & EMA39 (buffer 1) at bar1 and bar2
+   double s1[1], s2[1], l1[1], l2[1];
+   int rs1 = CopyBuffer(emaHandle, 0, 1, 1, s1); // Short MA bar1
+   int rs2 = CopyBuffer(emaHandle, 0, 2, 1, s2); // Short MA bar2
+   int rl1 = CopyBuffer(emaHandle, 1, 1, 1, l1); // Long  MA bar1
+   int rl2 = CopyBuffer(emaHandle, 1, 2, 1, l2); // Long  MA bar2
 
-   if(rL1 != 1 || rL2 != 1 || rH1 != 1 || rH2 != 1)
+   if(rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
    {
       currentCrossText = "Cross";
       return;
    }
 
-   double low1  = low1Arr[0];
-   double low2  = low2Arr[0];
-   double high1 = high1Arr[0];
-   double high2 = high2Arr[0];
+   double short1 = s1[0], short2 = s2[0];
+   double long1  = l1[0], long2  = l2[0];
 
-   bool lowNow    = (low1  != EMPTY_VALUE);
-   bool lowPrev   = (low2  != EMPTY_VALUE);
-   bool highNow   = (high1 != EMPTY_VALUE);
-   bool highPrev  = (high2 != EMPTY_VALUE);
-
-   if(lowNow && (!lowPrev || MathAbs(low1 - low2) > (_Point * 0.5)))
+   // 3) Exact same event definition as indicator
+   if(short1 > long1 && short2 <= long2)
    {
       crossUp = true;
       currentCrossText = "Cross Up";
       return;
    }
 
-   if(highNow && (!highPrev || MathAbs(high1 - high2) > (_Point * 0.5)))
+   if(short1 < long1 && short2 >= long2)
    {
       crossDown = true;
       currentCrossText = "Cross Down";
       return;
    }
 
+   // DOT existed but event condition not met (rare), mark ambiguous
    currentCrossText = "Cross";
 }
 
