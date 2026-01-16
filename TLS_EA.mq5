@@ -22,6 +22,7 @@ input double RiskUSDPerTrade       = 50.0;  // fixed risk per trade (account cur
 input int    BufferPips            = 5;     // buffer in PIPS (converted by PipSize())
 input double SLMaxPips             = 50.0;  // SL_MAX in PIPS
 input int    InpSL_LookbackBars    = 200;   // lookback to find nearest HA pair
+input double RiskReward            = 2.0;   // TP = RiskReward * Risk (R)
 
 // buffer->scan lookback for lines
 input int    LineScanLookbackBars  = 300;
@@ -690,7 +691,7 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       double lots = CalcLotsByRiskUSD(entryNow, sl);
       if(lots <= 0) return false;
 
-      double tp = isBuy ? (entryNow + 2.0 * riskDist) : (entryNow - 2.0 * riskDist);
+      double tp = isBuy ? (entryNow + RiskReward * riskDist) : (entryNow - RiskReward * riskDist);
       tp = NormalizePrice(tp);
 
       bool ok = false;
@@ -713,7 +714,7 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    double entryLimit = isBuy ? (sl + maxDist) : (sl - maxDist);
    entryLimit = NormalizePrice(entryLimit);
 
-   double tpLimit = isBuy ? (entryLimit + 2.0 * maxDist) : (entryLimit - 2.0 * maxDist);
+   double tpLimit = isBuy ? (entryLimit + RiskReward * maxDist) : (entryLimit - RiskReward * maxDist);
    tpLimit = NormalizePrice(tpLimit);
 
    double lots2 = CalcLotsByRiskUSD(entryLimit, sl);
