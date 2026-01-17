@@ -46,6 +46,17 @@ input int    SessionForceThrottleSec   = 120;  // throttle forced cancel/close (
 input double InpDailyDD_Percent    = 3.0;   // session DD limit (% of session start balance)
 input bool   InpCancelPendingsWhenDDHit = true;
 
+//=========================== PROFIT TARGET (SESSION, REALIZED) ======
+// Profit target is computed from SESSION OPEN -> now using realized PnL (closed deals only).
+// When hit: block new trades until next session starts.
+input double InpDailyProfitTargetUSD     = 200.0; // 0 = off
+input bool   InpForceCloseWhenProfitHit  = false; // optional: close positions + cancel pendings
+input bool   InpCancelPendingsWhenProfitHit = true;
+
+bool     profitBlocked = false;
+double   sessionProfitTarget = 0.0;
+
+
 // Chart comment
 input bool   InpShowChartComment   = true;
 
@@ -464,12 +475,77 @@ void ResetSessionDDIfNeeded()
       sessionStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
       sessionLossLimit    = sessionStartBalance * (InpDailyDD_Percent/100.0);
 
+      // Profit target baseline for this session
+      sessionProfitTarget = InpDailyProfitTargetUSD;
+
       ddBlocked = false;
+      profitBlocked = false;
       lastSessionRealizedPnL = 0.0;
    }
    else
    {
       sessionEndTime = e;
+   }
+
+}
+
+void UpdateSessionProfitGate()
+{
+   ResetSessionDDIfNeeded();
+   if(sessionStartTime == 0) return;
+
+   if(InpDailyProfitTargetUSD <= 0.0)
+   {
+      profitBlocked = false;
+      return;
+   }
+
+   // Use the same realized pnl you already compute from deals
+   double pnl = RealizedPnLInRange(sessionStartTime, TimeCurrent());
+   lastSessionRealizedPnL = pnl; // keep chart consistent
+
+   if(pnl >= InpDailyProfitTargetUSD - 1e-9)
+   {
+      profitBlocked = true;
+
+      if(InpCancelPendingsWhenProfitHit)
+      {
+         for(int i=OrdersTotal()-1;i>=0;i--)
+         {
+            ulong otk = OrderGetTicket(i);
+            if(otk==0) continue;
+            if(!OrderSelect(otk)) continue;
+
+            if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+            if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+
+            ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+            if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
+               type==ORDER_TYPE_BUY_STOP  || type==ORDER_TYPE_SELL_STOP  ||
+               type==ORDER_TYPE_BUY_STOP_LIMIT || type==ORDER_TYPE_SELL_STOP_LIMIT)
+            {
+               trade.OrderDelete(otk);
+            }
+         }
+      }
+
+      if(InpForceCloseWhenProfitHit)
+      {
+         for(int i=PositionsTotal()-1;i>=0;i--)
+         {
+            ulong ptk = PositionGetTicket(i);
+            if(ptk==0) continue;
+            if(!PositionSelectByTicket(ptk)) continue;
+
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if((long)PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+
+            trade.PositionClose(ptk);
+         }
+
+         waitingBUY  = false;
+         waitingSELL = false;
+      }
    }
 }
 
@@ -835,6 +911,9 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    // gate by DD
    if(ddBlocked) return false;
 
+   // gate by Profit Target
+   if(profitBlocked) return false;
+
    // exposure rule
    if(isBuy)
    {
@@ -1138,6 +1217,8 @@ void OnTick()
 {
    // update DD (session, realized + pre-emptive)
    UpdateSessionDDGate();
+   // update Profit target (session, realized)
+   UpdateSessionProfitGate();
 
    // pending TP hit cleanup
    CancelPendingIfTPHit();
@@ -1198,7 +1279,7 @@ void OnTick()
       }
 
       // Trigger entries on breakout bar (bar1) whenever conditions meet
-      if(!ddBlocked)
+      if(!ddBlocked && !profitBlocked)
       {
          long highKey = 0, lowKey = 0;
 
