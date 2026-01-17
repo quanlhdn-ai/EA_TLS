@@ -10,19 +10,21 @@ input string InpEMAIndicatorName = "TLS_EMA";
 input color InpBullColor = C'8,153,129';
 input color InpBearColor = C'242,54,69';
 
-input int            InpShortPeriod = 10;
-input int            InpLongPeriod  = 39;
-input ENUM_MA_METHOD InpMethod      = MODE_EMA;
+input int            EMAShortPeriod = 10;
+input int            EMALongPeriod  = 39;
+input ENUM_MA_METHOD EMAMethod      = MODE_EMA;
 
-input int    InpSlippagePoints     = 30;
-input long   InpMagic              = 272727;
+input int    SlippagePoints     = 30;
+input long   MagicNumber        = 8386272000; // to tracking orders/positions by this EA
 
 // Risk & SL/BE rules
 input double RiskUSDPerTrade       = 50.0;  // fixed risk per trade (account currency)
 input int    BufferPips            = 5;     // buffer in PIPS (converted by PipSize())
 input double SLMaxPips             = 50.0;  // SL_MAX in PIPS
-input int    InpSL_LookbackBars    = 200;   // lookback to find nearest HA pair
+input int    SL_LookbackBars       = 200;   // lookback to find nearest HA pair
 input double RiskReward            = 2.0;   // TP = RiskReward * Risk (R)
+input double RangeChannelEMA       = 20.0;  // distance between HighLine and LowLine in PIPS minimum
+
 
 // buffer->scan lookback for lines
 input int    LineScanLookbackBars  = 300;
@@ -43,25 +45,25 @@ input int    SessionForceThrottleSec   = 120;  // throttle forced cancel/close (
 //=========================== DD (SESSION, REALIZED) ==================
 // DD is computed from SESSION OPEN -> now using realized PnL (closed deals only).
 // Additionally: pre-emptive block if (loss + RiskUSDPerTrade) > limit.
-input double InpDailyDD_Percent    = 3.0;   // session DD limit (% of session start balance)
-input bool   InpCancelPendingsWhenDDHit = true;
+input double DailyDD_Percent    = 3.0;   // session DD limit (% of session start balance)
+input bool   IsCancelPendingsWhenDDHit = true;
 
 //=========================== PROFIT TARGET (SESSION, REALIZED) ======
 // Profit target is computed from SESSION OPEN -> now using realized PnL (closed deals only).
 // When hit: block new trades until next session starts.
-input double InpDailyProfitTargetUSD     = 200.0; // 0 = off
-input bool   InpForceCloseWhenProfitHit  = false; // optional: close positions + cancel pendings
-input bool   InpCancelPendingsWhenProfitHit = true;
+input double DailyProfitTargetUSD     = 0.0;   // session profit target (account currency)
+input bool   IsForceCloseWhenProfitHit  = false; // optional: close positions + cancel pendings
+input bool   IsCancelPendingsWhenProfitHit = true;
 
 bool     profitBlocked = false;
 double   sessionProfitTarget = 0.0;
 
 
 // Chart comment
-input bool   InpShowChartComment   = true;
+input bool   IsShowChartComment   = true;
 
 // Debug
-input bool   InpDebugOnce          = true;
+input bool   IsDebugOnce          = true;
 
 //------------------------- Indicator handles ------------------------
 int haHandle  = INVALID_HANDLE;
@@ -231,7 +233,7 @@ bool IndicatorsReady()
    lastEmaBars = BarsCalculated(emaHandle);
 
    if(lastHaBars < 10) return false;
-   if(lastEmaBars < (InpLongPeriod + 5)) return false;
+   if(lastEmaBars < (EMALongPeriod + 5)) return false;
 
    return true;
 }
@@ -277,7 +279,7 @@ bool HasPending(ENUM_ORDER_TYPE otype, ulong &ticketOut)
       if(!OrderSelect(tk)) continue;
 
       if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-      if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+      if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
 
       ENUM_ORDER_TYPE t = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
       if(t == otype)
@@ -307,7 +309,7 @@ bool HasPosition(ENUM_POSITION_TYPE ptype, ulong &ticketOut)
       if(!PositionSelectByTicket(tk)) continue;
 
       if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
 
       ENUM_POSITION_TYPE t = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
       if(t == ptype)
@@ -348,7 +350,7 @@ void CancelPendingIfTPHit()
       if(!OrderSelect(tk)) continue;
 
       if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-      if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+      if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
 
       ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
       if(type != ORDER_TYPE_BUY_LIMIT && type != ORDER_TYPE_SELL_LIMIT) continue;
@@ -403,7 +405,7 @@ void EnforceForbiddenZone()
       if(!OrderSelect(otk)) continue;
 
       if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-      if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+      if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
 
       ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
       if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
@@ -422,7 +424,7 @@ void EnforceForbiddenZone()
       if(!PositionSelectByTicket(ptk)) continue;
 
       if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
 
       trade.PositionClose(ptk);
    }
@@ -444,7 +446,7 @@ double RealizedPnLInRange(datetime fromTime, datetime toTime)
       ulong tk = HistoryDealGetTicket(i);
       if(tk==0) continue;
 
-      if((long)HistoryDealGetInteger(tk, DEAL_MAGIC) != InpMagic) continue;
+      if((long)HistoryDealGetInteger(tk, DEAL_MAGIC) != MagicNumber) continue;
       if(HistoryDealGetString(tk, DEAL_SYMBOL) != _Symbol) continue;
 
       long entry = HistoryDealGetInteger(tk, DEAL_ENTRY);
@@ -473,10 +475,10 @@ void ResetSessionDDIfNeeded()
       sessionEndTime   = e;
 
       sessionStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-      sessionLossLimit    = sessionStartBalance * (InpDailyDD_Percent/100.0);
+      sessionLossLimit    = sessionStartBalance * (DailyDD_Percent/100.0);
 
       // Profit target baseline for this session
-      sessionProfitTarget = InpDailyProfitTargetUSD;
+      sessionProfitTarget = DailyProfitTargetUSD;
 
       ddBlocked = false;
       profitBlocked = false;
@@ -494,7 +496,7 @@ void UpdateSessionProfitGate()
    ResetSessionDDIfNeeded();
    if(sessionStartTime == 0) return;
 
-   if(InpDailyProfitTargetUSD <= 0.0)
+   if(DailyProfitTargetUSD <= 0.0)
    {
       profitBlocked = false;
       return;
@@ -504,11 +506,11 @@ void UpdateSessionProfitGate()
    double pnl = RealizedPnLInRange(sessionStartTime, TimeCurrent());
    lastSessionRealizedPnL = pnl; // keep chart consistent
 
-   if(pnl >= InpDailyProfitTargetUSD - 1e-9)
+   if(pnl >= DailyProfitTargetUSD - 1e-9)
    {
       profitBlocked = true;
 
-      if(InpCancelPendingsWhenProfitHit)
+      if(IsCancelPendingsWhenProfitHit)
       {
          for(int i=OrdersTotal()-1;i>=0;i--)
          {
@@ -517,7 +519,7 @@ void UpdateSessionProfitGate()
             if(!OrderSelect(otk)) continue;
 
             if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-            if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+            if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
 
             ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
             if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
@@ -529,7 +531,7 @@ void UpdateSessionProfitGate()
          }
       }
 
-      if(InpForceCloseWhenProfitHit)
+      if(IsForceCloseWhenProfitHit)
       {
          for(int i=PositionsTotal()-1;i>=0;i--)
          {
@@ -538,7 +540,7 @@ void UpdateSessionProfitGate()
             if(!PositionSelectByTicket(ptk)) continue;
 
             if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-            if((long)PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+            if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
 
             trade.PositionClose(ptk);
          }
@@ -566,7 +568,7 @@ void UpdateSessionDDGate()
    {
       ddBlocked = true;
 
-      if(InpCancelPendingsWhenDDHit)
+      if(IsCancelPendingsWhenDDHit)
       {
          for(int i=OrdersTotal()-1;i>=0;i--)
          {
@@ -575,7 +577,7 @@ void UpdateSessionDDGate()
             if(!OrderSelect(otk)) continue;
 
             if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-            if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+            if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
 
             ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
             if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
@@ -595,7 +597,7 @@ void UpdateSessionDDGate()
 bool FindSLFromNearestOppositeHAPair(bool isBuy, double &slPrice)
 {
    double pip = PipSize();
-   int maxSh = MathMax(2, InpSL_LookbackBars);
+   int maxSh = MathMax(2, SL_LookbackBars);
 
    for(int sh = 1; sh <= maxSh - 1; sh++)
    {
@@ -864,6 +866,21 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    if(c1 <= highLine1) return false; // break HighLine
 
+   // ====== min distance HighLine-LowLine filter ======
+   double lowLine1;
+   if(!ReadLowLineAtShift(1, lowLine1)) return false; // không có LowLine => skip
+
+   double pip = PipSize();
+   double rangePips = MathAbs(highLine1 - lowLine1) / pip;
+
+   if(rangePips < RangeChannelEMA)
+   {
+      PrintFormat("SKIP BUY (range too small): High=%.3f Low=%.3f Range=%.1f pips < Min=%.1f",
+                  highLine1, lowLine1, rangePips, RangeChannelEMA);
+      return false;
+   }
+   // =========================================================
+
    long key = LineKey(highLine1);
 
    // Block if this line already used (market or limit already placed)
@@ -872,6 +889,7 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    highKeyOut = key;
    return true;
 }
+
 
 bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 {
@@ -892,6 +910,21 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    if(c1 >= lowLine1) return false; // break LowLine
 
+   // ====== min distance HighLine-LowLine filter ======
+   double highLine1;
+   if(!ReadHighLineAtShift(1, highLine1)) return false; // không có HighLine => skip
+
+   double pip = PipSize();
+   double rangePips = MathAbs(highLine1 - lowLine1) / pip;
+
+   if(rangePips < RangeChannelEMA)
+   {
+      PrintFormat("SKIP SELL (range too small): High=%.3f Low=%.3f Range=%.1f pips < Min=%.1f",
+                  highLine1, lowLine1, rangePips, RangeChannelEMA);
+      return false;
+   }
+   // =========================================================
+
    long key = LineKey(lowLine1);
 
    if(usedLowLineKey != 0 && key == usedLowLineKey) return false;
@@ -899,6 +932,7 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    lowKeyOut = key;
    return true;
 }
+
 
 //=================== EXECUTE ENTRY ===============================
 // IMPORTANT RULE: mark line USED when order successfully placed (MARKET or LIMIT).
@@ -940,8 +974,8 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 
    double riskPips = riskDist / pip;
 
-   trade.SetDeviationInPoints(InpSlippagePoints);
-   trade.SetExpertMagicNumber(InpMagic);
+   trade.SetDeviationInPoints(SlippagePoints);
+   trade.SetExpertMagicNumber(MagicNumber);
 
    // Case 1: within SL_MAX => MARKET
    if(riskPips <= SLMaxPips + 1e-9)
@@ -953,8 +987,8 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       tp = NormalizePrice(tp);
 
       bool ok = false;
-      if(isBuy) ok = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY HA+EMA");
-      else      ok = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL HA+EMA");
+      if(isBuy) ok = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
+      else      ok = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
 
       if(ok)
       {
@@ -1017,7 +1051,7 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
       if(!PositionSelectByTicket(tk)) continue;
 
       if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
 
       ulong ticket = tk;
       ENUM_POSITION_TYPE ptype = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
@@ -1071,7 +1105,7 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
 void DebugPrintEMAOnce()
 {
    static bool done=false;
-   if(done || !InpDebugOnce) return;
+   if(done || !IsDebugOnce) return;
    done = true;
 
    double b2[1], b3[1], b4[1];
@@ -1114,7 +1148,7 @@ string FormatCrossLine()
 
 void UpdateChartComment()
 {
-   if(!InpShowChartComment)
+   if(!IsShowChartComment)
    {
       Comment("");
       return;
@@ -1131,6 +1165,15 @@ void UpdateChartComment()
 
    bool hasH0 = (CopyBuffer(emaHandle, 3, 0, 1, hl0Arr) == 1 && hl0Arr[0] != EMPTY_VALUE);
    bool hasL0 = (CopyBuffer(emaHandle, 4, 0, 1, ll0Arr) == 1 && ll0Arr[0] != EMPTY_VALUE);
+
+   // add range pips on chart comment
+   double rangePips = 0.0;
+   bool hasRange = false;
+   if(hasH0 && hasL0)
+   {
+      rangePips = MathAbs(hl0Arr[0] - ll0Arr[0]) / PipSize();
+      hasRange = true;
+   }
 
    // session info
    datetime s=0,e=0;
@@ -1154,6 +1197,8 @@ void UpdateChartComment()
       "Forbidden     : " + (forbidden ? "YES":"NO") + " (<= " + DoubleToString(NoNewTradesBeforeEndH,1) + "h to end; hLeft=" + DoubleToString(hToEnd,2) + ")\n"
       "HighLine(0)   : " + (hasH0 ? FormatPriceOrNA(hl0Arr[0]) : "N/A") + "\n"
       "LowLine(0)    : " + (hasL0 ? FormatPriceOrNA(ll0Arr[0]) : "N/A") + "\n"
+      "RangePips     : " + (hasRange ? DoubleToString(rangePips, 1) : "N/A") + 
+      " (min=" + DoubleToString(RangeChannelEMA, 1) + ")\n"
       + FormatCrossLine() + "\n"
       "waitingBUY    : " + (waitingBUY  ? "YES" : "NO") + "\n"
       "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n"
@@ -1177,15 +1222,15 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   emaHandle = iCustom(_Symbol, _Period, InpEMAIndicatorName, InpShortPeriod, InpLongPeriod, InpMethod);
+   emaHandle = iCustom(_Symbol, _Period, InpEMAIndicatorName, EMAShortPeriod, EMALongPeriod, EMAMethod);
    if(emaHandle == INVALID_HANDLE)
    {
       Print("Failed EMA handle. Name=", InpEMAIndicatorName, " err=", GetLastError());
       return INIT_FAILED;
    }
 
-   trade.SetDeviationInPoints(InpSlippagePoints);
-   trade.SetExpertMagicNumber(InpMagic);
+   trade.SetDeviationInPoints(SlippagePoints);
+   trade.SetExpertMagicNumber(MagicNumber);
 
    // init DD baseline (only when inside a market session)
    ResetSessionDDIfNeeded();
