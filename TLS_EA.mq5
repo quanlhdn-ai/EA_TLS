@@ -30,8 +30,20 @@ input int    LineScanLookbackBars  = 300;
 // Cross scan for auto-arm/comment
 input int    CrossScanLookbackBars = 500;  // scan to find latest cross dot
 
-// Daily DD
-input double InpDailyDD_Percent    = 3.0;   // realized daily DD limit (% of start-day balance)
+//=========================== SESSION (BROKER MARKET HOURS) =========
+// Session = broker trading session of the symbol (market open -> market close).
+// Forbidden zone when: outside session OR <= X hours before session end.
+// In forbidden zone:
+//   - no new trades
+//   - cancel all pendings
+//   - close all running positions
+input double NoNewTradesBeforeEndH     = 2.0;  // forbidden when <= this many hours to session end
+input int    SessionForceThrottleSec   = 120;  // throttle forced cancel/close (seconds)
+
+//=========================== DD (SESSION, REALIZED) ==================
+// DD is computed from SESSION OPEN -> now using realized PnL (closed deals only).
+// Additionally: pre-emptive block if (loss + RiskUSDPerTrade) > limit.
+input double InpDailyDD_Percent    = 3.0;   // session DD limit (% of session start balance)
 input bool   InpCancelPendingsWhenDDHit = true;
 
 // Chart comment
@@ -47,17 +59,23 @@ int emaHandle = INVALID_HANDLE;
 //------------------------- State -----------------------------------
 datetime lastBarTime = 0;
 
-// day tracking
-int      dayKey = 0;
-double   dayStartBalance = 0.0;
-double   dayLossLimit = 0.0;
-bool     ddBlocked = false;
+// session DD tracking
+datetime sessionStartTime = 0;
+datetime sessionEndTime   = 0;
+double   sessionStartBalance = 0.0;
+double   sessionLossLimit    = 0.0;
+bool     ddBlocked           = false;
+double   lastSessionRealizedPnL = 0.0;
+
+// session enforcement throttle
+datetime lastSessionForceActionTime = 0;
+datetime lastKnownSessionEnd        = 0;
 
 // waiting state (armed by cross)
 bool     waitingBUY  = false;
 bool     waitingSELL = false;
 
-// ---------- NEW: one-use-per-line tracking ----------
+// ---------- one-use-per-line tracking ----------
 long activeHighKey    = 0;  // current HighLine key (resets when HighLine changes)
 long activeLowKey     = 0;  // current LowLine key (resets when LowLine changes)
 long usedHighLineKey  = 0;  // HighLine key already USED (market OR limit placed)
@@ -110,125 +128,87 @@ bool IsNewBar()
    return false;
 }
 
-int TodayKey()
+//=========================== SESSION BY BROKER HOURS ===============
+bool GetCurrentSymbolSessionWindow(datetime now, datetime &sOut, datetime &eOut)
 {
-   MqlDateTime t; TimeToStruct(TimeCurrent(), t);
-   return (t.year * 10000 + t.mon * 100 + t.day);
-}
+   sOut = 0; eOut = 0;
 
-void ResetDayIfNeeded()
-{
-   int k = TodayKey();
-   if(k != dayKey || dayKey == 0)
+   MqlDateTime t; TimeToStruct(now, t);
+   int dow = t.day_of_week; // 0=Sun ... 6=Sat
+
+   // Scan possible session indexes (usually 1-3, keep safe 10)
+   for(int idx = 0; idx < 10; idx++)
    {
-      dayKey = k;
-      dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-      dayLossLimit = dayStartBalance * (InpDailyDD_Percent / 100.0);
-      ddBlocked = false;
+      datetime from=0, to=0;
+      if(!SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dow, idx, from, to))
+         break; // no more sessions for this day
+
+      if(from == 0 && to == 0)
+         continue;
+
+      // Build today's session window (time part from 'from/to')
+      MqlDateTime s = t, e = t;
+      MqlDateTime tf, tt;
+      TimeToStruct(from, tf);
+      TimeToStruct(to,   tt);
+
+      s.hour = tf.hour; s.min = tf.min; s.sec = 0;
+      e.hour = tt.hour; e.min = tt.min; e.sec = 0;
+
+      datetime s0 = StructToTime(s);
+      datetime e0 = StructToTime(e);
+
+      // session crosses midnight
+      if(e0 <= s0) e0 += 24*60*60;
+
+      // Overnight session adjustment (rare but safe)
+      if(now < s0 && (e0 - s0) > 6*60*60)
+      {
+         s0 -= 24*60*60;
+         e0 -= 24*60*60;
+      }
+
+      if(now >= s0 && now < e0)
+      {
+         sOut = s0;
+         eOut = e0;
+         return true;
+      }
    }
+
+   return false;
 }
 
-double RealizedLossToday()
+bool IsInMarketSessionNow(datetime &sOut, datetime &eOut)
 {
-   MqlDateTime t; TimeToStruct(TimeCurrent(), t);
-   t.hour = 0; t.min = 0; t.sec = 0;
-   datetime dayStart = StructToTime(t);
    datetime now = TimeCurrent();
-
-   if(!HistorySelect(dayStart, now)) return 0.0;
-
-   double loss = 0.0;
-   int deals = (int)HistoryDealsTotal();
-   for(int i = 0; i < deals; i++)
-   {
-      ulong dealTicket = HistoryDealGetTicket(i);
-      if(dealTicket == 0) continue;
-
-      long magic = (long)HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-      if(magic != InpMagic) continue;
-
-      string sym = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
-      if(sym != _Symbol) continue;
-
-      long entry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
-      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) continue;
-
-      double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
-      double swap   = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
-      double comm   = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
-      double net = profit + swap + comm;
-
-      if(net < 0) loss += (-net);
-   }
-   return loss;
+   return GetCurrentSymbolSessionWindow(now, sOut, eOut);
 }
 
-void UpdateDailyDDGate()
+double HoursToSessionEnd(datetime &endOut)
 {
-   ResetDayIfNeeded();
-   double loss = RealizedLossToday();
+   datetime s,e;
+   if(!IsInMarketSessionNow(s,e)) { endOut=0; return 9999.0; }
+   endOut = e;
 
-   if(loss >= dayLossLimit)
-   {
-      ddBlocked = true;
-
-      if(InpCancelPendingsWhenDDHit)
-      {
-         int total = OrdersTotal();
-         for(int i = total - 1; i >= 0; i--)
-         {
-            ulong tk = OrderGetTicket(i);
-            if(tk == 0) continue;
-            if(!OrderSelect(tk)) continue;
-
-            if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-            if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
-
-            ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-            if(type == ORDER_TYPE_BUY_LIMIT || type == ORDER_TYPE_SELL_LIMIT)
-               trade.OrderDelete(tk);
-         }
-      }
-   }
+   datetime now = TimeCurrent();
+   if(now >= e) return 0.0;
+   return (double)(e - now) / 3600.0;
 }
 
-// ---- NEW: stable line key (integer in points) ----
-long LineKey(double price)
+// forbidden when: outside session OR <= X hours to session end
+bool IsForbiddenBySession(datetime &sessionEndOut)
 {
-   return (long)MathRound(price / _Point);
-}
+   datetime s,e;
+   sessionEndOut = 0;
 
-// ---- NEW: reset “used” when line changes value ----
-void UpdateLineKeysAndResetIfChanged()
-{
-   double hlArr[1];
-   double llArr[1];
+   if(!IsInMarketSessionNow(s,e))
+      return true;
 
-   bool hasH = (CopyBuffer(emaHandle, 3, 0, 1, hlArr) == 1 && hlArr[0] != EMPTY_VALUE);
-   bool hasL = (CopyBuffer(emaHandle, 4, 0, 1, llArr) == 1 && llArr[0] != EMPTY_VALUE);
-
-   if(hasH)
-   {
-      long k = LineKey(hlArr[0]);
-      if(activeHighKey == 0) activeHighKey = k;
-      if(k != activeHighKey)
-      {
-         // HighLine changed -> reset usage for new line
-         activeHighKey   = k;
-         usedHighLineKey = 0;
-      }
-   }
-
-   if(hasL)
-   {
-      long k = LineKey(llArr[0]);
-      if(activeLowKey == 0) activeLowKey = k;
-      if(k != activeLowKey)
-      {
-         activeLowKey   = k;
-         usedLowLineKey = 0;
-      }
-   }
+   sessionEndOut = e;
+   datetime dummyEnd=0;
+   double h = HoursToSessionEnd(dummyEnd);
+   return (h <= NoNewTradesBeforeEndH + 1e-9);
 }
 
 //=========================== INDICATOR READY ==========================
@@ -372,6 +352,163 @@ void CancelPendingIfTPHit()
       else
       {
          if(bid <= tp) trade.OrderDelete(tk);
+      }
+   }
+}
+
+//=================== SESSION ENFORCEMENT ============================
+// In forbidden zone: cancel ALL pendings (any type) + close ALL positions.
+// Throttled to avoid spamming.
+void EnforceForbiddenZone()
+{
+   datetime sessEnd = 0;
+   bool forbidden = IsForbiddenBySession(sessEnd);
+
+   if(!forbidden)
+   {
+      lastKnownSessionEnd = 0;
+      return;
+   }
+
+   datetime now = TimeCurrent();
+
+   // 1-lan-per-session-end-ish + throttle
+   bool newKey = (sessEnd > 0 && sessEnd != lastKnownSessionEnd);
+
+   if(!newKey)
+   {
+      if((now - lastSessionForceActionTime) < SessionForceThrottleSec)
+         return;
+   }
+
+   lastSessionForceActionTime = now;
+   if(sessEnd > 0) lastKnownSessionEnd = sessEnd;
+
+   // 1) cancel all pendings (any type)
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      ulong otk = OrderGetTicket(i);
+      if(otk==0) continue;
+      if(!OrderSelect(otk)) continue;
+
+      if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+      if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+
+      ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
+         type==ORDER_TYPE_BUY_STOP  || type==ORDER_TYPE_SELL_STOP  ||
+         type==ORDER_TYPE_BUY_STOP_LIMIT || type==ORDER_TYPE_SELL_STOP_LIMIT)
+      {
+         trade.OrderDelete(otk);
+      }
+   }
+
+   // 2) close all positions
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ptk = PositionGetTicket(i);
+      if(ptk==0) continue;
+      if(!PositionSelectByTicket(ptk)) continue;
+
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+
+      trade.PositionClose(ptk);
+   }
+
+   // 3) clear waiting states
+   waitingBUY = false;
+   waitingSELL = false;
+}
+
+//=================== DD (SESSION, REALIZED) =========================
+double RealizedPnLInRange(datetime fromTime, datetime toTime)
+{
+   if(!HistorySelect(fromTime, toTime)) return 0.0;
+
+   double pnl = 0.0;
+   int deals = (int)HistoryDealsTotal();
+   for(int i=0;i<deals;i++)
+   {
+      ulong tk = HistoryDealGetTicket(i);
+      if(tk==0) continue;
+
+      if((long)HistoryDealGetInteger(tk, DEAL_MAGIC) != InpMagic) continue;
+      if(HistoryDealGetString(tk, DEAL_SYMBOL) != _Symbol) continue;
+
+      long entry = HistoryDealGetInteger(tk, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) continue;
+
+      double profit = HistoryDealGetDouble(tk, DEAL_PROFIT);
+      double swap   = HistoryDealGetDouble(tk, DEAL_SWAP);
+      double comm   = HistoryDealGetDouble(tk, DEAL_COMMISSION);
+
+      pnl += (profit + swap + comm);
+   }
+   return pnl;
+}
+
+void ResetSessionDDIfNeeded()
+{
+   datetime now = TimeCurrent();
+   datetime s=0,e=0;
+
+   if(!GetCurrentSymbolSessionWindow(now, s, e))
+      return; // outside session -> don't reset baseline here
+
+   if(sessionStartTime == 0 || s != sessionStartTime)
+   {
+      sessionStartTime = s;
+      sessionEndTime   = e;
+
+      sessionStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+      sessionLossLimit    = sessionStartBalance * (InpDailyDD_Percent/100.0);
+
+      ddBlocked = false;
+      lastSessionRealizedPnL = 0.0;
+   }
+   else
+   {
+      sessionEndTime = e;
+   }
+}
+
+void UpdateSessionDDGate()
+{
+   ResetSessionDDIfNeeded();
+   if(sessionStartTime == 0) return;
+
+   double pnl = RealizedPnLInRange(sessionStartTime, TimeCurrent());
+   lastSessionRealizedPnL = pnl;
+
+   double loss = (pnl < 0.0) ? (-pnl) : 0.0;
+
+   // hit OR pre-emptive block
+   bool hitOrPreBlock = (loss >= sessionLossLimit) || ((loss + RiskUSDPerTrade) > sessionLossLimit);
+
+   if(hitOrPreBlock)
+   {
+      ddBlocked = true;
+
+      if(InpCancelPendingsWhenDDHit)
+      {
+         for(int i=OrdersTotal()-1;i>=0;i--)
+         {
+            ulong otk = OrderGetTicket(i);
+            if(otk==0) continue;
+            if(!OrderSelect(otk)) continue;
+
+            if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+            if((long)OrderGetInteger(ORDER_MAGIC) != InpMagic) continue;
+
+            ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+            if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
+               type==ORDER_TYPE_BUY_STOP  || type==ORDER_TYPE_SELL_STOP  ||
+               type==ORDER_TYPE_BUY_STOP_LIMIT || type==ORDER_TYPE_SELL_STOP_LIMIT)
+            {
+               trade.OrderDelete(otk);
+            }
+         }
       }
    }
 }
@@ -593,6 +730,43 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    currentCrossText = "Cross";
 }
 
+//=================== one-use-per-line tracking ======================
+long LineKey(double price)
+{
+   return (long)MathRound(price / _Point);
+}
+
+void UpdateLineKeysAndResetIfChanged()
+{
+   double hlArr[1];
+   double llArr[1];
+
+   bool hasH = (CopyBuffer(emaHandle, 3, 0, 1, hlArr) == 1 && hlArr[0] != EMPTY_VALUE);
+   bool hasL = (CopyBuffer(emaHandle, 4, 0, 1, llArr) == 1 && llArr[0] != EMPTY_VALUE);
+
+   if(hasH)
+   {
+      long k = LineKey(hlArr[0]);
+      if(activeHighKey == 0) activeHighKey = k;
+      if(k != activeHighKey)
+      {
+         activeHighKey   = k;
+         usedHighLineKey = 0;
+      }
+   }
+
+   if(hasL)
+   {
+      long k = LineKey(llArr[0]);
+      if(activeLowKey == 0) activeLowKey = k;
+      if(k != activeLowKey)
+      {
+         activeLowKey   = k;
+         usedLowLineKey = 0;
+      }
+   }
+}
+
 //=================== BREAKOUT CHECKS =========================
 // Rule: if HighLine/LowLine already USED once -> never use again until line changes
 bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
@@ -654,6 +828,11 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 // IMPORTANT RULE: mark line USED when order successfully placed (MARKET or LIMIT).
 bool ExecuteEntry(bool isBuy, long lineKey)
 {
+   // gate by session forbidden zone
+   datetime sessEnd=0;
+   if(IsForbiddenBySession(sessEnd)) return false;
+
+   // gate by DD
    if(ddBlocked) return false;
 
    // exposure rule
@@ -874,8 +1053,26 @@ void UpdateChartComment()
    bool hasH0 = (CopyBuffer(emaHandle, 3, 0, 1, hl0Arr) == 1 && hl0Arr[0] != EMPTY_VALUE);
    bool hasL0 = (CopyBuffer(emaHandle, 4, 0, 1, ll0Arr) == 1 && ll0Arr[0] != EMPTY_VALUE);
 
+   // session info
+   datetime s=0,e=0;
+   bool inSess = IsInMarketSessionNow(s,e);
+   datetime sessEnd=0;
+   bool forbidden = IsForbiddenBySession(sessEnd);
+   double hToEnd = 0.0;
+   if(inSess)
+   {
+      datetime dummy=0;
+      hToEnd = HoursToSessionEnd(dummy);
+   }
+
+   double pnl  = lastSessionRealizedPnL;
+   double loss = (pnl < 0.0) ? (-pnl) : 0.0;
+   double room = sessionLossLimit - loss;
 
    string txt =
+      "MarketSession : " + (inSess ? (TimeToString(s,TIME_DATE|TIME_MINUTES)+" -> "+TimeToString(e,TIME_DATE|TIME_MINUTES)) : "N/A") + "\n"
+      "InSession     : " + (inSess ? "YES":"NO") + "\n"
+      "Forbidden     : " + (forbidden ? "YES":"NO") + " (<= " + DoubleToString(NoNewTradesBeforeEndH,1) + "h to end; hLeft=" + DoubleToString(hToEnd,2) + ")\n"
       "HighLine(0)   : " + (hasH0 ? FormatPriceOrNA(hl0Arr[0]) : "N/A") + "\n"
       "LowLine(0)    : " + (hasL0 ? FormatPriceOrNA(ll0Arr[0]) : "N/A") + "\n"
       + FormatCrossLine() + "\n"
@@ -883,7 +1080,10 @@ void UpdateChartComment()
       "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n"
       "usedHighKey   : " + IntegerToString((int)usedHighLineKey) + "\n"
       "usedLowKey    : " + IntegerToString((int)usedLowLineKey) + "\n"
-      "Daily DD Hit  : " + (ddBlocked ? "YES" : "NO") + "\n";
+      "SessStartBal  : " + DoubleToString(sessionStartBalance, 2) + "\n"
+      "SessPnL(real) : " + DoubleToString(pnl, 2) + "\n"
+      "DD Limit      : -" + DoubleToString(sessionLossLimit, 2) + "\n"
+      "DD Blocked    : " + (ddBlocked ? "YES" : "NO") + "\n";
 
    Comment(txt);
 }
@@ -908,7 +1108,8 @@ int OnInit()
    trade.SetDeviationInPoints(InpSlippagePoints);
    trade.SetExpertMagicNumber(InpMagic);
 
-   ResetDayIfNeeded();
+   // init DD baseline (only when inside a market session)
+   ResetSessionDDIfNeeded();
 
    currentCrossText  = "None";
    currentCrossPrice = 0.0;
@@ -935,7 +1136,10 @@ void OnDeinit(const int reason)
 //=================== TICK ===============================
 void OnTick()
 {
-   UpdateDailyDDGate();
+   // update DD (session, realized + pre-emptive)
+   UpdateSessionDDGate();
+
+   // pending TP hit cleanup
    CancelPendingIfTPHit();
 
    // Always update comment
@@ -948,6 +1152,15 @@ void OnTick()
 
    // Update line keys and reset used if line changed
    UpdateLineKeysAndResetIfChanged();
+
+   // Forbidden zone enforcement (outside session or <= X hours to end):
+   // cancel all pendings + close all positions + clear waiting, throttled.
+   EnforceForbiddenZone();
+
+   // If forbidden, do nothing else (no arming, no entries)
+   datetime sessEnd=0;
+   if(IsForbiddenBySession(sessEnd))
+      return;
 
    // Auto-arm exactly once after indicators ready
    static bool didAutoArm = false;
