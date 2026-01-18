@@ -3,28 +3,27 @@
 CTrade trade;
 
 //------------------------- Inputs ----------------------------------
-input string InpHAIndicatorName  = "TLS_HA";
-input string InpEMAIndicatorName = "TLS_EMA";
+input string HAIndicatorName  = "TLS_HA";
+input string EMAIndicatorName = "TLS_EMA";
 
 // iCustom inputs must match indicator inputs
-input color InpBullColor = C'8,153,129';
-input color InpBearColor = C'242,54,69';
+input color BullColor = C'8,153,129';
+input color BearColor = C'242,54,69';
 
 input int            EMAShortPeriod = 10;
 input int            EMALongPeriod  = 39;
 input ENUM_MA_METHOD EMAMethod      = MODE_EMA;
 
 input int    SlippagePoints     = 30;
-input long   MagicNumber        = 8386272000; // to tracking orders/positions by this EA
+input long   MagicNumber        = 8386272000; // magic number to tracking orders/positions by this EA
 
 // Risk & SL/BE rules
-input double RiskUSDPerTrade       = 50.0;  // fixed risk per trade (account currency)
-input int    BufferPips            = 5;     // buffer in PIPS (converted by PipSize())
-input double SLMaxPips             = 50.0;  // SL_MAX in PIPS
+input double RiskUSDPerTrade       = 50.0; // risk per trade in USD
+input int    BufferPips            = 5.0;      // SL buffer from HA pair in PIPS
+input double SLMaxPips             = 50.0;
 input int    SL_LookbackBars       = 200;   // lookback to find nearest HA pair
 input double RiskReward            = 2.0;   // TP = RiskReward * Risk (R)
 input double RangeChannelEMA       = 20.0;  // distance between HighLine and LowLine in PIPS minimum
-
 
 // buffer->scan lookback for lines
 input int    LineScanLookbackBars  = 300;
@@ -42,22 +41,55 @@ input int    CrossScanLookbackBars = 500;  // scan to find latest cross dot
 input double NoNewTradesBeforeEndH     = 2.0;  // forbidden when <= this many hours to session end
 input int    SessionForceThrottleSec   = 120;  // throttle forced cancel/close (seconds)
 
+//=========================== TRADE WINDOW MODE (FULLDAY vs SESSIONS) ========
+enum ENUM_TRADE_WINDOW_MODE
+{
+   TRADEWINDOW_FULLDAY  = 0,  // FULLDAY
+   TRADEWINDOW_SESSIONS = 1   // SESSION
+};
+input ENUM_TRADE_WINDOW_MODE TradeWindowMode = TRADEWINDOW_FULLDAY;
+
+// Enable each VN session
+input bool IsAllowAsia = true;
+input bool IsAllowEU   = true;
+input bool IsAllowNY   = true;
+
+// VN session times - hours/minutes
+// Asia 08:00-11:00, EU 14:00-18:00, NY 21:00-00:00 (overnight)
+input int AsiaStartHour = 8;
+input int AsiaStartMin  = 0;
+input int AsiaEndHour   = 11;
+input int AsiaEndMin    = 0;
+
+input int EUStartHour   = 14;
+input int EUStartMin    = 0;
+input int EUEndHour     = 18;
+input int EUEndMin      = 0;
+
+input int NYStartHour   = 21;
+input int NYStartMin    = 0;
+input int NYEndHour     = 0;   // crosses midnight
+input int NYEndMin      = 0;
+
+// Time conversion (server -> VN). IMPORTANT: set broker server offset correctly.
+input int VNOffsetFromUTC     = 7; // VN is UTC+7
+input int ServerOffsetFromUTC = 0; // broker server offset vs UTC (e.g. 2 or 3). 0 if server is UTC.
+
 //=========================== DD (SESSION, REALIZED) ==================
 // DD is computed from SESSION OPEN -> now using realized PnL (closed deals only).
 // Additionally: pre-emptive block if (loss + RiskUSDPerTrade) > limit.
-input double DailyDD_Percent    = 3.0;   // session DD limit (% of session start balance)
+input double DailyDD_Percent    = 3.0; // DD limit (% of account balance)
 input bool   IsCancelPendingsWhenDDHit = true;
 
 //=========================== PROFIT TARGET (SESSION, REALIZED) ======
 // Profit target is computed from SESSION OPEN -> now using realized PnL (closed deals only).
 // When hit: block new trades until next session starts.
-input double DailyProfitTargetUSD     = 0.0;   // session profit target (account currency)
-input bool   IsForceCloseWhenProfitHit  = false; // optional: close positions + cancel pendings
+input double DailyProfitTargetUSD     = 0.0;   // profit target (account currency)
+input bool   IsForceCloseWhenProfitHit  = false;
 input bool   IsCancelPendingsWhenProfitHit = true;
 
 bool     profitBlocked = false;
 double   sessionProfitTarget = 0.0;
-
 
 // Chart comment
 input bool   IsShowChartComment   = true;
@@ -141,6 +173,102 @@ bool IsNewBar()
    return false;
 }
 
+//=========================== VN SESSION HELPERS =====================
+int VNDeltaHours(){ return (VNOffsetFromUTC - ServerOffsetFromUTC); }
+
+datetime GetVNTime(){ return (TimeCurrent() + VNDeltaHours() * 3600); }
+
+datetime VNToServer(datetime vnTime){ return (vnTime - VNDeltaHours() * 3600); }
+
+// Window compare on VN time (supports overnight if end <= start)
+bool IsInVNWindow(int sh, int sm, int eh, int em)
+{
+   datetime vn = GetVNTime();
+   MqlDateTime t; TimeToStruct(vn, t);
+
+   int cur = t.hour*60 + t.min;
+   int st  = sh*60 + sm;
+   int en  = eh*60 + em;
+
+   if(en > st) return (cur >= st && cur < en);
+   return (cur >= st || cur < en); // overnight
+}
+
+// Requested session flags
+bool IsTradeAsia(){ return IsInVNWindow(AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin); }
+bool IsTradeEU()  { return IsInVNWindow(EUStartHour,   EUStartMin,   EUEndHour,   EUEndMin); }
+bool IsTradeNY()  { return IsInVNWindow(NYStartHour,   NYStartMin,   NYEndHour,   NYEndMin); }
+
+string CurrentVNSessionName()
+{
+   if(IsTradeAsia()) return "ASIA";
+   if(IsTradeEU())   return "EU";
+   if(IsTradeNY())   return "NY";
+   return "NONE";
+}
+
+string VNWindowTextFor(string sess)
+{
+   if(sess=="ASIA")
+      return StringFormat("%02d:%02d -> %02d:%02d", AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin);
+   if(sess=="EU")
+      return StringFormat("%02d:%02d -> %02d:%02d", EUStartHour, EUStartMin, EUEndHour, EUEndMin);
+   if(sess=="NY")
+      return StringFormat("%02d:%02d -> %02d:%02d", NYStartHour, NYStartMin, NYEndHour, NYEndMin);
+   return "N/A";
+}
+
+// Get current ENABLED VN session window in SERVER time (for throttle key)
+bool GetEnabledVNSessionWindowServer(datetime nowServer, datetime &startServer, datetime &endServer, string &nameOut)
+{
+   startServer = 0; endServer = 0; nameOut = "NONE";
+
+   datetime nowVN = nowServer + VNDeltaHours()*3600;
+   MqlDateTime vn; TimeToStruct(nowVN, vn);
+
+   struct SessDef { int sh, sm, eh, em; bool enabled; string name; };
+   SessDef s[3] = {
+      {AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin, IsAllowAsia, "ASIA"},
+      {EUStartHour,   EUStartMin,   EUEndHour,   EUEndMin,   IsAllowEU,   "EU"},
+      {NYStartHour,   NYStartMin,   NYEndHour,   NYEndMin,   IsAllowNY,   "NY"}
+   };
+
+   for(int i=0;i<3;i++)
+   {
+      if(!s[i].enabled) continue;
+
+      MqlDateTime a = vn, b = vn;
+      a.hour = s[i].sh; a.min = s[i].sm; a.sec = 0;
+      b.hour = s[i].eh; b.min = s[i].em; b.sec = 0;
+
+      datetime startVN = StructToTime(a);
+      datetime endVN   = StructToTime(b);
+      if(endVN <= startVN) endVN += 24*60*60; // overnight
+
+      if(nowVN >= startVN && nowVN < endVN)
+      {
+         startServer = VNToServer(startVN);
+         endServer   = VNToServer(endVN);
+         nameOut     = s[i].name;
+         return true;
+      }
+   }
+
+   return false;
+}
+
+// forbidden in session-mode: outside any ENABLED VN session
+bool IsForbiddenByVNSessions(datetime &endOut)
+{
+   endOut = 0;
+   datetime ws=0,we=0; string nm;
+   if(!GetEnabledVNSessionWindowServer(TimeCurrent(), ws, we, nm))
+      return true;
+
+   endOut = we;
+   return false;
+}
+
 //=========================== SESSION BY BROKER HOURS ===============
 bool GetCurrentSymbolSessionWindow(datetime now, datetime &sOut, datetime &eOut)
 {
@@ -209,7 +337,7 @@ double HoursToSessionEnd(datetime &endOut)
    return (double)(e - now) / 3600.0;
 }
 
-// forbidden when: outside session OR <= X hours to session end
+// forbidden when: outside session (SESSION TRADE) OR <= X hours to session end (FULLDAY TRADE)
 bool IsForbiddenBySession(datetime &sessionEndOut)
 {
    datetime s,e;
@@ -222,6 +350,15 @@ bool IsForbiddenBySession(datetime &sessionEndOut)
    datetime dummyEnd=0;
    double h = HoursToSessionEnd(dummyEnd);
    return (h <= NoNewTradesBeforeEndH + 1e-9);
+}
+
+// Only routes forbidden logic based on mode.
+bool IsForbiddenNow(datetime &endOut)
+{
+   endOut = 0;
+   if(TradeWindowMode == TRADEWINDOW_FULLDAY)
+      return IsForbiddenBySession(endOut);
+   return IsForbiddenByVNSessions(endOut);
 }
 
 //=========================== INDICATOR READY ==========================
@@ -375,7 +512,7 @@ void CancelPendingIfTPHit()
 void EnforceForbiddenZone()
 {
    datetime sessEnd = 0;
-   bool forbidden = IsForbiddenBySession(sessEnd);
+   bool forbidden = IsForbiddenNow(sessEnd);
 
    if(!forbidden)
    {
@@ -488,7 +625,6 @@ void ResetSessionDDIfNeeded()
    {
       sessionEndTime = e;
    }
-
 }
 
 void UpdateSessionProfitGate()
@@ -504,7 +640,7 @@ void UpdateSessionProfitGate()
 
    // Use the same realized pnl you already compute from deals
    double pnl = RealizedPnLInRange(sessionStartTime, TimeCurrent());
-   lastSessionRealizedPnL = pnl; // keep chart consistent
+   lastSessionRealizedPnL = pnl;
 
    if(pnl >= DailyProfitTargetUSD - 1e-9)
    {
@@ -561,7 +697,6 @@ void UpdateSessionDDGate()
 
    double loss = (pnl < 0.0) ? (-pnl) : 0.0;
 
-   // hit OR pre-emptive block
    bool hitOrPreBlock = (loss >= sessionLossLimit) || ((loss + RiskUSDPerTrade) > sessionLossLimit);
 
    if(hitOrPreBlock)
@@ -671,12 +806,10 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
       if(d == 0.0 || d == EMPTY_VALUE)
          continue;
 
-      // found latest cross dot at shift=sh
       shiftOut = sh;
       priceOut = d;
       timeOut  = iTime(_Symbol, _Period, sh);
 
-      // infer direction using line buffer at sh vs sh+1
       double low1[1], low2[1], high1[1], high2[1];
       int rL1 = CopyBuffer(emaHandle, 4, sh,   1, low1);
       int rL2 = CopyBuffer(emaHandle, 4, sh+1, 1, low2);
@@ -705,7 +838,6 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
          }
       }
 
-      // dot exists but ambiguous
       dirOut = "Cross";
       return true;
    }
@@ -713,7 +845,6 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
    return false;
 }
 
-// Auto-arm only sets waiting flags based on latest cross (no “1 bar after cross” rule)
 void AutoArmFromLatestCross()
 {
    if(waitingBUY || waitingSELL) return;
@@ -754,7 +885,6 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
 
    currentCrossTime = iTime(_Symbol, _Period, 1);
 
-   // 1) Require DOT on bar1 (indicator buffer 2)
    double dot1Arr[1];
    if(CopyBuffer(emaHandle, 2, 1, 1, dot1Arr) != 1)
    {
@@ -789,7 +919,6 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    double short1 = s1[0], short2 = s2[0];
    double long1  = l1[0], long2  = l2[0];
 
-   // 3) Exact same event definition as indicator
    if(short1 > long1 && short2 <= long2)
    {
       crossUp = true;
@@ -804,7 +933,6 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
       return;
    }
 
-   // DOT existed but event condition not met (rare), mark ambiguous
    currentCrossText = "Cross";
 }
 
@@ -855,11 +983,11 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 <= o1) return false; // nến thường xanh
+   if(c1 <= o1) return false; // BULLISH only
 
    double haO,haH,haL,haC,haCol;
    if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
-   if(haCol != 0.0) return false; // HA xanh
+   if(haCol != 0.0) return false; // HA must be bullish
 
    double highLine1;
    if(!ReadHighLineAtShift(1, highLine1)) return false;
@@ -868,7 +996,7 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    // ====== min distance HighLine-LowLine filter ======
    double lowLine1;
-   if(!ReadLowLineAtShift(1, lowLine1)) return false; // không có LowLine => skip
+   if(!ReadLowLineAtShift(1, lowLine1)) return false;
 
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
@@ -879,7 +1007,6 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
                   highLine1, lowLine1, rangePips, RangeChannelEMA);
       return false;
    }
-   // =========================================================
 
    long key = LineKey(highLine1);
 
@@ -890,7 +1017,6 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    return true;
 }
 
-
 bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 {
    lowKeyOut = 0;
@@ -899,11 +1025,11 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 >= o1) return false; // nến thường đỏ
+   if(c1 >= o1) return false; // BEARISH only
 
    double haO,haH,haL,haC,haCol;
    if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
-   if(haCol != 1.0) return false; // HA đỏ
+   if(haCol != 1.0) return false; // HA must be bearish
 
    double lowLine1;
    if(!ReadLowLineAtShift(1, lowLine1)) return false;
@@ -912,7 +1038,7 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    // ====== min distance HighLine-LowLine filter ======
    double highLine1;
-   if(!ReadHighLineAtShift(1, highLine1)) return false; // không có HighLine => skip
+   if(!ReadHighLineAtShift(1, highLine1)) return false;
 
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
@@ -923,24 +1049,20 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
                   highLine1, lowLine1, rangePips, RangeChannelEMA);
       return false;
    }
-   // =========================================================
 
    long key = LineKey(lowLine1);
-
    if(usedLowLineKey != 0 && key == usedLowLineKey) return false;
 
    lowKeyOut = key;
    return true;
 }
 
-
 //=================== EXECUTE ENTRY ===============================
-// IMPORTANT RULE: mark line USED when order successfully placed (MARKET or LIMIT).
 bool ExecuteEntry(bool isBuy, long lineKey)
 {
-   // gate by session forbidden zone
-   datetime sessEnd=0;
-   if(IsForbiddenBySession(sessEnd)) return false;
+   // gate by forbidden zone (FULLDAY or SESSIONS)
+   datetime endGate=0;
+   if(IsForbiddenNow(endGate)) return false;
 
    // gate by DD
    if(ddBlocked) return false;
@@ -1160,26 +1282,22 @@ void UpdateChartComment()
       return;
    }
 
-   double hl0Arr[1];
-   double ll0Arr[1];
+   double hl0Arr[1]; hl0Arr[0] = EMPTY_VALUE;
+   double ll0Arr[1]; ll0Arr[0] = EMPTY_VALUE;
 
    bool hasH0 = (CopyBuffer(emaHandle, 3, 0, 1, hl0Arr) == 1 && hl0Arr[0] != EMPTY_VALUE);
    bool hasL0 = (CopyBuffer(emaHandle, 4, 0, 1, ll0Arr) == 1 && ll0Arr[0] != EMPTY_VALUE);
 
    // add range pips on chart comment
    double rangePips = 0.0;
-   bool hasRange = false;
-   if(hasH0 && hasL0)
-   {
+   bool hasRange = (hasH0 && hasL0);
+   if(hasRange)
       rangePips = MathAbs(hl0Arr[0] - ll0Arr[0]) / PipSize();
-      hasRange = true;
-   }
 
-   // session info
+   // Broker session (FULLDAY only)
    datetime s=0,e=0;
    bool inSess = IsInMarketSessionNow(s,e);
-   datetime sessEnd=0;
-   bool forbidden = IsForbiddenBySession(sessEnd);
+
    double hToEnd = 0.0;
    if(inSess)
    {
@@ -1187,45 +1305,95 @@ void UpdateChartComment()
       hToEnd = HoursToSessionEnd(dummy);
    }
 
+   // Mode-aware forbidden + endGate (VN end in SESSIONS mode)
+   datetime endGate = 0;
+   bool forbiddenNow = IsForbiddenNow(endGate);
+
+   // SESSION ONLY
+   datetime vnNow = GetVNTime();
+   string vnNowText = TimeToString(vnNow, TIME_DATE|TIME_MINUTES);
+
+   string vnSessName  = "NONE";
+   string vnWindowTxt = "N/A";
+   string vnEndTxt    = "N/A";
+
+   if(TradeWindowMode == TRADEWINDOW_SESSIONS)
+   {
+      vnSessName  = CurrentVNSessionName();
+      vnWindowTxt = VNWindowTextFor(vnSessName);
+
+      if(!forbiddenNow && endGate > 0)
+      {
+         datetime vnEnd = endGate + VNDeltaHours()*3600;
+         vnEndTxt = TimeToString(vnEnd, TIME_DATE|TIME_MINUTES);
+      }
+   }
+
+   // PnL/DD
    double pnl  = lastSessionRealizedPnL;
-   double loss = (pnl < 0.0) ? (-pnl) : 0.0;
-   double room = sessionLossLimit - loss;
 
-   string txt =
-      "MarketSession : " + (inSess ? (TimeToString(s,TIME_DATE|TIME_MINUTES)+" -> "+TimeToString(e,TIME_DATE|TIME_MINUTES)) : "N/A") + "\n"
-      "InSession     : " + (inSess ? "YES":"NO") + "\n"
-      "Forbidden     : " + (forbidden ? "YES":"NO") + " (<= " + DoubleToString(NoNewTradesBeforeEndH,1) + "h to end; hLeft=" + DoubleToString(hToEnd,2) + ")\n"
-      "HighLine(0)   : " + (hasH0 ? FormatPriceOrNA(hl0Arr[0]) : "N/A") + "\n"
-      "LowLine(0)    : " + (hasL0 ? FormatPriceOrNA(ll0Arr[0]) : "N/A") + "\n"
-      "RangePips     : " + (hasRange ? DoubleToString(rangePips, 1) : "N/A") + 
-      " (min=" + DoubleToString(RangeChannelEMA, 1) + ")\n"
-      + FormatCrossLine() + "\n"
-      "waitingBUY    : " + (waitingBUY  ? "YES" : "NO") + "\n"
-      "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n"
-      "usedHighKey   : " + IntegerToString((int)usedHighLineKey) + "\n"
-      "usedLowKey    : " + IntegerToString((int)usedLowLineKey) + "\n"
-      "SessStartBal  : " + DoubleToString(sessionStartBalance, 2) + "\n"
-      "SessPnL(real) : " + DoubleToString(pnl, 2) + "\n"
-      "DD Limit      : -" + DoubleToString(sessionLossLimit, 2) + "\n"
-      "DD Blocked    : " + (ddBlocked ? "YES" : "NO") + "\n";
+   string modeText = (TradeWindowMode == TRADEWINDOW_FULLDAY) ? "FULLDAY" : "SESSIONS";
 
+   string txt = "";
+   txt += "TradeMode     : " + modeText + "\n";
+
+   // --- SESSIONS: show VN block, HIDE broker MarketSession ---
+   if(TradeWindowMode == TRADEWINDOW_SESSIONS)
+   {
+      txt += "VN Now        : " + vnNowText + "\n";
+      txt += "VN Session    : " + vnSessName + "\n";
+      txt += "VN Window     : " + vnWindowTxt + "\n";
+      txt += "VN End        : " + vnEndTxt + "\n";
+      txt += "AllowedNow    : " + (!forbiddenNow ? "YES" : "NO") + "\n";
+   }
+
+   // --- FULLDAY: show broker session block ---
+   if(TradeWindowMode == TRADEWINDOW_FULLDAY)
+   {
+      txt += "MarketSession : " + (inSess
+               ? (TimeToString(s,TIME_DATE|TIME_MINUTES)+" -> "+TimeToString(e,TIME_DATE|TIME_MINUTES))
+               : "N/A") + "\n";
+      txt += "InSession     : " + (inSess ? "YES":"NO") + "\n";
+      txt += "Forbidden     : " + (forbiddenNow ? "YES":"NO") +
+             " (<= " + DoubleToString(NoNewTradesBeforeEndH,1) +
+             "h; hLeft=" + DoubleToString(hToEnd,2) + ")\n";
+   }
+
+   // --- Strategy state (always show) ---
+   txt += "HighLine(0)   : " + (hasH0 ? FormatPriceOrNA(hl0Arr[0]) : "N/A") + "\n";
+   txt += "LowLine(0)    : " + (hasL0 ? FormatPriceOrNA(ll0Arr[0]) : "N/A") + "\n";
+   txt += "RangePips     : " + (hasRange ? DoubleToString(rangePips, 1) : "N/A") +
+          " (min=" + DoubleToString(RangeChannelEMA, 1) + ")\n";
+
+   txt += FormatCrossLine() + "\n";
+   txt += "waitingBUY    : " + (waitingBUY  ? "YES" : "NO") + "\n";
+   txt += "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n";
+   txt += "usedHighKey   : " + IntegerToString((int)usedHighLineKey) + "\n";
+   txt += "usedLowKey    : " + IntegerToString((int)usedLowLineKey) + "\n";
+
+   // --- Risk gates ---
+   txt += "SessStartBal  : " + DoubleToString(sessionStartBalance, 2) + "\n";
+   txt += "SessPnL(real) : " + DoubleToString(pnl, 2) + "\n";
+   txt += "DD Limit      : -" + DoubleToString(sessionLossLimit, 2) + "\n";
+   txt += "DD Blocked    : " + (ddBlocked ? "YES" : "NO") + "\n";
    Comment(txt);
 }
+
 
 //=================== INIT/DEINIT ===============================
 int OnInit()
 {
-   haHandle = iCustom(_Symbol, _Period, InpHAIndicatorName, InpBullColor, InpBearColor);
+   haHandle = iCustom(_Symbol, _Period, HAIndicatorName, BullColor, BearColor);
    if(haHandle == INVALID_HANDLE)
    {
-      Print("Failed HA handle. Name=", InpHAIndicatorName, " err=", GetLastError());
+      Print("Failed HA handle. Name=", HAIndicatorName, " err=", GetLastError());
       return INIT_FAILED;
    }
 
-   emaHandle = iCustom(_Symbol, _Period, InpEMAIndicatorName, EMAShortPeriod, EMALongPeriod, EMAMethod);
+   emaHandle = iCustom(_Symbol, _Period, EMAIndicatorName, EMAShortPeriod, EMALongPeriod, EMAMethod);
    if(emaHandle == INVALID_HANDLE)
    {
-      Print("Failed EMA handle. Name=", InpEMAIndicatorName, " err=", GetLastError());
+      Print("Failed EMA handle. Name=", EMAIndicatorName, " err=", GetLastError());
       return INIT_FAILED;
    }
 
@@ -1279,13 +1447,13 @@ void OnTick()
    // Update line keys and reset used if line changed
    UpdateLineKeysAndResetIfChanged();
 
-   // Forbidden zone enforcement (outside session or <= X hours to end):
+   // Forbidden zone enforcement (mode-aware):
    // cancel all pendings + close all positions + clear waiting, throttled.
    EnforceForbiddenZone();
 
    // If forbidden, do nothing else (no arming, no entries)
-   datetime sessEnd=0;
-   if(IsForbiddenBySession(sessEnd))
+   datetime endGate=0;
+   if(IsForbiddenNow(endGate))
       return;
 
    // Auto-arm exactly once after indicators ready
