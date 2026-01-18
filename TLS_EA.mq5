@@ -18,12 +18,12 @@ input int    SlippagePoints     = 30;
 input long   MagicNumber        = 8386272000; // magic number to tracking orders/positions by this EA
 
 // Risk & SL/BE rules
-input double RiskUSDPerTrade       = 50.0; // risk per trade in USD
-input int    BufferPips            = 5.0;      // SL buffer from HA pair in PIPS
-input double SLMaxPips             = 50.0;
+input double RiskUSDPerTrade       = 40.0; // risk per trade in USD
+input int    BufferPips            = 5;      // SL buffer from HA pair in PIPS
+input double SLMaxPips             = 70.0;
 input int    SL_LookbackBars       = 200;   // lookback to find nearest HA pair
 input double RiskReward            = 2.0;   // TP = RiskReward * Risk (R)
-input double RangeChannelEMA       = 20.0;  // distance between HighLine and LowLine in PIPS minimum
+input double RangeChannelEMA       = 10.0;  // distance between HighLine and LowLine in PIPS minimum
 
 // buffer->scan lookback for lines
 input int    LineScanLookbackBars  = 300;
@@ -38,7 +38,7 @@ input int    CrossScanLookbackBars = 500;  // scan to find latest cross dot
 //   - no new trades
 //   - cancel all pendings
 //   - close all running positions
-input double NoNewTradesBeforeEndH     = 2.0;  // forbidden when <= this many hours to session end
+input double NoNewTradesBeforeEndH     = 0.1;  // forbidden when <= this many hours to session end
 input int    SessionForceThrottleSec   = 120;  // throttle forced cancel/close (seconds)
 
 //=========================== TRADE WINDOW MODE (FULLDAY vs SESSIONS) ========
@@ -72,8 +72,8 @@ input int NYEndHour     = 0;   // crosses midnight
 input int NYEndMin      = 0;
 
 // Time conversion (server -> VN). IMPORTANT: set broker server offset correctly.
-input int VNOffsetFromUTC     = 7; // VN is UTC+7
-input int ServerOffsetFromUTC = 0; // broker server offset vs UTC (e.g. 2 or 3). 0 if server is UTC.
+input int VNOffsetFromUTC     = 7; // VNOffsetFromUTC
+input int ServerOffsetFromUTC = 0; // ServerOffsetFromUTC
 
 //=========================== DD (SESSION, REALIZED) ==================
 // DD is computed from SESSION OPEN -> now using realized PnL (closed deals only).
