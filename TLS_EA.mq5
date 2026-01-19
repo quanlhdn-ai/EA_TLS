@@ -1017,8 +1017,11 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
    if(rangePips < RangeChannelEMA)
+   {
+      PrintFormat("SKIP BUY (range too small): High=%.3f Low=%.3f Range=%.1f pips < Min=%.1f",
+                  highLine1, lowLine1, rangePips, RangeChannelEMA);
       return false;
-
+   }
    long key = LineKey(highLine1);
    if(usedHighLineKey != 0 && key == usedHighLineKey) return false;
 
