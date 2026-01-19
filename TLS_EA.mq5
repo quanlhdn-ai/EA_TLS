@@ -138,8 +138,17 @@ int lastEmaBars = 0;
 //============================== UTILS ==============================
 double PipSize()
 {
-   // 5/3 digits: pip=10*point ; 2 digits metals: pip=10*point ; others: point
-   if(_Digits == 5 || _Digits == 3 || _Digits == 2) return 100.0 * _Point;
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+
+   // Other CFDs: tick 0.1 = 10 USD → pip = tick
+   if(tickValue == 1.0 && tickSize == 0.01)
+      return 0.1;
+
+   // Forex 5-digit / gold 3-digit
+   if(_Digits == 3 || _Digits == 5)
+      return 100.0 * _Point;
+
    return _Point;
 }
 
