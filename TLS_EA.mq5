@@ -21,7 +21,7 @@ input long   MagicNumber        = 8386272000; // magic number to tracking orders
 input double RiskUSDPerTrade       = 40.0; // risk per trade in USD
 input int    BufferPips            = 5;      // SL buffer from HA pair in PIPS
 input double SLMaxPips             = 70.0;
-input int    SL_LookbackBars       = 200;   // lookback to find nearest HA pair
+input int    SL_LookbackBars       = 500;   // lookback to find nearest HA pair
 input double RiskReward            = 2.0;   // TP = RiskReward * Risk (R)
 input double RangeChannelEMA       = 10.0;  // distance between HighLine and LowLine in PIPS minimum
 
@@ -76,14 +76,10 @@ input int VNOffsetFromUTC     = 7; // VNOffsetFromUTC
 input int ServerOffsetFromUTC = 0; // ServerOffsetFromUTC
 
 //=========================== DD (SESSION, REALIZED) ==================
-// DD is computed from SESSION OPEN -> now using realized PnL (closed deals only).
-// Additionally: pre-emptive block if (loss + RiskUSDPerTrade) > limit.
 input double DailyDD_Percent    = 3.0; // DD limit (% of account balance)
 input bool   IsCancelPendingsWhenDDHit = true;
 
 //=========================== PROFIT TARGET (SESSION, REALIZED) ======
-// Profit target is computed from SESSION OPEN -> now using realized PnL (closed deals only).
-// When hit: block new trades until next session starts.
 input double DailyProfitTargetUSD     = 0.0;   // profit target (account currency)
 input bool   IsForceCloseWhenProfitHit  = false;
 input bool   IsCancelPendingsWhenProfitHit = true;
@@ -120,11 +116,9 @@ datetime lastKnownSessionEnd        = 0;
 bool     waitingBUY  = false;
 bool     waitingSELL = false;
 
-// ---------- one-use-per-line tracking ----------
-long activeHighKey    = 0;  // current HighLine key (resets when HighLine changes)
-long activeLowKey     = 0;  // current LowLine key (resets when LowLine changes)
-long usedHighLineKey  = 0;  // HighLine key already USED (market OR limit placed)
-long usedLowLineKey   = 0;  // LowLine key already USED (market OR limit placed)
+// For comment only
+long lastUsedHighKey = 0;
+long lastUsedLowKey  = 0;
 
 // current cross (for comment)
 string   currentCrossText  = "None";  // "Cross Up" / "Cross Down" / "Cross" / "None"
@@ -286,12 +280,11 @@ bool GetCurrentSymbolSessionWindow(datetime now, datetime &sOut, datetime &eOut)
    MqlDateTime t; TimeToStruct(now, t);
    int dow = t.day_of_week; // 0=Sun ... 6=Sat
 
-   // Scan possible session indexes (usually 1-3, keep safe 10)
    for(int idx = 0; idx < 10; idx++)
    {
       datetime from=0, to=0;
       if(!SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dow, idx, from, to))
-         break; // no more sessions for this day
+         break;
 
       if(from == 0 && to == 0)
          continue;
@@ -467,22 +460,6 @@ bool HasPosition(ENUM_POSITION_TYPE ptype, ulong &ticketOut)
    return false;
 }
 
-bool HasBuyExposure()
-{
-   ulong tk=0;
-   if(HasPosition(POSITION_TYPE_BUY, tk)) return true;
-   if(HasPending(ORDER_TYPE_BUY_LIMIT, tk)) return true;
-   return false;
-}
-
-bool HasSellExposure()
-{
-   ulong tk=0;
-   if(HasPosition(POSITION_TYPE_SELL, tk)) return true;
-   if(HasPending(ORDER_TYPE_SELL_LIMIT, tk)) return true;
-   return false;
-}
-
 // Cancel pending if price hits its TP before being filled
 void CancelPendingIfTPHit()
 {
@@ -516,8 +493,7 @@ void CancelPendingIfTPHit()
 }
 
 //=================== SESSION ENFORCEMENT ============================
-// In forbidden zone: cancel ALL pendings (any type) + close ALL positions.
-// Throttled to avoid spamming.
+// In forbidden zone: cancel ALL pendings (any type) + close ALL positions. Throttled.
 void EnforceForbiddenZone()
 {
    datetime sessEnd = 0;
@@ -531,7 +507,6 @@ void EnforceForbiddenZone()
 
    datetime now = TimeCurrent();
 
-   // 1-lan-per-session-end-ish + throttle
    bool newKey = (sessEnd > 0 && sessEnd != lastKnownSessionEnd);
 
    if(!newKey)
@@ -543,7 +518,7 @@ void EnforceForbiddenZone()
    lastSessionForceActionTime = now;
    if(sessEnd > 0) lastKnownSessionEnd = sessEnd;
 
-   // 1) cancel all pendings (any type)
+   // cancel all pendings
    for(int i=OrdersTotal()-1;i>=0;i--)
    {
       ulong otk = OrderGetTicket(i);
@@ -562,7 +537,7 @@ void EnforceForbiddenZone()
       }
    }
 
-   // 2) close all positions
+   // close all positions
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong ptk = PositionGetTicket(i);
@@ -575,7 +550,6 @@ void EnforceForbiddenZone()
       trade.PositionClose(ptk);
    }
 
-   // 3) clear waiting states
    waitingBUY = false;
    waitingSELL = false;
 }
@@ -623,7 +597,6 @@ void ResetSessionDDIfNeeded()
       sessionStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
       sessionLossLimit    = sessionStartBalance * (DailyDD_Percent/100.0);
 
-      // Profit target baseline for this session
       sessionProfitTarget = DailyProfitTargetUSD;
 
       ddBlocked = false;
@@ -647,7 +620,6 @@ void UpdateSessionProfitGate()
       return;
    }
 
-   // Use the same realized pnl you already compute from deals
    double pnl = RealizedPnLInRange(sessionStartTime, TimeCurrent());
    lastSessionRealizedPnL = pnl;
 
@@ -868,18 +840,14 @@ void AutoArmFromLatestCross()
 
    if(dir == "Cross Up")
    {
-      if(!HasBuyExposure())
-         waitingBUY = true;
-
+      waitingBUY = true;
       waitingSELL = false;
       return;
    }
 
    if(dir == "Cross Down")
    {
-      if(!HasSellExposure())
-         waitingSELL = true;
-
+      waitingSELL = true;
       waitingBUY = false;
       return;
    }
@@ -912,7 +880,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    currentCrossPrice = dot1;
    eventPrice        = dot1;
 
-   // 2) Read EMA10 (buffer 0) & EMA39 (buffer 1) at bar1 and bar2
+   // Read EMA10 (buffer 0) & EMA39 (buffer 1) at bar1 and bar2
    double s1[1], s2[1], l1[1], l2[1];
    int rs1 = CopyBuffer(emaHandle, 0, 1, 1, s1); // Short MA bar1
    int rs2 = CopyBuffer(emaHandle, 0, 2, 1, s2); // Short MA bar2
@@ -945,71 +913,67 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    currentCrossText = "Cross";
 }
 
-//=================== one-use-per-line tracking ======================
+//=================== ONE-USE PER LINE ======================
 long LineKey(double price)
 {
    return (long)MathRound(price / _Point);
 }
 
-void UpdateLineKeysAndResetIfChanged()
+string LineUsedName(bool isBuy, long key)
 {
-   double hlArr[1];
-   double llArr[1];
+   // Persist across restarts; separate BUY vs SELL lines.
+   return _Symbol + "_" + IntegerToString((int)_Period) + "_" + (isBuy ? "BUY" : "SELL") + "_" + (string)key;
+}
 
-   bool hasH = (CopyBuffer(emaHandle, 3, 0, 1, hlArr) == 1 && hlArr[0] != EMPTY_VALUE);
-   bool hasL = (CopyBuffer(emaHandle, 4, 0, 1, llArr) == 1 && llArr[0] != EMPTY_VALUE);
+bool IsLineUsed(bool isBuy, long key)
+{
+   return GlobalVariableCheck(LineUsedName(isBuy, key));
+}
 
-   if(hasH)
-   {
-      long k = LineKey(hlArr[0]);
-      if(activeHighKey == 0) activeHighKey = k;
-      if(k != activeHighKey)
-      {
-         activeHighKey   = k;
-         usedHighLineKey = 0;
-      }
-   }
+void MarkLineUsed(bool isBuy, long key)
+{
+   string name = LineUsedName(isBuy, key);
+   if(!GlobalVariableCheck(name))
+      GlobalVariableSet(name, (double)TimeCurrent());
 
-   if(hasL)
-   {
-      long k = LineKey(llArr[0]);
-      if(activeLowKey == 0) activeLowKey = k;
-      if(k != activeLowKey)
-      {
-         activeLowKey   = k;
-         usedLowLineKey = 0;
-      }
-   }
+   if(isBuy) lastUsedHighKey = key;
+   else      lastUsedLowKey  = key;
 }
 
 //=================== BREAKOUT CHECKS =========================
-// Rule: if HighLine/LowLine already USED once -> never use again until line changes
 bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 {
    highKeyOut = 0;
    if(!waitingBUY) return false;
-   if(HasBuyExposure()) { waitingBUY = false; return false; }
 
-   // --- Read HA candle (bar 1) ---
+   // HA bar1
    double haO,haH,haL,haC,haCol;
    if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
 
-   // HA must be bullish
+   // HA bullish
    if(haCol != 0.0) return false;
 
-   // Read HighLine at bar 1
+   // HighLine bar1
    double highLine1;
    if(!ReadHighLineAtShift(1, highLine1)) return false;
 
-   // Must Have : HA need to close above HighLine
+   // HA close above HighLine
    if(haC <= highLine1) return false;
 
-   // candle not be a bearish candle (allow doji)
+   // normal candle not bearish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 < o1) return false;  // only exclude bearish candle
+   if(c1 < o1) return false;
 
-   // ====== min distance HighLine-LowLine filter ======
+   long key = LineKey(highLine1);
+
+   // If line already used -> skip
+   if(IsLineUsed(true, key))
+      return false;
+
+   MarkLineUsed(true, key);
+
+   // ===== range filter =====
    double lowLine1;
    if(!ReadLowLineAtShift(1, lowLine1)) return false;
 
@@ -1018,12 +982,10 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    if(rangePips < RangeChannelEMA)
    {
-      PrintFormat("SKIP BUY (range too small): High=%.3f Low=%.3f Range=%.1f pips < Min=%.1f",
-                  highLine1, lowLine1, rangePips, RangeChannelEMA);
+      PrintFormat("SKIP BUY (range too small) -> LINE USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d",
+                  highLine1, lowLine1, rangePips, RangeChannelEMA, key);
       return false;
    }
-   long key = LineKey(highLine1);
-   if(usedHighLineKey != 0 && key == usedHighLineKey) return false;
 
    highKeyOut = key;
    return true;
@@ -1033,28 +995,34 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 {
    lowKeyOut = 0;
    if(!waitingSELL) return false;
-   if(HasSellExposure()) { waitingSELL = false; return false; }
 
-   // --- Read HA candle (bar 1) ---
+   // HA bar1
    double haO,haH,haL,haC,haCol;
    if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
 
-   // HA must be bearish
+   // HA bearish
    if(haCol != 1.0) return false;
 
-   // Read LowLine at bar 1
+   // LowLine bar1
    double lowLine1;
    if(!ReadLowLineAtShift(1, lowLine1)) return false;
 
-   // Must Have : HA need to close below LowLine
+   // HA close below LowLine
    if(haC >= lowLine1) return false;
 
-   // candle not be a bullish candle (allow doji)
+   // normal candle not bullish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 > o1) return false;  // only exclude bullish candle
+   if(c1 > o1) return false;
 
-   // ====== min distance HighLine-LowLine filter ======
+   long key = LineKey(lowLine1);
+
+   if(IsLineUsed(false, key))
+      return false;
+
+   MarkLineUsed(false, key);
+
+   // ===== range filter =====
    double highLine1;
    if(!ReadHighLineAtShift(1, highLine1)) return false;
 
@@ -1063,13 +1031,10 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    if(rangePips < RangeChannelEMA)
    {
-      PrintFormat("SKIP SELL (range too small): High=%.3f Low=%.3f Range=%.1f pips < Min=%.1f",
-                  highLine1, lowLine1, rangePips, RangeChannelEMA);
+      PrintFormat("SKIP SELL (range too small) -> LINE USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d",
+                  highLine1, lowLine1, rangePips, RangeChannelEMA, key);
       return false;
    }
-
-   long key = LineKey(lowLine1);
-   if(usedLowLineKey != 0 && key == usedLowLineKey) return false;
 
    lowKeyOut = key;
    return true;
@@ -1087,16 +1052,6 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 
    // gate by Profit Target
    if(profitBlocked) return false;
-
-   // exposure rule
-   if(isBuy)
-   {
-      if(HasBuyExposure()) return false;
-   }
-   else
-   {
-      if(HasSellExposure()) return false;
-   }
 
    double sl;
    if(!FindSLFromNearestOppositeHAPair(isBuy, sl)) return false;
@@ -1132,9 +1087,6 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 
       if(ok)
       {
-         if(isBuy) usedHighLineKey = lineKey;
-         else      usedLowLineKey  = lineKey;
-
          if(isBuy) waitingBUY = false; else waitingSELL = false;
       }
       return ok;
@@ -1160,10 +1112,6 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 
    if(ok2)
    {
-      // IMPORTANT: even if later canceled/unfilled, this line is considered USED
-      if(isBuy) usedHighLineKey = lineKey;
-      else      usedLowLineKey  = lineKey;
-
       if(isBuy) waitingBUY = false; else waitingSELL = false;
    }
 
@@ -1386,8 +1334,8 @@ void UpdateChartComment()
    txt += FormatCrossLine() + "\n";
    txt += "waitingBUY    : " + (waitingBUY  ? "YES" : "NO") + "\n";
    txt += "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n";
-   txt += "usedHighKey   : " + IntegerToString((int)usedHighLineKey) + "\n";
-   txt += "usedLowKey    : " + IntegerToString((int)usedLowLineKey) + "\n";
+   txt += "LastUsedHighK : " + (string)lastUsedHighKey + "\n";
+   txt += "LastUsedLowK  : " + (string)lastUsedLowKey + "\n";
 
    // --- Risk gates ---
    txt += "SessStartBal  : " + DoubleToString(sessionStartBalance, 2) + "\n";
@@ -1396,7 +1344,6 @@ void UpdateChartComment()
    txt += "DD Blocked    : " + (ddBlocked ? "YES" : "NO") + "\n";
    Comment(txt);
 }
-
 
 //=================== INIT/DEINIT ===============================
 int OnInit()
@@ -1428,10 +1375,8 @@ int OnInit()
    waitingBUY = false;
    waitingSELL = false;
 
-   activeHighKey = 0;
-   activeLowKey  = 0;
-   usedHighLineKey = 0;
-   usedLowLineKey  = 0;
+   lastUsedHighKey = 0;
+   lastUsedLowKey  = 0;
 
    return INIT_SUCCEEDED;
 }
@@ -1446,15 +1391,11 @@ void OnDeinit(const int reason)
 //=================== TICK ===============================
 void OnTick()
 {
-   // update DD (session, realized + pre-emptive)
    UpdateSessionDDGate();
-   // update Profit target (session, realized)
    UpdateSessionProfitGate();
 
-   // pending TP hit cleanup
    CancelPendingIfTPHit();
 
-   // Always update comment
    UpdateChartComment();
 
    if(!IndicatorsReady())
@@ -1462,19 +1403,13 @@ void OnTick()
 
    DebugPrintEMAOnce();
 
-   // Update line keys and reset used if line changed
-   UpdateLineKeysAndResetIfChanged();
-
-   // Forbidden zone enforcement (mode-aware):
-   // cancel all pendings + close all positions + clear waiting, throttled.
    EnforceForbiddenZone();
 
-   // If forbidden, do nothing else (no arming, no entries)
    datetime endGate=0;
    if(IsForbiddenNow(endGate))
       return;
 
-   // Auto-arm exactly once after indicators ready
+   // Auto-arm once after indicators ready
    static bool didAutoArm = false;
    if(!didAutoArm)
    {
@@ -1494,18 +1429,16 @@ void OnTick()
       // Cancel pending on opposite cross
       CancelWaitingOnOppositeCross(crossUpNow, crossDownNow);
 
-      // Arm waiting states on cross (break can happen same bar or later; we don't care)
+      // Arm waiting regardless of exposure
       if(crossUpNow)
       {
-         if(!HasBuyExposure())
-            waitingBUY = true;
+         waitingBUY = true;
          waitingSELL = false;
       }
 
       if(crossDownNow)
       {
-         if(!HasSellExposure())
-            waitingSELL = true;
+         waitingSELL = true;
          waitingBUY = false;
       }
 
@@ -1515,14 +1448,10 @@ void OnTick()
          long highKey = 0, lowKey = 0;
 
          if(CheckBuyBreakoutOnClosedBar(highKey))
-         {
             ExecuteEntry(true, highKey);
-         }
 
          if(CheckSellBreakoutOnClosedBar(lowKey))
-         {
             ExecuteEntry(false, lowKey);
-         }
       }
    }
 
