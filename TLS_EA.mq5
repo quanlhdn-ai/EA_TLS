@@ -990,18 +990,24 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    if(!waitingBUY) return false;
    if(HasBuyExposure()) { waitingBUY = false; return false; }
 
-   double o1 = iOpen(_Symbol, _Period, 1);
-   double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 <= o1) return false; // BULLISH only
-
+   // --- Read HA candle (bar 1) ---
    double haO,haH,haL,haC,haCol;
    if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
-   if(haCol != 0.0) return false; // HA must be bullish
 
+   // HA must be bullish
+   if(haCol != 0.0) return false;
+
+   // Read HighLine at bar 1
    double highLine1;
    if(!ReadHighLineAtShift(1, highLine1)) return false;
 
-   if(c1 <= highLine1) return false; // break HighLine
+   // Must Have : HA need to close above HighLine
+   if(haC <= highLine1) return false;
+
+   // candle not be a bearish candle (allow doji)
+   double o1 = iOpen(_Symbol, _Period, 1);
+   double c1 = iClose(_Symbol, _Period, 1);
+   if(c1 < o1) return false;  // only exclude bearish candle
 
    // ====== min distance HighLine-LowLine filter ======
    double lowLine1;
@@ -1011,15 +1017,9 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
    if(rangePips < RangeChannelEMA)
-   {
-      PrintFormat("SKIP BUY (range too small): High=%.3f Low=%.3f Range=%.1f pips < Min=%.1f",
-                  highLine1, lowLine1, rangePips, RangeChannelEMA);
       return false;
-   }
 
    long key = LineKey(highLine1);
-
-   // Block if this line already used (market or limit already placed)
    if(usedHighLineKey != 0 && key == usedHighLineKey) return false;
 
    highKeyOut = key;
@@ -1032,18 +1032,24 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    if(!waitingSELL) return false;
    if(HasSellExposure()) { waitingSELL = false; return false; }
 
-   double o1 = iOpen(_Symbol, _Period, 1);
-   double c1 = iClose(_Symbol, _Period, 1);
-   if(c1 >= o1) return false; // BEARISH only
-
+   // --- Read HA candle (bar 1) ---
    double haO,haH,haL,haC,haCol;
    if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
-   if(haCol != 1.0) return false; // HA must be bearish
 
+   // HA must be bearish
+   if(haCol != 1.0) return false;
+
+   // Read LowLine at bar 1
    double lowLine1;
    if(!ReadLowLineAtShift(1, lowLine1)) return false;
 
-   if(c1 >= lowLine1) return false; // break LowLine
+   // Must Have : HA need to close below LowLine
+   if(haC >= lowLine1) return false;
+
+   // candle not be a bullish candle (allow doji)
+   double o1 = iOpen(_Symbol, _Period, 1);
+   double c1 = iClose(_Symbol, _Period, 1);
+   if(c1 > o1) return false;  // only exclude bullish candle
 
    // ====== min distance HighLine-LowLine filter ======
    double highLine1;
