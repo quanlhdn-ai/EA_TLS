@@ -176,6 +176,8 @@ bool IsNewBar()
    return false;
 }
 
+string SideText(bool isBuy){ return (isBuy ? "BUY" : "SELL"); }
+
 //=========================== VN SESSION HELPERS =====================
 int VNDeltaHours(){ return (VNOffsetFromUTC - ServerOffsetFromUTC); }
 
@@ -900,6 +902,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    {
       crossUp = true;
       currentCrossText = "Cross Up";
+      PrintFormat("[%s][CROSS][BUY] EMA Cross UP | price=%.*f", _Symbol, _Digits, eventPrice);
       return;
    }
 
@@ -907,6 +910,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    {
       crossDown = true;
       currentCrossText = "Cross Down";
+      PrintFormat("[%s][CROSS][SELL] EMA Cross DOWN | price=%.*f", _Symbol, _Digits, eventPrice);
       return;
    }
 
@@ -957,12 +961,19 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    double highLine1;
    if(!ReadHighLineAtShift(1, highLine1)) return false;
 
+   PrintFormat("[%s][CHECK][BUY] HAclose=%.*f HighLine=%.*f | HA>Line=%d",
+               _Symbol, _Digits, haC, _Digits, highLine1, (haC > highLine1));
+
    // HA close above HighLine
    if(haC <= highLine1) return false;
 
    // normal candle not bearish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
+   
+   PrintFormat("[%s][CANDLE][BUY] Open=%.*f Close=%.*f | Bull=%d Bear=%d",
+               _Symbol, _Digits, o1, _Digits, c1, (c1>=o1), (c1<o1));
+
    if(c1 < o1) return false;
 
    long key = LineKey(highLine1);
@@ -987,6 +998,9 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
       return false;
    }
 
+   PrintFormat("[%s][PASS][BUY] Conditions PASSED | line=%.*f key=%I64d range=%.1f",
+               _Symbol, _Digits, highLine1, key, rangePips);
+
    highKeyOut = key;
    return true;
 }
@@ -1007,12 +1021,19 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    double lowLine1;
    if(!ReadLowLineAtShift(1, lowLine1)) return false;
 
+   PrintFormat("[%s][CHECK][SELL] HAclose=%.*f LowLine=%.*f | HA<Line=%d",
+               _Symbol, _Digits, haC, _Digits, lowLine1, (haC < lowLine1));
+
    // HA close below LowLine
    if(haC >= lowLine1) return false;
 
    // normal candle not bullish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
+   
+   PrintFormat("[%s][CANDLE][SELL] Open=%.*f Close=%.*f | Bull=%d Bear=%d",
+               _Symbol, _Digits, o1, _Digits, c1, (c1<=o1), (c1>o1));
+
    if(c1 > o1) return false;
 
    long key = LineKey(lowLine1);
@@ -1036,6 +1057,9 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
       return false;
    }
 
+   PrintFormat("[%s][PASS][SELL] Conditions PASSED | line=%.*f key=%I64d range=%.1f",
+               _Symbol, _Digits, lowLine1, key, rangePips);
+               
    lowKeyOut = key;
    return true;
 }
@@ -1045,24 +1069,54 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 {
    // gate by forbidden zone (FULLDAY or SESSIONS)
    datetime endGate=0;
-   if(IsForbiddenNow(endGate)) return false;
+   if(IsForbiddenNow(endGate))
+   {
+      PrintFormat("[%s][SKIP][%s] ForbiddenNow | endGate=%s",
+                  _Symbol, SideText(isBuy),
+                  (endGate>0?TimeToString(endGate,TIME_DATE|TIME_MINUTES):"N/A"));
+      return false;
+   }
 
    // gate by DD
-   if(ddBlocked) return false;
+   if(ddBlocked)
+   {
+      PrintFormat("[%s][SKIP][%s] Blocked by DD", _Symbol, SideText(isBuy));
+      return false;
+   }
 
    // gate by Profit Target
-   if(profitBlocked) return false;
+   if(profitBlocked)
+   {
+      PrintFormat("[%s][SKIP][%s] Blocked by ProfitTarget", _Symbol, SideText(isBuy));
+      return false;
+   }
 
    double sl;
-   if(!FindSLFromNearestOppositeHAPair(isBuy, sl)) return false;
+   if(!FindSLFromNearestOppositeHAPair(isBuy, sl))
+   {
+      PrintFormat("[%s][SKIP][%s] No SL from HA pair", _Symbol, SideText(isBuy));
+      return false;
+   }
 
    double pip = PipSize();
 
    double entryNow = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    entryNow = NormalizePrice(entryNow);
 
-   if(isBuy && sl >= entryNow) return false;
-   if(!isBuy && sl <= entryNow) return false;
+   if(isBuy && sl >= entryNow)
+   {
+      PrintFormat("[%s][SKIP][BUY] Invalid SL >= entryNow | entryNow=%.*f sl=%.*f ET %I64d",
+                  _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
+      return false;
+   }
+
+   if(!isBuy && sl <= entryNow)
+   {
+      PrintFormat("[%s][SKIP][SELL] Invalid SL <= entryNow | entryNow=%.*f sl=%.*f ET %I64d",
+                  _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
+      return false;
+   }
+
 
    double riskDist = isBuy ? (entryNow - sl) : (sl - entryNow);
    if(riskDist <= 0) return false;
@@ -1072,24 +1126,48 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
 
+   PrintFormat("[%s][SETUP][%s] entryNow=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f ET %I64d",
+               _Symbol, SideText(isBuy),
+               _Digits, entryNow, _Digits, sl, riskPips, SLMaxPips, lineKey);
+
    // Case 1: within SL_MAX => MARKET
    if(riskPips <= SLMaxPips + 1e-9)
    {
       double lots = CalcLotsByRiskUSD(entryNow, sl);
-      if(lots <= 0) return false;
+      if(lots <= 0)
+      {
+         PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entry=%.*f sl=%.*f ET %I64d",
+                     _Symbol, SideText(isBuy), _Digits, entryNow, _Digits, sl, lineKey);
+         return false;
+      }
 
       double tp = isBuy ? (entryNow + RiskReward * riskDist) : (entryNow - RiskReward * riskDist);
       tp = NormalizePrice(tp);
 
-      bool ok = false;
-      if(isBuy) ok = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
-      else      ok = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
+      bool isSuccess = false;
+      if(isBuy) isSuccess = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
+      else      isSuccess = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
 
-      if(ok)
+      if(isSuccess)
       {
+         double entryFill = trade.ResultPrice();
+         PrintFormat("[%s][ORDER][%s] MARKET SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f ET %I64d",
+                     _Symbol, SideText(isBuy),
+                     _Digits, entryFill, lots,
+                     _Digits, sl, _Digits, tp, lineKey);
+
          if(isBuy) waitingBUY = false; else waitingSELL = false;
       }
-      return ok;
+      else
+      {
+         PrintFormat("[%s][FAIL][%s] MARKET | ret=%d %s | Vol=%.2f SL=%.*f TP=%.*f ET %I64d",
+                     _Symbol, SideText(isBuy),
+                     trade.ResultRetcode(),
+                     trade.ResultRetcodeDescription(),
+                     lots, _Digits, sl, _Digits, tp, lineKey);
+      }
+
+      return isSuccess;
    }
 
    // Case 2: too large => LIMIT so EntryLimit->SL == SL_MAX
@@ -1101,21 +1179,34 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    double tpLimit = isBuy ? (entryLimit + RiskReward * maxDist) : (entryLimit - RiskReward * maxDist);
    tpLimit = NormalizePrice(tpLimit);
 
-   double lots2 = CalcLotsByRiskUSD(entryLimit, sl);
-   if(lots2 <= 0) return false;
+   double lotsizeLimit = CalcLotsByRiskUSD(entryLimit, sl);
+   if(lotsizeLimit <= 0) {
+      PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entryLimit=%.*f sl=%.*f ET %I64d",
+                  _Symbol, SideText(isBuy), _Digits, entryLimit, _Digits, sl, lineKey);
 
-   bool ok2 = false;
+      return false;
+   };
+
+   bool isLimitSuccess = false;
    if(isBuy)
-      ok2 = trade.BuyLimit(lots2, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "BUY LIMIT SL_MAX");
+      isLimitSuccess = trade.BuyLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "BUY LIMIT SL_MAX");
    else
-      ok2 = trade.SellLimit(lots2, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "SELL LIMIT SL_MAX");
-
-   if(ok2)
+      isLimitSuccess = trade.SellLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "SELL LIMIT SL_MAX");
+   if(isLimitSuccess)
    {
       if(isBuy) waitingBUY = false; else waitingSELL = false;
    }
+   else
+   {
+      PrintFormat("[%s][FAIL][%s] LIMIT | ret=%d %s | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f ET %I64d",
+                  _Symbol, SideText(isBuy),
+                  trade.ResultRetcode(),
+                  trade.ResultRetcodeDescription(),
+                  _Digits, entryLimit, lotsizeLimit,
+                  _Digits, sl, _Digits, tpLimit, lineKey);
+   }
 
-   return ok2;
+   return isLimitSuccess;
 }
 
 //=================== MANAGEMENT ===============================
