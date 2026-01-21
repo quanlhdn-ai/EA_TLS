@@ -539,16 +539,18 @@ void EnforceForbiddenZone()
    }
 
    // close all positions
-   for(int i=PositionsTotal()-1;i>=0;i--)
-   {
-      ulong ptk = PositionGetTicket(i);
-      if(ptk==0) continue;
-      if(!PositionSelectByTicket(ptk)) continue;
+   if(forbidden && TradeWindowMode == TRADEWINDOW_FULLDAY){
+      for(int i=PositionsTotal()-1;i>=0;i--)
+      {
+         ulong ptk = PositionGetTicket(i);
+         if(ptk==0) continue;
+         if(!PositionSelectByTicket(ptk)) continue;
 
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
 
-      trade.PositionClose(ptk);
+         trade.PositionClose(ptk);
+      }                   
    }
 
    waitingBUY = false;
