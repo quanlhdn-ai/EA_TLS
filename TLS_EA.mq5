@@ -25,6 +25,10 @@ input int    SL_LookbackBars       = 500;   // lookback to find nearest HA pair
 input double RiskReward            = 2.0;   // TP = RiskReward * Risk (R)
 input double RangeChannelEMA       = 10.0;  // distance between HighLine and LowLine in PIPS minimum
 
+//=========================== DD (SESSION, REALIZED) ==================
+input double DailyDD_Percent    = 3.0; // DD limit (% of account balance)
+input bool   IsCancelPendingsWhenDDHit = true;
+
 // buffer->scan lookback for lines
 input int    LineScanLookbackBars  = 300;
 
@@ -32,12 +36,6 @@ input int    LineScanLookbackBars  = 300;
 input int    CrossScanLookbackBars = 500;  // scan to find latest cross dot
 
 //=========================== SESSION (BROKER MARKET HOURS) =========
-// Session = broker trading session of the symbol (market open -> market close).
-// Forbidden zone when: outside session OR <= X hours before session end.
-// In forbidden zone:
-//   - no new trades
-//   - cancel all pendings
-//   - close all running positions
 input double NoNewTradesBeforeEndH     = 0.1;  // forbidden when <= this many hours to session end
 input int    SessionForceThrottleSec   = 120;  // throttle forced cancel/close (seconds)
 
@@ -75,9 +73,6 @@ input int NYEndMin      = 0;
 input int VNOffsetFromUTC     = 7; // VNOffsetFromUTC
 input int ServerOffsetFromUTC = 0; // ServerOffsetFromUTC
 
-//=========================== DD (SESSION, REALIZED) ==================
-input double DailyDD_Percent    = 3.0; // DD limit (% of account balance)
-input bool   IsCancelPendingsWhenDDHit = true;
 
 //=========================== PROFIT TARGET (SESSION, REALIZED) ======
 input double DailyProfitTargetUSD     = 0.0;   // profit target (account currency)
@@ -125,6 +120,10 @@ string   currentCrossText  = "None";  // "Cross Up" / "Cross Down" / "Cross" / "
 double   currentCrossPrice = 0.0;
 datetime currentCrossTime  = 0;
 
+//=================== REGIME (one setup per regime) ==================
+// currentRegimeEpoch changes on each TRUE cross, and also gets set at startup by AutoArm (ý #6)
+datetime currentRegimeEpoch = 0;
+
 // last BarsCalculated (for comment)
 int lastHaBars  = 0;
 int lastEmaBars = 0;
@@ -132,7 +131,7 @@ int lastEmaBars = 0;
 //============================== UTILS ==============================
 double PipSize()
 {
-   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
 
    // Other CFDs: tick 0.1 = 10 USD → pip = tick
@@ -771,6 +770,7 @@ double CalcLotsByRiskUSD(double entry, double sl)
 }
 
 //=================== CROSS SCAN + AUTO ARM ==========================
+// UPDATED: Determine Cross direction by EMA short/long (same logic as GetCrossEventOnClosedBar)
 bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirOut, datetime &timeOut)
 {
    shiftOut = -1;
@@ -789,36 +789,37 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
       if(d == 0.0 || d == EMPTY_VALUE)
          continue;
 
+      // found latest dot
       shiftOut = sh;
       priceOut = d;
       timeOut  = iTime(_Symbol, _Period, sh);
 
-      double low1[1], low2[1], high1[1], high2[1];
-      int rL1 = CopyBuffer(emaHandle, 4, sh,   1, low1);
-      int rL2 = CopyBuffer(emaHandle, 4, sh+1, 1, low2);
-      int rH1 = CopyBuffer(emaHandle, 3, sh,   1, high1);
-      int rH2 = CopyBuffer(emaHandle, 3, sh+1, 1, high2);
+      // Determine direction by EMA short/long at sh and sh+1
+      double s1[1], s2[1], l1[1], l2[1];
+      int rs1 = CopyBuffer(emaHandle, 0, sh,   1, s1);
+      int rs2 = CopyBuffer(emaHandle, 0, sh+1, 1, s2);
+      int rl1 = CopyBuffer(emaHandle, 1, sh,   1, l1);
+      int rl2 = CopyBuffer(emaHandle, 1, sh+1, 1, l2);
 
-      if(rL1==1 && rL2==1)
+      if(rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
       {
-         bool lowNow  = (low1[0] != EMPTY_VALUE);
-         bool lowPrev = (low2[0] != EMPTY_VALUE);
-         if(lowNow && (!lowPrev || MathAbs(low1[0]-low2[0]) > (_Point*0.5)))
-         {
-            dirOut = "Cross Up";
-            return true;
-         }
+         dirOut = "Cross";
+         return true;
       }
 
-      if(rH1==1 && rH2==1)
+      double short1 = s1[0], short2 = s2[0];
+      double long1  = l1[0], long2  = l2[0];
+
+      if(short1 > long1 && short2 <= long2)
       {
-         bool highNow  = (high1[0] != EMPTY_VALUE);
-         bool highPrev = (high2[0] != EMPTY_VALUE);
-         if(highNow && (!highPrev || MathAbs(high1[0]-high2[0]) > (_Point*0.5)))
-         {
-            dirOut = "Cross Down";
-            return true;
-         }
+         dirOut = "Cross Up";
+         return true;
+      }
+
+      if(short1 < long1 && short2 >= long2)
+      {
+         dirOut = "Cross Down";
+         return true;
       }
 
       dirOut = "Cross";
@@ -839,6 +840,7 @@ void AutoArmFromLatestCross()
    currentCrossText  = dir;
    currentCrossPrice = p;
    currentCrossTime  = t;
+   currentRegimeEpoch = t;
 
    if(dir == "Cross Up")
    {
@@ -917,7 +919,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    currentCrossText = "Cross";
 }
 
-//=================== ONE-USE PER LINE ======================
+//=================== ONE-USE PER LINE (PER REGIME) ==================
 long LineKey(double price)
 {
    return (long)MathRound(price / _Point);
@@ -925,17 +927,23 @@ long LineKey(double price)
 
 string LineUsedName(bool isBuy, long key)
 {
-   // Persist across restarts; separate BUY vs SELL lines.
-   return _Symbol + "_" + IntegerToString((int)_Period) + "_" + (isBuy ? "BUY" : "SELL") + "_" + (string)key;
+   // Regime-based key: same price but different regime epoch => NEW setup
+   long epoch = (long)currentRegimeEpoch;
+   return _Symbol + "_" + IntegerToString((int)_Period) + "_" +
+          (isBuy ? "BUY" : "SELL") + "_E" + (string)epoch + "_K" + (string)key;
 }
 
 bool IsLineUsed(bool isBuy, long key)
 {
+   // If regime not known yet, don't block by line-used
+   if(currentRegimeEpoch == 0) return false;
    return GlobalVariableCheck(LineUsedName(isBuy, key));
 }
 
 void MarkLineUsed(bool isBuy, long key)
 {
+   if(currentRegimeEpoch == 0) return;
+
    string name = LineUsedName(isBuy, key);
    if(!GlobalVariableCheck(name))
       GlobalVariableSet(name, (double)TimeCurrent());
@@ -978,11 +986,9 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    long key = LineKey(highLine1);
 
-   // If line already used -> skip
+   // If line already used in THIS regime -> skip
    if(IsLineUsed(true, key))
       return false;
-
-   MarkLineUsed(true, key);
 
    // ===== range filter =====
    double lowLine1;
@@ -993,13 +999,15 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    if(rangePips < RangeChannelEMA)
    {
-      PrintFormat("SKIP BUY (range too small) -> LINE USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d",
-                  highLine1, lowLine1, rangePips, RangeChannelEMA, key);
+      PrintFormat("SKIP BUY (range too small) -> NOT MARK USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
+                  highLine1, lowLine1, rangePips, RangeChannelEMA, key,
+                  (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
       return false;
    }
 
-   PrintFormat("[%s][PASS][BUY] Conditions PASSED | line=%.*f key=%I64d range=%.1f",
-               _Symbol, _Digits, highLine1, key, rangePips);
+   PrintFormat("[%s][PASS][BUY] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
+               _Symbol, _Digits, highLine1, key, rangePips,
+               (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
 
    highKeyOut = key;
    return true;
@@ -1030,7 +1038,7 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    // normal candle not bullish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
-   
+
    PrintFormat("[%s][CANDLE][SELL] Open=%.*f Close=%.*f | Bull=%d Bear=%d",
                _Symbol, _Digits, o1, _Digits, c1, (c1<=o1), (c1>o1));
 
@@ -1038,10 +1046,9 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    long key = LineKey(lowLine1);
 
+   // If line already used in THIS regime -> skip
    if(IsLineUsed(false, key))
       return false;
-
-   MarkLineUsed(false, key);
 
    // ===== range filter =====
    double highLine1;
@@ -1052,14 +1059,16 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    if(rangePips < RangeChannelEMA)
    {
-      PrintFormat("SKIP SELL (range too small) -> LINE USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d",
-                  highLine1, lowLine1, rangePips, RangeChannelEMA, key);
+      PrintFormat("SKIP SELL (range too small) -> NOT MARK USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
+                  highLine1, lowLine1, rangePips, RangeChannelEMA, key,
+                  (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
       return false;
    }
 
-   PrintFormat("[%s][PASS][SELL] Conditions PASSED | line=%.*f key=%I64d range=%.1f",
-               _Symbol, _Digits, lowLine1, key, rangePips);
-               
+   PrintFormat("[%s][PASS][SELL] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
+               _Symbol, _Digits, lowLine1, key, rangePips,
+               (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
+
    lowKeyOut = key;
    return true;
 }
@@ -1105,14 +1114,14 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 
    if(isBuy && sl >= entryNow)
    {
-      PrintFormat("[%s][SKIP][BUY] Invalid SL >= entryNow | entryNow=%.*f sl=%.*f ET %I64d",
+      PrintFormat("[%s][SKIP][BUY] Invalid SL >= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
                   _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
       return false;
    }
 
    if(!isBuy && sl <= entryNow)
    {
-      PrintFormat("[%s][SKIP][SELL] Invalid SL <= entryNow | entryNow=%.*f sl=%.*f ET %I64d",
+      PrintFormat("[%s][SKIP][SELL] Invalid SL <= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
                   _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
       return false;
    }
@@ -1126,9 +1135,10 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
 
-   PrintFormat("[%s][SETUP][%s] entryNow=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f ET %I64d",
+   PrintFormat("[%s][SETUP][%s] entryNow=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f lineKey %I64d",
                _Symbol, SideText(isBuy),
-               _Digits, entryNow, _Digits, sl, riskPips, SLMaxPips, lineKey);
+               _Digits, entryNow, _Digits, sl, riskPips, SLMaxPips, lineKey,
+               (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
 
    // Case 1: within SL_MAX => MARKET
    if(riskPips <= SLMaxPips + 1e-9)
@@ -1136,7 +1146,7 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       double lots = CalcLotsByRiskUSD(entryNow, sl);
       if(lots <= 0)
       {
-         PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entry=%.*f sl=%.*f ET %I64d",
+         PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entry=%.*f sl=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy), _Digits, entryNow, _Digits, sl, lineKey);
          return false;
       }
@@ -1151,7 +1161,7 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       if(isSuccess)
       {
          double entryFill = trade.ResultPrice();
-         PrintFormat("[%s][ORDER][%s] MARKET SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f ET %I64d",
+         PrintFormat("[%s][ORDER][%s] MARKET SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy),
                      _Digits, entryFill, lots,
                      _Digits, sl, _Digits, tp, lineKey);
@@ -1160,7 +1170,7 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       }
       else
       {
-         PrintFormat("[%s][FAIL][%s] MARKET | ret=%d %s | Vol=%.2f SL=%.*f TP=%.*f ET %I64d",
+         PrintFormat("[%s][FAIL][%s] MARKET | ret=%d %s | Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy),
                      trade.ResultRetcode(),
                      trade.ResultRetcodeDescription(),
@@ -1180,25 +1190,39 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    tpLimit = NormalizePrice(tpLimit);
 
    double lotsizeLimit = CalcLotsByRiskUSD(entryLimit, sl);
-   if(lotsizeLimit <= 0) {
-      PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entryLimit=%.*f sl=%.*f ET %I64d",
+   if(lotsizeLimit <= 0)
+   {
+      PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entryLimit=%.*f sl=%.*f lineKey %I64d",
                   _Symbol, SideText(isBuy), _Digits, entryLimit, _Digits, sl, lineKey);
-
       return false;
-   };
+   }
 
    bool isLimitSuccess = false;
-   if(isBuy)
-      isLimitSuccess = trade.BuyLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "BUY LIMIT SL_MAX");
-   else
-      isLimitSuccess = trade.SellLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "SELL LIMIT SL_MAX");
+   if(isBuy){
+   isLimitSuccess = trade.BuyLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "BUY LIMIT SL_MAX");
+   PrintFormat("[%s][ORDER][LIMIT][SEND] side=%s entry=%.*f vol=%.2f sl=%.*f tp=%.*f SLMaxPips=%.1f lineKey=%I64d",
+               _Symbol, SideText(isBuy),
+               _Digits, entryLimit, lotsizeLimit,
+               _Digits, sl,
+               _Digits, tpLimit,
+               SLMaxPips, lineKey);
+   }
+   else{
+   isLimitSuccess = trade.SellLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "SELL LIMIT SL_MAX");
+   PrintFormat("[%s][ORDER][LIMIT][SEND] side=%s entry=%.*f vol=%.2f sl=%.*f tp=%.*f SLMaxPips=%.1f lineKey=%I64d",
+            _Symbol, SideText(isBuy),
+            _Digits, entryLimit, lotsizeLimit,
+            _Digits, sl,
+            _Digits, tpLimit,
+            SLMaxPips, lineKey);
+   }
    if(isLimitSuccess)
    {
       if(isBuy) waitingBUY = false; else waitingSELL = false;
    }
    else
    {
-      PrintFormat("[%s][FAIL][%s] LIMIT | ret=%d %s | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f ET %I64d",
+      PrintFormat("[%s][FAIL][%s] LIMIT | ret=%d %s | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
                   _Symbol, SideText(isBuy),
                   trade.ResultRetcode(),
                   trade.ResultRetcodeDescription(),
@@ -1423,10 +1447,11 @@ void UpdateChartComment()
           " (min=" + DoubleToString(RangeChannelEMA, 1) + ")\n";
 
    txt += FormatCrossLine() + "\n";
+   txt += "RegimeEpoch   : " + (currentRegimeEpoch>0 ? TimeToString(currentRegimeEpoch, TIME_DATE|TIME_MINUTES) : "0") + "\n";
    txt += "waitingBUY    : " + (waitingBUY  ? "YES" : "NO") + "\n";
    txt += "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n";
    txt += "LastUsedHighK : " + (string)lastUsedHighKey + "\n";
-   txt += "LastUsedLowK  : " + (string)lastUsedLowKey + "\n";
+   txt += "LastUsedLowK  : " + (string)lastUsedLowKey  + "\n";
 
    // --- Risk gates ---
    txt += "SessStartBal  : " + DoubleToString(sessionStartBalance, 2) + "\n";
@@ -1463,6 +1488,8 @@ int OnInit()
    currentCrossPrice = 0.0;
    currentCrossTime  = 0;
 
+   currentRegimeEpoch = 0;
+
    waitingBUY = false;
    waitingSELL = false;
 
@@ -1497,7 +1524,9 @@ void OnTick()
    EnforceForbiddenZone();
 
    datetime endGate=0;
-   if(IsForbiddenNow(endGate))
+   bool forbiddenNow = IsForbiddenNow(endGate);
+
+   if(forbiddenNow && TradeWindowMode == TRADEWINDOW_FULLDAY)
       return;
 
    // Auto-arm once after indicators ready
@@ -1517,6 +1546,10 @@ void OnTick()
       // Detect REAL cross on last closed bar
       GetCrossEventOnClosedBar(crossUpNow, crossDownNow, crossPriceNow);
 
+      // Start new regime on TRUE cross (epoch = bar1 time)
+      if(crossUpNow || crossDownNow)
+         currentRegimeEpoch = iTime(_Symbol, _Period, 1);
+
       // Cancel pending on opposite cross
       CancelWaitingOnOppositeCross(crossUpNow, crossDownNow);
 
@@ -1533,17 +1566,50 @@ void OnTick()
          waitingBUY = false;
       }
 
-      // Trigger entries on breakout bar (bar1) whenever conditions meet
       if(!ddBlocked && !profitBlocked)
       {
          long highKey = 0, lowKey = 0;
 
+         // ===== BUY =====
          if(CheckBuyBreakoutOnClosedBar(highKey))
-            ExecuteEntry(true, highKey);
+         {
+            // skip setup to avoid FOMO
+            if(TradeWindowMode == TRADEWINDOW_SESSIONS && forbiddenNow)
+            {
+               PrintFormat("[%s][SKIP][BUY] Breakout OUTSIDE VN session -> MARK USED (anti-FOMO) | lineKey=%I64d epoch=%s endGate=%s",
+                           _Symbol, highKey,
+                           (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"),
+                           (endGate>0?TimeToString(endGate,TIME_DATE|TIME_MINUTES):"N/A"));
+               MarkLineUsed(true, highKey);
+               waitingBUY = false;
+            }
+            else
+            {
+               if(ExecuteEntry(true, highKey))
+                  MarkLineUsed(true, highKey);
+            }
+         }
 
+         // ===== SELL =====
          if(CheckSellBreakoutOnClosedBar(lowKey))
-            ExecuteEntry(false, lowKey);
+         {
+            if(TradeWindowMode == TRADEWINDOW_SESSIONS && forbiddenNow)
+            {
+               PrintFormat("[%s][SKIP][SELL] Breakout OUTSIDE VN session -> MARK USED (anti-FOMO) | lineKey=%I64d epoch=%s endGate=%s",
+                           _Symbol, lowKey,
+                           (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"),
+                           (endGate>0?TimeToString(endGate,TIME_DATE|TIME_MINUTES):"N/A"));
+               MarkLineUsed(false, lowKey);
+               waitingSELL = false;
+            }
+            else
+            {
+               if(ExecuteEntry(false, lowKey))
+                  MarkLineUsed(false, lowKey);
+            }
+         }
       }
+
    }
 
    // Manage positions (BE + opposite cross reaction)
