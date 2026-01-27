@@ -145,6 +145,13 @@ double PipSize()
    return _Point;
 }
 
+bool IsValidLevel(double v)
+{
+   if(v == EMPTY_VALUE) return false;
+   if(!MathIsValidNumber(v)) return false;
+   return true;
+}
+
 double NormalizePrice(double p){ return NormalizeDouble(p, _Digits); }
 
 double NormalizeVolume(double vol)
@@ -394,17 +401,41 @@ bool ReadHA(int shift, double &haOpen, double &haHigh, double &haLow, double &ha
 bool ReadHighLineAtShift(int shift, double &v)
 {
    double a[1];
-   if(CopyBuffer(emaHandle, 3, shift, 1, a) != 1) return false;
+
+   ResetLastError();
+   int r = CopyBuffer(emaHandle, 3, shift, 1, a);
+
+   if(r != 1)
+   {
+      // retry once (indicator may not be ready on first tick)
+      Sleep(1);
+      ResetLastError();
+      r = CopyBuffer(emaHandle, 3, shift, 1, a);
+      if(r != 1) return false;
+   }
+
    v = a[0];
-   return (v != EMPTY_VALUE);
+   return IsValidLevel(v);
 }
 
 bool ReadLowLineAtShift(int shift, double &v)
 {
    double a[1];
-   if(CopyBuffer(emaHandle, 4, shift, 1, a) != 1) return false;
+
+   ResetLastError();
+   int r = CopyBuffer(emaHandle, 4, shift, 1, a);
+
+   if(r != 1)
+   {
+      // retry once
+      Sleep(1);
+      ResetLastError();
+      r = CopyBuffer(emaHandle, 4, shift, 1, a);
+      if(r != 1) return false;
+   }
+
    v = a[0];
-   return (v != EMPTY_VALUE);
+   return IsValidLevel(v);
 }
 
 //=================== EXPOSURE HELPERS ===============================
@@ -1313,17 +1344,29 @@ void DebugPrintEMAOnce()
    if(done || !IsDebugOnce) return;
    done = true;
 
-   double b2[1], b3[1], b4[1];
-   int r2 = CopyBuffer(emaHandle, 2, 1, 1, b2); // CrossDot bar1
-   int r3 = CopyBuffer(emaHandle, 3, 0, 1, b3); // HighLine current
-   int r4 = CopyBuffer(emaHandle, 4, 0, 1, b4); // LowLine current
+   double dot1[1], h1[1], l1[1];
 
-   Print("DEBUG EMA: r2=",r2," dot1=", (r2==1?DoubleToString(b2[0],_Digits):"NA"),
-         " r3=",r3," high0=", (r3==1?DoubleToString(b3[0],_Digits):"NA"),
-         " r4=",r4," low0=",  (r4==1?DoubleToString(b4[0],_Digits):"NA"),
-         " haBars=", BarsCalculated(haHandle),
-         " emaBars=", BarsCalculated(emaHandle),
-         " err=", GetLastError());
+   ResetLastError();
+   int r2 = CopyBuffer(emaHandle, 2, 1, 1, dot1);
+   int e2 = GetLastError();
+
+   ResetLastError();
+   int r3 = CopyBuffer(emaHandle, 3, 1, 1, h1);
+   int e3 = GetLastError();
+
+   ResetLastError();
+   int r4 = CopyBuffer(emaHandle, 4, 1, 1, l1);
+   int e4 = GetLastError();
+
+   string dotText = (r2==1 ? (dot1[0]==EMPTY_VALUE ? "EMPTY" : DoubleToString(dot1[0], _Digits)) : "NA");
+   string hText   = (r3==1 ? (h1[0]==EMPTY_VALUE   ? "EMPTY" : DoubleToString(h1[0], _Digits))   : "NA");
+   string lText   = (r4==1 ? (l1[0]==EMPTY_VALUE   ? "EMPTY" : DoubleToString(l1[0], _Digits))   : "NA");
+
+   Print("DEBUG EMA: r2=",r2," err2=",e2," dot1=",dotText,
+         " | r3=",r3," err3=",e3," high1=",hText,
+         " | r4=",r4," err4=",e4," low1=",lText,
+         " | haBars=", BarsCalculated(haHandle),
+         " emaBars=", BarsCalculated(emaHandle));
 }
 
 //=================== CHART COMMENT ===============================
