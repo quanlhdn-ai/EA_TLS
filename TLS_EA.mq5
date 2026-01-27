@@ -18,6 +18,7 @@ input int    SlippagePoints     = 30;
 input long   MagicNumber        = 8386272000; // magic number to tracking orders/positions by this EA
 
 // Risk & SL/BE rules
+input bool   IsAllowBE = true;
 input double RiskUSDPerTrade       = 40.0; // risk per trade in USD
 input int    BufferPips            = 5;      // SL buffer from HA pair in PIPS
 input double SLMaxPips             = 70.0;
@@ -1306,11 +1307,16 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
 
       if(ptype == POSITION_TYPE_BUY)
       {
-         if((bid - entry) >= threshold)
+         // ===== BE at ~1R (OPTIONAL) =====
+         if(IsAllowBE)
          {
-            if(sl < entry) trade.PositionModify(ticket, entry, tp);
+            if((bid - entry) >= threshold)
+            {
+               if(sl < entry) trade.PositionModify(ticket, entry, tp);
+            }
          }
 
+         // ===== cross rules (KEEP SAME) =====
          if(crossDownNow)
          {
             if(isProfitable)
@@ -1321,11 +1327,16 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
       }
       else
       {
-         if((entry - ask) >= threshold)
+         // ===== BE at ~1R (OPTIONAL) =====
+         if(IsAllowBE)
          {
-            if(sl > entry) trade.PositionModify(ticket, entry, tp);
+            if((entry - ask) >= threshold)
+            {
+               if(sl > entry) trade.PositionModify(ticket, entry, tp);
+            }
          }
 
+         // ===== cross rules (KEEP SAME) =====
          if(crossUpNow)
          {
             if(isProfitable)
