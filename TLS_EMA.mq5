@@ -1,3 +1,4 @@
+#property strict
 #property indicator_chart_window
 #property indicator_buffers 5
 #property indicator_plots   5
@@ -40,33 +41,68 @@ double CrossDotBuffer[];
 double HighLineData[];
 double LowLineData[];
 
-//--- Global variables
-int handleShort;
-int handleLong;
+//--- Handles
+int handleShort = INVALID_HANDLE;
+int handleLong  = INVALID_HANDLE;
+
+//--- Persistent state
+static double   currentHighVal     = 0.0;
+static double   currentLowVal      = 0.0;
+static int      lastCrossUpIdx     = -1;   // shift index of last crossUp (closed bar)
+static int      lastCrossDownIdx   = -1;   // shift index of last crossDown (closed bar)
+static datetime lastBarTime0       = 0;
+
+//+------------------------------------------------------------------+
+//| Draw/update level line                                           |
+//+------------------------------------------------------------------+
+void DrawOrUpdateLevelLine(const string name, const datetime timeStart, const double price, const color clr)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_TREND, 0, timeStart, price, TimeCurrent(), price);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, true);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, false);
+      return;
+   }
+
+   datetime t0 = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 0);
+   double   p0 = ObjectGetDouble(0, name, OBJPROP_PRICE, 0);
+
+   if(t0 != timeStart || p0 != price)
+   {
+      ObjectSetInteger(0, name, OBJPROP_TIME, 0, timeStart);
+      ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+      ObjectSetInteger(0, name, OBJPROP_TIME, 1, TimeCurrent());
+      ObjectSetDouble(0, name, OBJPROP_PRICE, 1, price);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, false);
+   }
+}
 
 //+------------------------------------------------------------------+
 //| Initialization                                                   |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   SetIndexBuffer(0, ShortMABuffer, INDICATOR_DATA);
-   SetIndexBuffer(1, LongMABuffer,  INDICATOR_DATA);
-   SetIndexBuffer(2, CrossDotBuffer,INDICATOR_DATA);
-   SetIndexBuffer(3, HighLineData,  INDICATOR_DATA);
-   SetIndexBuffer(4, LowLineData,   INDICATOR_DATA);
+   SetIndexBuffer(0, ShortMABuffer,  INDICATOR_DATA);
+   SetIndexBuffer(1, LongMABuffer,   INDICATOR_DATA);
+   SetIndexBuffer(2, CrossDotBuffer, INDICATOR_DATA);
+   SetIndexBuffer(3, HighLineData,   INDICATOR_DATA);
+   SetIndexBuffer(4, LowLineData,    INDICATOR_DATA);
 
-   ArraySetAsSeries(ShortMABuffer, true);
-   ArraySetAsSeries(LongMABuffer, true);
+   ArraySetAsSeries(ShortMABuffer,  true);
+   ArraySetAsSeries(LongMABuffer,   true);
    ArraySetAsSeries(CrossDotBuffer, true);
-   ArraySetAsSeries(HighLineData, true);
-   ArraySetAsSeries(LowLineData, true);
-
-   PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-   PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-
+   ArraySetAsSeries(HighLineData,   true);
+   ArraySetAsSeries(LowLineData,    true);
 
    PlotIndexSetInteger(2, PLOT_ARROW, 159);
    PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
    handleShort = iMA(_Symbol, _Period, InpShortPeriod, 0, InpMethod, PRICE_CLOSE);
    handleLong  = iMA(_Symbol, _Period, InpLongPeriod,  0, InpMethod, PRICE_CLOSE);
@@ -75,22 +111,6 @@ int OnInit()
       return(INIT_FAILED);
 
    return(INIT_SUCCEEDED);
-}
-
-//+------------------------------------------------------------------+
-//| Draw level line                                                  |
-//+------------------------------------------------------------------+
-void DrawLevelLine(string name, datetime timeStart, double price, color clr)
-{
-   if(ObjectFind(0, name) >= 0)
-      ObjectDelete(0, name);
-
-   ObjectCreate(0, name, OBJ_TREND, 0, timeStart, price, TimeCurrent(), price);
-
-   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, true);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
 }
 
 //+------------------------------------------------------------------+
@@ -107,17 +127,8 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
 {
-   if(rates_total < InpLongPeriod + 2) return(0);
-
-   int copiedShort = CopyBuffer(handleShort, 0, 0, rates_total, ShortMABuffer);
-   int copiedLong  = CopyBuffer(handleLong,  0, 0, rates_total, LongMABuffer);
-   if(copiedShort <= 0 || copiedLong <= 0) return(0);
-
-   // --- STATIC STATE ---
-   static double currentHighVal = 0.0;
-   static double currentLowVal  = 0.0;
-   static int    lastCrossUpIdx   = -1;
-   static int    lastCrossDownIdx = -1;
+   if(rates_total < InpLongPeriod + 2)
+      return 0;
 
    // Reset on load
    if(prev_calculated == 0)
@@ -126,18 +137,145 @@ int OnCalculate(const int rates_total,
       currentLowVal    = 0.0;
       lastCrossUpIdx   = -1;
       lastCrossDownIdx = -1;
+      lastBarTime0     = 0;
 
       ObjectDelete(0, "TLS_HighLine");
       ObjectDelete(0, "TLS_LowLine");
+
+      // clear buffers once
+      for(int j=rates_total-1; j>=0; --j)
+      {
+         CrossDotBuffer[j] = EMPTY_VALUE;
+         HighLineData[j]   = EMPTY_VALUE;
+         LowLineData[j]    = EMPTY_VALUE;
+      }
    }
 
+   if(prev_calculated > 0 && lastBarTime0 == time[0])
+   {
+      CopyBuffer(handleShort, 0, 0, 2, ShortMABuffer);
+      CopyBuffer(handleLong,  0, 0, 2, LongMABuffer);
 
-   int clr_from = rates_total - 1;
-   int clr_to   = 0;
-   for(int j = clr_from; j >= clr_to; j--)
-      CrossDotBuffer[j] = EMPTY_VALUE;
+      CrossDotBuffer[0] = EMPTY_VALUE;
 
-   for(int i = rates_total - 2; i >= 1; i--)
+      HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
+      LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
+      HighLineData[1]   = HighLineData[0];
+      LowLineData[1]    = LowLineData[0];
+
+      return rates_total;
+   }
+
+   int newBars = 1;
+   if(prev_calculated > 0)
+   {
+      newBars = rates_total - prev_calculated;
+      if(newBars < 1) newBars = 1;
+      if(newBars > rates_total - 2) newBars = rates_total - 2;
+   }
+   else
+   {
+      newBars = rates_total - 2;
+      if(newBars < 1) newBars = 1;
+   }
+
+   bool isNewBar = (lastBarTime0 != 0 && time[0] != lastBarTime0);
+   if(isNewBar && prev_calculated > 0)
+   {
+      if(lastCrossUpIdx   >= 0) lastCrossUpIdx   += newBars;
+      if(lastCrossDownIdx >= 0) lastCrossDownIdx += newBars;
+   }
+   lastBarTime0 = time[0];
+
+   // Determine MA range to copy
+   int far  = MathMax(lastCrossUpIdx, lastCrossDownIdx);
+   int need = MathMax(InpLongPeriod + 5, newBars + 3);
+   if(far >= 0) need = MathMax(need, far + 2);
+   if(need > rates_total) need = rates_total;
+
+   int copiedShort = CopyBuffer(handleShort, 0, 0, need, ShortMABuffer);
+   int copiedLong  = CopyBuffer(handleLong,  0, 0, need, LongMABuffer);
+   if(copiedShort <= 0 || copiedLong <= 0)
+      return 0;
+
+   if(prev_calculated == 0)
+   {
+      copiedShort = CopyBuffer(handleShort, 0, 0, rates_total, ShortMABuffer);
+      copiedLong  = CopyBuffer(handleLong,  0, 0, rates_total, LongMABuffer);
+      if(copiedShort <= 0 || copiedLong <= 0) return 0;
+
+      for(int i=rates_total-2; i>=1; --i)
+      {
+         bool crossUp   = (ShortMABuffer[i] > LongMABuffer[i]) &&
+                          (ShortMABuffer[i+1] <= LongMABuffer[i+1]);
+
+         bool crossDown = (ShortMABuffer[i] < LongMABuffer[i]) &&
+                          (ShortMABuffer[i+1] >= LongMABuffer[i+1]);
+
+         if(crossUp || crossDown)
+            CrossDotBuffer[i] = ShortMABuffer[i];
+
+         if(crossDown)
+         {
+            lastCrossDownIdx = i;
+            if(lastCrossUpIdx >= 0 && lastCrossUpIdx >= i)
+            {
+               double maxVal = -DBL_MAX;
+               int    maxIdx = -1;
+               for(int k=lastCrossUpIdx; k>=i; --k)
+               {
+                  if(ShortMABuffer[k] > maxVal)
+                  {
+                     maxVal = ShortMABuffer[k];
+                     maxIdx = k;
+                  }
+               }
+               if(maxIdx >= 0)
+               {
+                  currentHighVal = maxVal;
+                  DrawOrUpdateLevelLine("TLS_HighLine", time[maxIdx], currentHighVal, clrRed);
+               }
+            }
+         }
+
+         if(crossUp)
+         {
+            lastCrossUpIdx = i;
+            if(lastCrossDownIdx >= 0 && lastCrossDownIdx >= i)
+            {
+               double minVal = DBL_MAX;
+               int    minIdx = -1;
+               for(int k=lastCrossDownIdx; k>=i; --k)
+               {
+                  if(ShortMABuffer[k] < minVal)
+                  {
+                     minVal = ShortMABuffer[k];
+                     minIdx = k;
+                  }
+               }
+               if(minIdx >= 0)
+               {
+                  currentLowVal = minVal;
+                  DrawOrUpdateLevelLine("TLS_LowLine", time[minIdx], currentLowVal, clrGreen);
+               }
+            }
+         }
+
+         HighLineData[i] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
+         LowLineData[i]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
+      }
+
+      CrossDotBuffer[0] = EMPTY_VALUE;
+      HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
+      LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
+      HighLineData[1]   = HighLineData[0];
+      LowLineData[1]    = LowLineData[0];
+
+      return rates_total;
+   }
+
+   int from = MathMin(newBars, rates_total - 2);
+   for(int i=from; i>=1; --i)
    {
       bool crossUp   = (ShortMABuffer[i] > LongMABuffer[i]) &&
                        (ShortMABuffer[i+1] <= LongMABuffer[i+1]);
@@ -145,22 +283,28 @@ int OnCalculate(const int rates_total,
       bool crossDown = (ShortMABuffer[i] < LongMABuffer[i]) &&
                        (ShortMABuffer[i+1] >= LongMABuffer[i+1]);
 
-      // --- DOT ---
+      // Only set dot on this bar if a new cross happens; otherwise leave whatever history already has
       if(crossUp || crossDown)
          CrossDotBuffer[i] = ShortMABuffer[i];
-      else
-         CrossDotBuffer[i] = EMPTY_VALUE;
 
-      // --- LOGIC HIGH LINE ---
       if(crossDown)
       {
          lastCrossDownIdx = i;
+
          if(lastCrossUpIdx >= 0 && lastCrossUpIdx >= i)
          {
+            int need2 = MathMax(need, lastCrossUpIdx + 2);
+            if(need2 > rates_total) need2 = rates_total;
+            if(need2 != need)
+            {
+               CopyBuffer(handleShort, 0, 0, need2, ShortMABuffer);
+               CopyBuffer(handleLong,  0, 0, need2, LongMABuffer);
+               need = need2;
+            }
+
             double maxVal = -DBL_MAX;
             int    maxIdx = -1;
-
-            for(int k = lastCrossUpIdx; k >= i; k--)
+            for(int k=lastCrossUpIdx; k>=i; --k)
             {
                if(ShortMABuffer[k] > maxVal)
                {
@@ -172,21 +316,29 @@ int OnCalculate(const int rates_total,
             if(maxIdx >= 0)
             {
                currentHighVal = maxVal;
-               DrawLevelLine("TLS_HighLine", time[maxIdx], currentHighVal, clrRed);
+               DrawOrUpdateLevelLine("TLS_HighLine", time[maxIdx], currentHighVal, clrRed);
             }
          }
       }
 
-      // --- LOGIC LOW LINE ---
       if(crossUp)
       {
          lastCrossUpIdx = i;
+
          if(lastCrossDownIdx >= 0 && lastCrossDownIdx >= i)
          {
+            int need2 = MathMax(need, lastCrossDownIdx + 2);
+            if(need2 > rates_total) need2 = rates_total;
+            if(need2 != need)
+            {
+               CopyBuffer(handleShort, 0, 0, need2, ShortMABuffer);
+               CopyBuffer(handleLong,  0, 0, need2, LongMABuffer);
+               need = need2;
+            }
+
             double minVal = DBL_MAX;
             int    minIdx = -1;
-
-            for(int k = lastCrossDownIdx; k >= i; k--)
+            for(int k=lastCrossDownIdx; k>=i; --k)
             {
                if(ShortMABuffer[k] < minVal)
                {
@@ -198,24 +350,21 @@ int OnCalculate(const int rates_total,
             if(minIdx >= 0)
             {
                currentLowVal = minVal;
-               DrawLevelLine("TLS_LowLine", time[minIdx], currentLowVal, clrGreen);
+               DrawOrUpdateLevelLine("TLS_LowLine", time[minIdx], currentLowVal, clrGreen);
             }
          }
       }
-
-      // --- Data buffers for bot ---
-      HighLineData[i] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-      LowLineData[i]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
    }
 
+   // EA uses shift1 (confirmed closed candle)
    CrossDotBuffer[0] = EMPTY_VALUE;
-   HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-   LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
-   HighLineData[1] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-   LowLineData[1]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
 
+   HighLineData[0] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
+   LowLineData[0]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
+   HighLineData[1] = HighLineData[0];
+   LowLineData[1]  = LowLineData[0];
 
-   return(rates_total);
+   return rates_total;
 }
 
 //+------------------------------------------------------------------+
