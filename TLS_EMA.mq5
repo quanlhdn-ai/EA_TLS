@@ -30,9 +30,9 @@
 #property indicator_type5   DRAW_NONE
 
 //--- Inputs
-input int            InpShortPeriod = 10;
-input int            InpLongPeriod  = 39;
-input ENUM_MA_METHOD InpMethod      = MODE_EMA;
+input int            EMAShortPeriod = 10;
+input int            EMALongPeriod  = 39;
+input ENUM_MA_METHOD EMAMethod      = MODE_EMA;
 
 //--- Buffers
 double ShortMABuffer[];
@@ -104,8 +104,8 @@ int OnInit()
    PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   handleShort = iMA(_Symbol, _Period, InpShortPeriod, 0, InpMethod, PRICE_CLOSE);
-   handleLong  = iMA(_Symbol, _Period, InpLongPeriod,  0, InpMethod, PRICE_CLOSE);
+   handleShort = iMA(_Symbol, _Period, EMAShortPeriod, 0, EMAMethod, PRICE_CLOSE);
+   handleLong  = iMA(_Symbol, _Period, EMALongPeriod,  0, EMAMethod, PRICE_CLOSE);
 
    if(handleShort == INVALID_HANDLE || handleLong == INVALID_HANDLE)
       return(INIT_FAILED);
@@ -127,7 +127,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
 {
-   if(rates_total < InpLongPeriod + 2)
+   if(rates_total < EMALongPeriod + 2)
       return 0;
 
    // Reset on load
@@ -149,21 +149,6 @@ int OnCalculate(const int rates_total,
          HighLineData[j]   = EMPTY_VALUE;
          LowLineData[j]    = EMPTY_VALUE;
       }
-   }
-
-   if(prev_calculated > 0 && lastBarTime0 == time[0])
-   {
-      CopyBuffer(handleShort, 0, 0, 2, ShortMABuffer);
-      CopyBuffer(handleLong,  0, 0, 2, LongMABuffer);
-
-      CrossDotBuffer[0] = EMPTY_VALUE;
-
-      HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-      LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
-      HighLineData[1]   = HighLineData[0];
-      LowLineData[1]    = LowLineData[0];
-
-      return rates_total;
    }
 
    int newBars = 1;
@@ -189,7 +174,7 @@ int OnCalculate(const int rates_total,
 
    // Determine MA range to copy
    int far  = MathMax(lastCrossUpIdx, lastCrossDownIdx);
-   int need = MathMax(InpLongPeriod + 5, newBars + 3);
+   int need = MathMax(EMALongPeriod + 5, newBars + 3);
    if(far >= 0) need = MathMax(need, far + 2);
    if(need > rates_total) need = rates_total;
 
@@ -363,6 +348,46 @@ int OnCalculate(const int rates_total,
    LowLineData[0]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
    HighLineData[1] = HighLineData[0];
    LowLineData[1]  = LowLineData[0];
+
+   if(currentHighVal != EMPTY_VALUE && lastCrossUpIdx >= 0 && lastCrossUpIdx < rates_total)
+   {
+      int highIdx = lastCrossUpIdx;
+      if(lastCrossDownIdx >= 0 && lastCrossDownIdx < lastCrossUpIdx)
+      {
+         double maxVal = -DBL_MAX;
+         int maxIdx = -1;
+         for(int k=lastCrossUpIdx; k>=lastCrossDownIdx; --k)
+         {
+            if(k < rates_total && ShortMABuffer[k] > maxVal)
+            {
+               maxVal = ShortMABuffer[k];
+               maxIdx = k;
+            }
+         }
+         if(maxIdx >= 0) highIdx = maxIdx;
+      }
+      DrawOrUpdateLevelLine("TLS_HighLine", time[highIdx], currentHighVal, clrRed);
+   }
+
+   if(currentLowVal != EMPTY_VALUE && lastCrossDownIdx >= 0 && lastCrossDownIdx < rates_total)
+   {
+      int lowIdx = lastCrossDownIdx;
+      if(lastCrossUpIdx >= 0 && lastCrossUpIdx < lastCrossDownIdx)
+      {
+         double minVal = DBL_MAX;
+         int minIdx = -1;
+         for(int k=lastCrossDownIdx; k>=lastCrossUpIdx; --k)
+         {
+            if(k < rates_total && ShortMABuffer[k] < minVal)
+            {
+               minVal = ShortMABuffer[k];
+               minIdx = k;
+            }
+         }
+         if(minIdx >= 0) lowIdx = minIdx;
+      }
+      DrawOrUpdateLevelLine("TLS_LowLine", time[lowIdx], currentLowVal, clrGreen);
+   }
 
    return rates_total;
 }
