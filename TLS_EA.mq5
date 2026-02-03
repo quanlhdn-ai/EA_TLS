@@ -1188,6 +1188,10 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       double tp = isBuy ? (entryNow + RiskReward * riskDist) : (entryNow - RiskReward * riskDist);
       tp = NormalizePrice(tp);
 
+      if(_Period != PERIOD_M1){
+         tp = 0.0;
+      }
+
       bool isSuccess = false;
       if(isBuy) isSuccess = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
       else      isSuccess = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
@@ -1230,6 +1234,10 @@ bool ExecuteEntry(bool isBuy, long lineKey)
                   _Symbol, SideText(isBuy), _Digits, entryLimit, _Digits, sl, lineKey);
       return false;
    }
+
+   if(_Period != PERIOD_M1){
+         tpLimit = 0.0;
+      }
 
    bool isLimitSuccess = false;
    if(isBuy){
@@ -1276,6 +1284,42 @@ void CancelWaitingOnOppositeCross(bool crossUpNow, bool crossDownNow)
 
 void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
 {
+   // DEFAULT LOGIC: M1 TIMEFRAME
+   // OVERRIDE for HTF: close position on cross if profitable + BE at ~1R
+   if(_Period != PERIOD_M1)
+   {
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+      int total = PositionsTotal();
+      for(int i = total - 1; i >= 0; i--)
+      {
+         ulong tk = PositionGetTicket(i);
+         if(tk == 0) continue;
+         if(!PositionSelectByTicket(tk)) continue;
+
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+
+         ENUM_POSITION_TYPE ptype =
+            (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
+         double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+         bool isProfitable =
+            (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
+
+         if(
+            (ptype == POSITION_TYPE_BUY  && crossDownNow && isProfitable) ||
+            (ptype == POSITION_TYPE_SELL && crossUpNow   && isProfitable)
+         )
+         {
+            trade.PositionClose(tk);
+         }
+      }
+
+      return;
+   }
+
    double pip = PipSize();
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
