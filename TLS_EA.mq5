@@ -3,94 +3,93 @@
 CTrade trade;
 
 //------------------------- Inputs ----------------------------------
-input string HAIndicatorName  = "TLS_HA";
+input string HAIndicatorName = "TLS_HA";
 input string EMAIndicatorName = "TLS_EMA";
 
 // iCustom inputs must match indicator inputs
 input color BullColor = C'8,153,129';
 input color BearColor = C'242,54,69';
 
-input int            EMAShortPeriod = 10;
-input int            EMALongPeriod  = 39;
-input ENUM_MA_METHOD EMAMethod      = MODE_EMA;
+input int EMAShortPeriod = 10;
+input int EMALongPeriod = 39;
+input ENUM_MA_METHOD EMAMethod = MODE_EMA;
 
-input int    SlippagePoints     = 30;
-input long   MagicNumber        = 8386272000; // magic number to tracking orders/positions by this EA
+input int SlippagePoints = 30;
+input long MagicNumber = 8386272000; // magic number to tracking orders/positions by this EA
 
 // Risk & SL/BE rules
-input bool   IsAllowBE = true;
-input double RiskUSDPerTrade       = 40.0; // risk per trade in USD
-input int    BufferPips            = 5;      // SL buffer from HA pair in PIPS
-input double SLMaxPips             = 70.0;
-input int    SL_LookbackBars       = 500;   // lookback to find nearest HA pair
-input double RiskReward            = 2.0;   // TP = RiskReward * Risk (R)
-input double RangeChannelEMA       = 10.0;  // distance between HighLine and LowLine in PIPS minimum
+input bool IsAllowBE = true;
+input double RiskUSDPerTrade = 40.0; // risk per trade in USD
+input int BufferPips = 5;            // SL buffer from HA pair in PIPS
+input double SLMaxPips = 70.0;
+input int SL_LookbackBars = 500;     // lookback to find nearest HA pair
+input double RiskReward = 2.0;       // TP = RiskReward * Risk (R)
+input double RangeChannelEMA = 10.0; // distance between HighLine and LowLine in PIPS minimum
 
 //=========================== DD (SESSION, REALIZED) ==================
-input double DailyDD_Percent    = 3.0; // DD limit (% of account balance)
-input bool   IsCancelPendingsWhenDDHit = true;
+input double DailyDD_Percent = 3.0; // DD limit (% of account balance)
+input bool IsCancelPendingsWhenDDHit = true;
 
 // buffer->scan lookback for lines
-input int    LineScanLookbackBars  = 300;
+input int LineScanLookbackBars = 300;
 
 // Cross scan for auto-arm/comment
-input int    CrossScanLookbackBars = 500;  // scan to find latest cross dot
+input int CrossScanLookbackBars = 500; // scan to find latest cross dot
 
 //=========================== SESSION (BROKER MARKET HOURS) =========
-input double NoNewTradesBeforeEndH     = 0.1;  // forbidden when <= this many hours to session end
-input int    SessionForceThrottleSec   = 120;  // throttle forced cancel/close (seconds)
+input double NoNewTradesBeforeEndH = 0.1; // forbidden when <= this many hours to session end
+input int SessionForceThrottleSec = 120;  // throttle forced cancel/close (seconds)
 
 //=========================== TRADE WINDOW MODE (FULLDAY vs SESSIONS) ========
 enum ENUM_TRADE_WINDOW_MODE
 {
-   TRADEWINDOW_FULLDAY  = 0,  // FULLDAY
-   TRADEWINDOW_SESSIONS = 1   // SESSION
+   TRADEWINDOW_FULLDAY = 0, // FULLDAY
+   TRADEWINDOW_SESSIONS = 1 // SESSION
 };
 input ENUM_TRADE_WINDOW_MODE TradeWindowMode = TRADEWINDOW_FULLDAY;
 
 // Enable each VN session
 input bool IsAllowAsia = true;
-input bool IsAllowEU   = true;
-input bool IsAllowNY   = true;
+input bool IsAllowEU = true;
+input bool IsAllowNY = true;
 
 // VN session times - hours/minutes
 // Asia 08:00-11:00, EU 14:00-18:00, NY 21:00-00:00 (overnight)
 input int AsiaStartHour = 8;
-input int AsiaStartMin  = 0;
-input int AsiaEndHour   = 11;
-input int AsiaEndMin    = 0;
+input int AsiaStartMin = 0;
+input int AsiaEndHour = 11;
+input int AsiaEndMin = 0;
 
-input int EUStartHour   = 14;
-input int EUStartMin    = 0;
-input int EUEndHour     = 18;
-input int EUEndMin      = 0;
+input int EUStartHour = 14;
+input int EUStartMin = 0;
+input int EUEndHour = 18;
+input int EUEndMin = 0;
 
-input int NYStartHour   = 21;
-input int NYStartMin    = 0;
-input int NYEndHour     = 0;   // crosses midnight
-input int NYEndMin      = 0;
+input int NYStartHour = 21;
+input int NYStartMin = 0;
+input int NYEndHour = 0; // crosses midnight
+input int NYEndMin = 0;
 
 // Time conversion (server -> VN). IMPORTANT: set broker server offset correctly.
-input int VNOffsetFromUTC     = 7; // VNOffsetFromUTC
+input int VNOffsetFromUTC = 7;     // VNOffsetFromUTC
 input int ServerOffsetFromUTC = 0; // ServerOffsetFromUTC
 
-
 //=========================== PROFIT TARGET (SESSION, REALIZED) ======
-input double DailyProfitTargetUSD     = 0.0;   // profit target (account currency)
-input bool   IsForceCloseWhenProfitHit  = false;
-input bool   IsCancelPendingsWhenProfitHit = true;
+input double DailyProfitTargetUSD = 0.0; // profit target (account currency)
+input bool IsForceCloseWhenProfitHit = false;
+input bool IsCancelPendingsWhenProfitHit = true;
 
-bool     profitBlocked = false;
-double   sessionProfitTarget = 0.0;
+bool profitBlocked = false;
+double sessionProfitTarget = 0.0;
 
 // Chart comment
-input bool   IsShowChartComment   = true;
+input bool IsShowChartComment = true;
 
 // Debug
-input bool   IsDebugOnce          = true;
+input bool IsDebugOnce = true;
 
 //------------------------- Indicator handles ------------------------
-int haHandle  = INVALID_HANDLE;
+int haHandle = INVALID_HANDLE;
 int emaHandle = INVALID_HANDLE;
 
 //------------------------- State -----------------------------------
@@ -98,49 +97,49 @@ datetime lastBarTime = 0;
 
 // session DD tracking
 datetime sessionStartTime = 0;
-datetime sessionEndTime   = 0;
-double   sessionStartBalance = 0.0;
-double   sessionLossLimit    = 0.0;
-bool     ddBlocked           = false;
-double   lastSessionRealizedPnL = 0.0;
+datetime sessionEndTime = 0;
+double sessionStartBalance = 0.0;
+double sessionLossLimit = 0.0;
+bool ddBlocked = false;
+double lastSessionRealizedPnL = 0.0;
 
 // session enforcement throttle
 datetime lastSessionForceActionTime = 0;
-datetime lastKnownSessionEnd        = 0;
+datetime lastKnownSessionEnd = 0;
 
 // waiting state (armed by cross)
-bool     waitingBUY  = false;
-bool     waitingSELL = false;
+bool waitingBUY = false;
+bool waitingSELL = false;
 
 // For comment only
 long lastUsedHighKey = 0;
-long lastUsedLowKey  = 0;
+long lastUsedLowKey = 0;
 
 // current cross (for comment)
-string   currentCrossText  = "None";  // "Cross Up" / "Cross Down" / "Cross" / "None"
-double   currentCrossPrice = 0.0;
-datetime currentCrossTime  = 0;
+string currentCrossText = "None"; // "Cross Up" / "Cross Down" / "Cross" / "None"
+double currentCrossPrice = 0.0;
+datetime currentCrossTime = 0;
 
 //=================== REGIME (one setup per regime) ==================
 // currentRegimeEpoch changes on each TRUE cross, and also gets set at startup by AutoArm (ý #6)
 datetime currentRegimeEpoch = 0;
 
 // last BarsCalculated (for comment)
-int lastHaBars  = 0;
+int lastHaBars = 0;
 int lastEmaBars = 0;
 
 //============================== UTILS ==============================
 double PipSize()
 {
-   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
 
    // Other CFDs: tick 0.1 = 10 USD → pip = tick
-   if(tickValue == 1.0 && tickSize == 0.01)
+   if (tickValue == 1.0 && tickSize == 0.01)
       return 0.1;
 
    // Forex 5-digit / gold 3-digit
-   if(_Digits == 3 || _Digits == 5)
+   if (_Digits == 3 || _Digits == 5)
       return 100.0 * _Point;
 
    return _Point;
@@ -148,34 +147,42 @@ double PipSize()
 
 bool IsValidLevel(double v)
 {
-   if(v == EMPTY_VALUE) return false;
-   if(!MathIsValidNumber(v)) return false;
+   if (v == EMPTY_VALUE)
+      return false;
+   if (!MathIsValidNumber(v))
+      return false;
    return true;
 }
 
-double NormalizePrice(double p){ return NormalizeDouble(p, _Digits); }
+double NormalizePrice(double p) { return NormalizeDouble(p, _Digits); }
 
 double NormalizeVolume(double vol)
 {
-   double vmin  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double vmax  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double vmin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double vmax = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
    double vstep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
 
-   if(vol < vmin) vol = vmin;
-   if(vol > vmax) vol = vmax;
+   if (vol < vmin)
+      vol = vmin;
+   if (vol > vmax)
+      vol = vmax;
 
    vol = MathFloor(vol / vstep) * vstep;
 
    int digits = 2;
    double tmp = vstep;
-   while(tmp < 1.0 && digits < 8) { tmp *= 10.0; digits++; }
+   while (tmp < 1.0 && digits < 8)
+   {
+      tmp *= 10.0;
+      digits++;
+   }
    return NormalizeDouble(vol, digits);
 }
 
 bool IsNewBar()
 {
    datetime t0 = iTime(_Symbol, _Period, 0);
-   if(t0 != lastBarTime)
+   if (t0 != lastBarTime)
    {
       lastBarTime = t0;
       return true;
@@ -183,49 +190,54 @@ bool IsNewBar()
    return false;
 }
 
-string SideText(bool isBuy){ return (isBuy ? "BUY" : "SELL"); }
+string SideText(bool isBuy) { return (isBuy ? "BUY" : "SELL"); }
 
 //=========================== VN SESSION HELPERS =====================
-int VNDeltaHours(){ return (VNOffsetFromUTC - ServerOffsetFromUTC); }
+int VNDeltaHours() { return (VNOffsetFromUTC - ServerOffsetFromUTC); }
 
-datetime GetVNTime(){ return (TimeCurrent() + VNDeltaHours() * 3600); }
+datetime GetVNTime() { return (TimeCurrent() + VNDeltaHours() * 3600); }
 
-datetime VNToServer(datetime vnTime){ return (vnTime - VNDeltaHours() * 3600); }
+datetime VNToServer(datetime vnTime) { return (vnTime - VNDeltaHours() * 3600); }
 
 // Window compare on VN time (supports overnight if end <= start)
 bool IsInVNWindow(int sh, int sm, int eh, int em)
 {
    datetime vn = GetVNTime();
-   MqlDateTime t; TimeToStruct(vn, t);
+   MqlDateTime t;
+   TimeToStruct(vn, t);
 
-   int cur = t.hour*60 + t.min;
-   int st  = sh*60 + sm;
-   int en  = eh*60 + em;
+   int cur = t.hour * 60 + t.min;
+   int st = sh * 60 + sm;
+   int en = eh * 60 + em;
 
-   if(en > st) return (cur >= st && cur < en);
+   if (en > st)
+      return (cur >= st && cur < en);
    return (cur >= st || cur < en); // overnight
 }
 
 // Requested session flags
-bool IsTradeAsia(){ return IsInVNWindow(AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin); }
-bool IsTradeEU()  { return IsInVNWindow(EUStartHour,   EUStartMin,   EUEndHour,   EUEndMin); }
-bool IsTradeNY()  { return IsInVNWindow(NYStartHour,   NYStartMin,   NYEndHour,   NYEndMin); }
+bool IsTradeAsia() { return IsInVNWindow(AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin); }
+bool IsTradeEU() { return IsInVNWindow(EUStartHour, EUStartMin, EUEndHour, EUEndMin); }
+bool IsTradeNY() { return IsInVNWindow(NYStartHour, NYStartMin, NYEndHour, NYEndMin); }
 
 string CurrentVNSessionName()
 {
-   if(IsTradeAsia()) return "ASIA";
-   if(IsTradeEU())   return "EU";
-   if(IsTradeNY())   return "NY";
+   if (IsTradeAsia())
+      return "ASIA";
+   if (IsTradeEU())
+      return "EU";
+   if (IsTradeNY())
+      return "NY";
    return "NONE";
 }
 
 string VNWindowTextFor(string sess)
 {
-   if(sess=="ASIA")
+   if (sess == "ASIA")
       return StringFormat("%02d:%02d -> %02d:%02d", AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin);
-   if(sess=="EU")
+   if (sess == "EU")
       return StringFormat("%02d:%02d -> %02d:%02d", EUStartHour, EUStartMin, EUEndHour, EUEndMin);
-   if(sess=="NY")
+   if (sess == "NY")
       return StringFormat("%02d:%02d -> %02d:%02d", NYStartHour, NYStartMin, NYEndHour, NYEndMin);
    return "N/A";
 }
@@ -233,35 +245,48 @@ string VNWindowTextFor(string sess)
 // Get current ENABLED VN session window in SERVER time (for throttle key)
 bool GetEnabledVNSessionWindowServer(datetime nowServer, datetime &startServer, datetime &endServer, string &nameOut)
 {
-   startServer = 0; endServer = 0; nameOut = "NONE";
+   startServer = 0;
+   endServer = 0;
+   nameOut = "NONE";
 
-   datetime nowVN = nowServer + VNDeltaHours()*3600;
-   MqlDateTime vn; TimeToStruct(nowVN, vn);
+   datetime nowVN = nowServer + VNDeltaHours() * 3600;
+   MqlDateTime vn;
+   TimeToStruct(nowVN, vn);
 
-   struct SessDef { int sh, sm, eh, em; bool enabled; string name; };
-   SessDef s[3] = {
-      {AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin, IsAllowAsia, "ASIA"},
-      {EUStartHour,   EUStartMin,   EUEndHour,   EUEndMin,   IsAllowEU,   "EU"},
-      {NYStartHour,   NYStartMin,   NYEndHour,   NYEndMin,   IsAllowNY,   "NY"}
-   };
-
-   for(int i=0;i<3;i++)
+   struct SessDef
    {
-      if(!s[i].enabled) continue;
+      int sh, sm, eh, em;
+      bool enabled;
+      string name;
+   };
+   SessDef s[3] = {
+       {AsiaStartHour, AsiaStartMin, AsiaEndHour, AsiaEndMin, IsAllowAsia, "ASIA"},
+       {EUStartHour, EUStartMin, EUEndHour, EUEndMin, IsAllowEU, "EU"},
+       {NYStartHour, NYStartMin, NYEndHour, NYEndMin, IsAllowNY, "NY"}};
+
+   for (int i = 0; i < 3; i++)
+   {
+      if (!s[i].enabled)
+         continue;
 
       MqlDateTime a = vn, b = vn;
-      a.hour = s[i].sh; a.min = s[i].sm; a.sec = 0;
-      b.hour = s[i].eh; b.min = s[i].em; b.sec = 0;
+      a.hour = s[i].sh;
+      a.min = s[i].sm;
+      a.sec = 0;
+      b.hour = s[i].eh;
+      b.min = s[i].em;
+      b.sec = 0;
 
       datetime startVN = StructToTime(a);
-      datetime endVN   = StructToTime(b);
-      if(endVN <= startVN) endVN += 24*60*60; // overnight
+      datetime endVN = StructToTime(b);
+      if (endVN <= startVN)
+         endVN += 24 * 60 * 60; // overnight
 
-      if(nowVN >= startVN && nowVN < endVN)
+      if (nowVN >= startVN && nowVN < endVN)
       {
          startServer = VNToServer(startVN);
-         endServer   = VNToServer(endVN);
-         nameOut     = s[i].name;
+         endServer = VNToServer(endVN);
+         nameOut = s[i].name;
          return true;
       }
    }
@@ -273,8 +298,9 @@ bool GetEnabledVNSessionWindowServer(datetime nowServer, datetime &startServer, 
 bool IsForbiddenByVNSessions(datetime &endOut)
 {
    endOut = 0;
-   datetime ws=0,we=0; string nm;
-   if(!GetEnabledVNSessionWindowServer(TimeCurrent(), ws, we, nm))
+   datetime ws = 0, we = 0;
+   string nm;
+   if (!GetEnabledVNSessionWindowServer(TimeCurrent(), ws, we, nm))
       return true;
 
    endOut = we;
@@ -284,43 +310,50 @@ bool IsForbiddenByVNSessions(datetime &endOut)
 //=========================== SESSION BY BROKER HOURS ===============
 bool GetCurrentSymbolSessionWindow(datetime now, datetime &sOut, datetime &eOut)
 {
-   sOut = 0; eOut = 0;
+   sOut = 0;
+   eOut = 0;
 
-   MqlDateTime t; TimeToStruct(now, t);
+   MqlDateTime t;
+   TimeToStruct(now, t);
    int dow = t.day_of_week; // 0=Sun ... 6=Sat
 
-   for(int idx = 0; idx < 10; idx++)
+   for (int idx = 0; idx < 10; idx++)
    {
-      datetime from=0, to=0;
-      if(!SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dow, idx, from, to))
+      datetime from = 0, to = 0;
+      if (!SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dow, idx, from, to))
          break;
 
-      if(from == 0 && to == 0)
+      if (from == 0 && to == 0)
          continue;
 
       // Build today's session window (time part from 'from/to')
       MqlDateTime s = t, e = t;
       MqlDateTime tf, tt;
       TimeToStruct(from, tf);
-      TimeToStruct(to,   tt);
+      TimeToStruct(to, tt);
 
-      s.hour = tf.hour; s.min = tf.min; s.sec = 0;
-      e.hour = tt.hour; e.min = tt.min; e.sec = 0;
+      s.hour = tf.hour;
+      s.min = tf.min;
+      s.sec = 0;
+      e.hour = tt.hour;
+      e.min = tt.min;
+      e.sec = 0;
 
       datetime s0 = StructToTime(s);
       datetime e0 = StructToTime(e);
 
       // session crosses midnight
-      if(e0 <= s0) e0 += 24*60*60;
+      if (e0 <= s0)
+         e0 += 24 * 60 * 60;
 
       // Overnight session adjustment (rare but safe)
-      if(now < s0 && (e0 - s0) > 6*60*60)
+      if (now < s0 && (e0 - s0) > 6 * 60 * 60)
       {
-         s0 -= 24*60*60;
-         e0 -= 24*60*60;
+         s0 -= 24 * 60 * 60;
+         e0 -= 24 * 60 * 60;
       }
 
-      if(now >= s0 && now < e0)
+      if (now >= s0 && now < e0)
       {
          sOut = s0;
          eOut = e0;
@@ -339,26 +372,31 @@ bool IsInMarketSessionNow(datetime &sOut, datetime &eOut)
 
 double HoursToSessionEnd(datetime &endOut)
 {
-   datetime s,e;
-   if(!IsInMarketSessionNow(s,e)) { endOut=0; return 9999.0; }
+   datetime s, e;
+   if (!IsInMarketSessionNow(s, e))
+   {
+      endOut = 0;
+      return 9999.0;
+   }
    endOut = e;
 
    datetime now = TimeCurrent();
-   if(now >= e) return 0.0;
+   if (now >= e)
+      return 0.0;
    return (double)(e - now) / 3600.0;
 }
 
 // forbidden when: outside session (SESSION TRADE) OR <= X hours to session end (FULLDAY TRADE)
 bool IsForbiddenBySession(datetime &sessionEndOut)
 {
-   datetime s,e;
+   datetime s, e;
    sessionEndOut = 0;
 
-   if(!IsInMarketSessionNow(s,e))
+   if (!IsInMarketSessionNow(s, e))
       return true;
 
    sessionEndOut = e;
-   datetime dummyEnd=0;
+   datetime dummyEnd = 0;
    double h = HoursToSessionEnd(dummyEnd);
    return (h <= NoNewTradesBeforeEndH + 1e-9);
 }
@@ -367,7 +405,7 @@ bool IsForbiddenBySession(datetime &sessionEndOut)
 bool IsForbiddenNow(datetime &endOut)
 {
    endOut = 0;
-   if(TradeWindowMode == TRADEWINDOW_FULLDAY)
+   if (TradeWindowMode == TRADEWINDOW_FULLDAY)
       return IsForbiddenBySession(endOut);
    return IsForbiddenByVNSessions(endOut);
 }
@@ -375,13 +413,16 @@ bool IsForbiddenNow(datetime &endOut)
 //=========================== INDICATOR READY ==========================
 bool IndicatorsReady()
 {
-   if(haHandle == INVALID_HANDLE || emaHandle == INVALID_HANDLE) return false;
+   if (haHandle == INVALID_HANDLE || emaHandle == INVALID_HANDLE)
+      return false;
 
-   lastHaBars  = BarsCalculated(haHandle);
+   lastHaBars = BarsCalculated(haHandle);
    lastEmaBars = BarsCalculated(emaHandle);
 
-   if(lastHaBars < 10) return false;
-   if(lastEmaBars < (EMALongPeriod + 5)) return false;
+   if (lastHaBars < 10)
+      return false;
+   if (lastEmaBars < (EMALongPeriod + 5))
+      return false;
 
    return true;
 }
@@ -390,11 +431,21 @@ bool IndicatorsReady()
 bool ReadHA(int shift, double &haOpen, double &haHigh, double &haLow, double &haClose, double &haColor)
 {
    double buf[1];
-   if(CopyBuffer(haHandle, 0, shift, 1, buf) != 1) return false; haOpen  = buf[0];
-   if(CopyBuffer(haHandle, 1, shift, 1, buf) != 1) return false; haHigh  = buf[0];
-   if(CopyBuffer(haHandle, 2, shift, 1, buf) != 1) return false; haLow   = buf[0];
-   if(CopyBuffer(haHandle, 3, shift, 1, buf) != 1) return false; haClose = buf[0];
-   if(CopyBuffer(haHandle, 4, shift, 1, buf) != 1) return false; haColor = buf[0];
+   if (CopyBuffer(haHandle, 0, shift, 1, buf) != 1)
+      return false;
+   haOpen = buf[0];
+   if (CopyBuffer(haHandle, 1, shift, 1, buf) != 1)
+      return false;
+   haHigh = buf[0];
+   if (CopyBuffer(haHandle, 2, shift, 1, buf) != 1)
+      return false;
+   haLow = buf[0];
+   if (CopyBuffer(haHandle, 3, shift, 1, buf) != 1)
+      return false;
+   haClose = buf[0];
+   if (CopyBuffer(haHandle, 4, shift, 1, buf) != 1)
+      return false;
+   haColor = buf[0];
    return true;
 }
 
@@ -406,13 +457,14 @@ bool ReadHighLineAtShift(int shift, double &v)
    ResetLastError();
    int r = CopyBuffer(emaHandle, 3, shift, 1, a);
 
-   if(r != 1)
+   if (r != 1)
    {
       // retry once (indicator may not be ready on first tick)
       Sleep(1);
       ResetLastError();
       r = CopyBuffer(emaHandle, 3, shift, 1, a);
-      if(r != 1) return false;
+      if (r != 1)
+         return false;
    }
 
    v = a[0];
@@ -426,13 +478,14 @@ bool ReadLowLineAtShift(int shift, double &v)
    ResetLastError();
    int r = CopyBuffer(emaHandle, 4, shift, 1, a);
 
-   if(r != 1)
+   if (r != 1)
    {
       // retry once
       Sleep(1);
       ResetLastError();
       r = CopyBuffer(emaHandle, 4, shift, 1, a);
-      if(r != 1) return false;
+      if (r != 1)
+         return false;
    }
 
    v = a[0];
@@ -444,17 +497,21 @@ bool HasPending(ENUM_ORDER_TYPE otype, ulong &ticketOut)
 {
    ticketOut = 0;
    int total = OrdersTotal();
-   for(int i = total - 1; i >= 0; i--)
+   for (int i = total - 1; i >= 0; i--)
    {
       ulong tk = OrderGetTicket(i);
-      if(tk == 0) continue;
-      if(!OrderSelect(tk)) continue;
+      if (tk == 0)
+         continue;
+      if (!OrderSelect(tk))
+         continue;
 
-      if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-      if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+      if (OrderGetString(ORDER_SYMBOL) != _Symbol)
+         continue;
+      if ((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber)
+         continue;
 
       ENUM_ORDER_TYPE t = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      if(t == otype)
+      if (t == otype)
       {
          ticketOut = tk;
          return true;
@@ -466,25 +523,38 @@ bool HasPending(ENUM_ORDER_TYPE otype, ulong &ticketOut)
 void CancelPending(ENUM_ORDER_TYPE otype)
 {
    ulong tk;
-   if(HasPending(otype, tk))
-      trade.OrderDelete(tk);
+   if (!HasPending(otype, tk))
+      return;
+
+   if (OrderSelect(tk))
+   {
+      bool isBuy = (otype == ORDER_TYPE_BUY_LIMIT);
+      double et = OrderGetDouble(ORDER_PRICE_OPEN);
+      TG_SendCancelLimitByCross(isBuy, et, (long)tk);
+   }
+
+   trade.OrderDelete(tk);
 }
 
 bool HasPosition(ENUM_POSITION_TYPE ptype, ulong &ticketOut)
 {
    ticketOut = 0;
    int total = PositionsTotal();
-   for(int i = total - 1; i >= 0; i--)
+   for (int i = total - 1; i >= 0; i--)
    {
       ulong tk = PositionGetTicket(i);
-      if(tk == 0) continue;
-      if(!PositionSelectByTicket(tk)) continue;
+      if (tk == 0)
+         continue;
+      if (!PositionSelectByTicket(tk))
+         continue;
 
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+      if ((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber)
+         continue;
 
       ENUM_POSITION_TYPE t = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-      if(t == ptype)
+      if (t == ptype)
       {
          ticketOut = tk;
          return true;
@@ -499,28 +569,44 @@ void CancelPendingIfTPHit()
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
    int total = OrdersTotal();
-   for(int i = total - 1; i >= 0; i--)
+   for (int i = total - 1; i >= 0; i--)
    {
       ulong tk = OrderGetTicket(i);
-      if(tk == 0) continue;
-      if(!OrderSelect(tk)) continue;
+      if (tk == 0)
+         continue;
+      if (!OrderSelect(tk))
+         continue;
 
-      if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-      if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+      if (OrderGetString(ORDER_SYMBOL) != _Symbol)
+         continue;
+      if ((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber)
+         continue;
 
       ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      if(type != ORDER_TYPE_BUY_LIMIT && type != ORDER_TYPE_SELL_LIMIT) continue;
+      if (type != ORDER_TYPE_BUY_LIMIT && type != ORDER_TYPE_SELL_LIMIT)
+         continue;
 
       double tp = OrderGetDouble(ORDER_TP);
-      if(tp <= 0) continue;
+      if (tp <= 0)
+         continue;
 
-      if(type == ORDER_TYPE_BUY_LIMIT)
+      if (type == ORDER_TYPE_BUY_LIMIT)
       {
-         if(bid >= tp) trade.OrderDelete(tk);
+         if (bid >= tp)
+         {
+            double et = OrderGetDouble(ORDER_PRICE_OPEN);
+            TG_SendCancelLimitByTPBeforeFilled(true, et, (long)tk);
+            trade.OrderDelete(tk);
+         }
       }
       else
       {
-         if(bid <= tp) trade.OrderDelete(tk);
+         if (bid <= tp)
+         {
+            double et = OrderGetDouble(ORDER_PRICE_OPEN);
+            TG_SendCancelLimitByTPBeforeFilled(false, et, (long)tk);
+            trade.OrderDelete(tk);
+         }
       }
    }
 }
@@ -532,7 +618,7 @@ void EnforceForbiddenZone()
    datetime sessEnd = 0;
    bool forbidden = IsForbiddenNow(sessEnd);
 
-   if(!forbidden)
+   if (!forbidden)
    {
       lastKnownSessionEnd = 0;
       return;
@@ -542,47 +628,57 @@ void EnforceForbiddenZone()
 
    bool newKey = (sessEnd > 0 && sessEnd != lastKnownSessionEnd);
 
-   if(!newKey)
+   if (!newKey)
    {
-      if((now - lastSessionForceActionTime) < SessionForceThrottleSec)
+      if ((now - lastSessionForceActionTime) < SessionForceThrottleSec)
          return;
    }
 
    lastSessionForceActionTime = now;
-   if(sessEnd > 0) lastKnownSessionEnd = sessEnd;
+   if (sessEnd > 0)
+      lastKnownSessionEnd = sessEnd;
 
    // cancel all pendings
-   for(int i=OrdersTotal()-1;i>=0;i--)
+   for (int i = OrdersTotal() - 1; i >= 0; i--)
    {
       ulong otk = OrderGetTicket(i);
-      if(otk==0) continue;
-      if(!OrderSelect(otk)) continue;
+      if (otk == 0)
+         continue;
+      if (!OrderSelect(otk))
+         continue;
 
-      if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-      if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+      if (OrderGetString(ORDER_SYMBOL) != _Symbol)
+         continue;
+      if ((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber)
+         continue;
 
-      ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
-         type==ORDER_TYPE_BUY_STOP  || type==ORDER_TYPE_SELL_STOP  ||
-         type==ORDER_TYPE_BUY_STOP_LIMIT || type==ORDER_TYPE_SELL_STOP_LIMIT)
+      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if (type == ORDER_TYPE_BUY_LIMIT || type == ORDER_TYPE_SELL_LIMIT ||
+          type == ORDER_TYPE_BUY_STOP || type == ORDER_TYPE_SELL_STOP ||
+          type == ORDER_TYPE_BUY_STOP_LIMIT || type == ORDER_TYPE_SELL_STOP_LIMIT)
       {
          trade.OrderDelete(otk);
       }
    }
 
    // close all positions
-   if(forbidden && TradeWindowMode == TRADEWINDOW_FULLDAY){
-      for(int i=PositionsTotal()-1;i>=0;i--)
+   if (forbidden && TradeWindowMode == TRADEWINDOW_FULLDAY)
+   {
+      for (int i = PositionsTotal() - 1; i >= 0; i--)
       {
          ulong ptk = PositionGetTicket(i);
-         if(ptk==0) continue;
-         if(!PositionSelectByTicket(ptk)) continue;
+         if (ptk == 0)
+            continue;
+         if (!PositionSelectByTicket(ptk))
+            continue;
 
-         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+         if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+            continue;
+         if ((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber)
+            continue;
 
          trade.PositionClose(ptk);
-      }                   
+      }
    }
 
    waitingBUY = false;
@@ -592,24 +688,29 @@ void EnforceForbiddenZone()
 //=================== DD (SESSION, REALIZED) =========================
 double RealizedPnLInRange(datetime fromTime, datetime toTime)
 {
-   if(!HistorySelect(fromTime, toTime)) return 0.0;
+   if (!HistorySelect(fromTime, toTime))
+      return 0.0;
 
    double pnl = 0.0;
    int deals = (int)HistoryDealsTotal();
-   for(int i=0;i<deals;i++)
+   for (int i = 0; i < deals; i++)
    {
       ulong tk = HistoryDealGetTicket(i);
-      if(tk==0) continue;
+      if (tk == 0)
+         continue;
 
-      if((long)HistoryDealGetInteger(tk, DEAL_MAGIC) != MagicNumber) continue;
-      if(HistoryDealGetString(tk, DEAL_SYMBOL) != _Symbol) continue;
+      if ((long)HistoryDealGetInteger(tk, DEAL_MAGIC) != MagicNumber)
+         continue;
+      if (HistoryDealGetString(tk, DEAL_SYMBOL) != _Symbol)
+         continue;
 
       long entry = HistoryDealGetInteger(tk, DEAL_ENTRY);
-      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) continue;
+      if (entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY)
+         continue;
 
       double profit = HistoryDealGetDouble(tk, DEAL_PROFIT);
-      double swap   = HistoryDealGetDouble(tk, DEAL_SWAP);
-      double comm   = HistoryDealGetDouble(tk, DEAL_COMMISSION);
+      double swap = HistoryDealGetDouble(tk, DEAL_SWAP);
+      double comm = HistoryDealGetDouble(tk, DEAL_COMMISSION);
 
       pnl += (profit + swap + comm);
    }
@@ -619,18 +720,18 @@ double RealizedPnLInRange(datetime fromTime, datetime toTime)
 void ResetSessionDDIfNeeded()
 {
    datetime now = TimeCurrent();
-   datetime s=0,e=0;
+   datetime s = 0, e = 0;
 
-   if(!GetCurrentSymbolSessionWindow(now, s, e))
+   if (!GetCurrentSymbolSessionWindow(now, s, e))
       return; // outside session -> don't reset baseline here
 
-   if(sessionStartTime == 0 || s != sessionStartTime)
+   if (sessionStartTime == 0 || s != sessionStartTime)
    {
       sessionStartTime = s;
-      sessionEndTime   = e;
+      sessionEndTime = e;
 
       sessionStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-      sessionLossLimit    = sessionStartBalance * (DailyDD_Percent/100.0);
+      sessionLossLimit = sessionStartBalance * (DailyDD_Percent / 100.0);
 
       sessionProfitTarget = DailyProfitTargetUSD;
 
@@ -647,9 +748,10 @@ void ResetSessionDDIfNeeded()
 void UpdateSessionProfitGate()
 {
    ResetSessionDDIfNeeded();
-   if(sessionStartTime == 0) return;
+   if (sessionStartTime == 0)
+      return;
 
-   if(DailyProfitTargetUSD <= 0.0)
+   if (DailyProfitTargetUSD <= 0.0)
    {
       profitBlocked = false;
       return;
@@ -658,46 +760,54 @@ void UpdateSessionProfitGate()
    double pnl = RealizedPnLInRange(sessionStartTime, TimeCurrent());
    lastSessionRealizedPnL = pnl;
 
-   if(pnl >= DailyProfitTargetUSD - 1e-9)
+   if (pnl >= DailyProfitTargetUSD - 1e-9)
    {
       profitBlocked = true;
 
-      if(IsCancelPendingsWhenProfitHit)
+      if (IsCancelPendingsWhenProfitHit)
       {
-         for(int i=OrdersTotal()-1;i>=0;i--)
+         for (int i = OrdersTotal() - 1; i >= 0; i--)
          {
             ulong otk = OrderGetTicket(i);
-            if(otk==0) continue;
-            if(!OrderSelect(otk)) continue;
+            if (otk == 0)
+               continue;
+            if (!OrderSelect(otk))
+               continue;
 
-            if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-            if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+            if (OrderGetString(ORDER_SYMBOL) != _Symbol)
+               continue;
+            if ((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber)
+               continue;
 
-            ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-            if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
-               type==ORDER_TYPE_BUY_STOP  || type==ORDER_TYPE_SELL_STOP  ||
-               type==ORDER_TYPE_BUY_STOP_LIMIT || type==ORDER_TYPE_SELL_STOP_LIMIT)
+            ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+            if (type == ORDER_TYPE_BUY_LIMIT || type == ORDER_TYPE_SELL_LIMIT ||
+                type == ORDER_TYPE_BUY_STOP || type == ORDER_TYPE_SELL_STOP ||
+                type == ORDER_TYPE_BUY_STOP_LIMIT || type == ORDER_TYPE_SELL_STOP_LIMIT)
             {
                trade.OrderDelete(otk);
             }
          }
       }
 
-      if(IsForceCloseWhenProfitHit)
+      if (IsForceCloseWhenProfitHit)
       {
-         for(int i=PositionsTotal()-1;i>=0;i--)
+         for (int i = PositionsTotal() - 1; i >= 0; i--)
          {
             ulong ptk = PositionGetTicket(i);
-            if(ptk==0) continue;
-            if(!PositionSelectByTicket(ptk)) continue;
+            if (ptk == 0)
+               continue;
+            if (!PositionSelectByTicket(ptk))
+               continue;
 
-            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-            if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+            if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+               continue;
+            if ((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber)
+               continue;
 
             trade.PositionClose(ptk);
          }
 
-         waitingBUY  = false;
+         waitingBUY = false;
          waitingSELL = false;
       }
    }
@@ -706,7 +816,8 @@ void UpdateSessionProfitGate()
 void UpdateSessionDDGate()
 {
    ResetSessionDDIfNeeded();
-   if(sessionStartTime == 0) return;
+   if (sessionStartTime == 0)
+      return;
 
    double pnl = RealizedPnLInRange(sessionStartTime, TimeCurrent());
    lastSessionRealizedPnL = pnl;
@@ -715,25 +826,29 @@ void UpdateSessionDDGate()
 
    bool hitOrPreBlock = (loss >= sessionLossLimit) || ((loss + RiskUSDPerTrade) > sessionLossLimit);
 
-   if(hitOrPreBlock)
+   if (hitOrPreBlock)
    {
       ddBlocked = true;
 
-      if(IsCancelPendingsWhenDDHit)
+      if (IsCancelPendingsWhenDDHit)
       {
-         for(int i=OrdersTotal()-1;i>=0;i--)
+         for (int i = OrdersTotal() - 1; i >= 0; i--)
          {
             ulong otk = OrderGetTicket(i);
-            if(otk==0) continue;
-            if(!OrderSelect(otk)) continue;
+            if (otk == 0)
+               continue;
+            if (!OrderSelect(otk))
+               continue;
 
-            if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-            if((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+            if (OrderGetString(ORDER_SYMBOL) != _Symbol)
+               continue;
+            if ((long)OrderGetInteger(ORDER_MAGIC) != MagicNumber)
+               continue;
 
-            ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-            if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT ||
-               type==ORDER_TYPE_BUY_STOP  || type==ORDER_TYPE_SELL_STOP  ||
-               type==ORDER_TYPE_BUY_STOP_LIMIT || type==ORDER_TYPE_SELL_STOP_LIMIT)
+            ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+            if (type == ORDER_TYPE_BUY_LIMIT || type == ORDER_TYPE_SELL_LIMIT ||
+                type == ORDER_TYPE_BUY_STOP || type == ORDER_TYPE_SELL_STOP ||
+                type == ORDER_TYPE_BUY_STOP_LIMIT || type == ORDER_TYPE_SELL_STOP_LIMIT)
             {
                trade.OrderDelete(otk);
             }
@@ -750,22 +865,24 @@ bool FindSLFromNearestOppositeHAPair(bool isBuy, double &slPrice)
    double pip = PipSize();
    int maxSh = MathMax(2, SL_LookbackBars);
 
-   for(int sh = 1; sh <= maxSh - 1; sh++)
+   for (int sh = 1; sh <= maxSh - 1; sh++)
    {
-      double o1,h1,l1,c1,col1;
-      double o2,h2,l2,c2,col2;
+      double o1, h1, l1, c1, col1;
+      double o2, h2, l2, c2, col2;
 
-      if(!ReadHA(sh,   o1,h1,l1,c1,col1)) return false;
-      if(!ReadHA(sh+1, o2,h2,l2,c2,col2)) return false;
+      if (!ReadHA(sh, o1, h1, l1, c1, col1))
+         return false;
+      if (!ReadHA(sh + 1, o2, h2, l2, c2, col2))
+         return false;
 
       bool bull1 = (col1 == 0.0);
       bool bear1 = (col1 == 1.0);
       bool bull2 = (col2 == 0.0);
       bool bear2 = (col2 == 1.0);
 
-      if(isBuy)
+      if (isBuy)
       {
-         if(bear1 && bear2)
+         if (bear1 && bear2)
          {
             double baseLow = MathMin(l1, l2);
             slPrice = NormalizePrice(baseLow - (double)BufferPips * pip);
@@ -774,7 +891,7 @@ bool FindSLFromNearestOppositeHAPair(bool isBuy, double &slPrice)
       }
       else
       {
-         if(bull1 && bull2)
+         if (bull1 && bull2)
          {
             double baseHigh = MathMax(h1, h2);
             slPrice = NormalizePrice(baseHigh + (double)BufferPips * pip);
@@ -790,14 +907,17 @@ double CalcLotsByRiskUSD(double entry, double sl)
 {
    double pip = PipSize();
    double sl_pips = MathAbs(entry - sl) / pip;
-   if(sl_pips <= 0.0) return 0.0;
+   if (sl_pips <= 0.0)
+      return 0.0;
 
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(tickValue <= 0.0 || tickSize <= 0.0) return 0.0;
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if (tickValue <= 0.0 || tickSize <= 0.0)
+      return 0.0;
 
    double pipValuePer1Lot = tickValue * (pip / tickSize);
-   if(pipValuePer1Lot <= 0.0) return 0.0;
+   if (pipValuePer1Lot <= 0.0)
+      return 0.0;
 
    double lots = RiskUSDPerTrade / (sl_pips * pipValuePer1Lot);
    return NormalizeVolume(lots);
@@ -809,48 +929,48 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
 {
    shiftOut = -1;
    priceOut = 0.0;
-   dirOut   = "None";
-   timeOut  = 0;
+   dirOut = "None";
+   timeOut = 0;
 
    double dot[1];
 
-   for(int sh = 1; sh <= lookback; sh++)
+   for (int sh = 1; sh <= lookback; sh++)
    {
-      if(CopyBuffer(emaHandle, 2, sh, 1, dot) != 1)
+      if (CopyBuffer(emaHandle, 2, sh, 1, dot) != 1)
          continue;
 
       double d = dot[0];
-      if(d == 0.0 || d == EMPTY_VALUE)
+      if (d == 0.0 || d == EMPTY_VALUE)
          continue;
 
       // found latest dot
       shiftOut = sh;
       priceOut = d;
-      timeOut  = iTime(_Symbol, _Period, sh);
+      timeOut = iTime(_Symbol, _Period, sh);
 
       // Determine direction by EMA short/long at sh and sh+1
       double s1[1], s2[1], l1[1], l2[1];
-      int rs1 = CopyBuffer(emaHandle, 0, sh,   1, s1);
-      int rs2 = CopyBuffer(emaHandle, 0, sh+1, 1, s2);
-      int rl1 = CopyBuffer(emaHandle, 1, sh,   1, l1);
-      int rl2 = CopyBuffer(emaHandle, 1, sh+1, 1, l2);
+      int rs1 = CopyBuffer(emaHandle, 0, sh, 1, s1);
+      int rs2 = CopyBuffer(emaHandle, 0, sh + 1, 1, s2);
+      int rl1 = CopyBuffer(emaHandle, 1, sh, 1, l1);
+      int rl2 = CopyBuffer(emaHandle, 1, sh + 1, 1, l2);
 
-      if(rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
+      if (rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
       {
          dirOut = "Cross";
          return true;
       }
 
       double short1 = s1[0], short2 = s2[0];
-      double long1  = l1[0], long2  = l2[0];
+      double long1 = l1[0], long2 = l2[0];
 
-      if(short1 > long1 && short2 <= long2)
+      if (short1 > long1 && short2 <= long2)
       {
          dirOut = "Cross Up";
          return true;
       }
 
-      if(short1 < long1 && short2 >= long2)
+      if (short1 < long1 && short2 >= long2)
       {
          dirOut = "Cross Down";
          return true;
@@ -865,25 +985,29 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
 
 void AutoArmFromLatestCross()
 {
-   if(waitingBUY || waitingSELL) return;
-
-   int sh; double p; string dir; datetime t;
-   if(!FindLatestCross(CrossScanLookbackBars, sh, p, dir, t))
+   if (waitingBUY || waitingSELL)
       return;
 
-   currentCrossText  = dir;
+   int sh;
+   double p;
+   string dir;
+   datetime t;
+   if (!FindLatestCross(CrossScanLookbackBars, sh, p, dir, t))
+      return;
+
+   currentCrossText = dir;
    currentCrossPrice = p;
-   currentCrossTime  = t;
+   currentCrossTime = t;
    currentRegimeEpoch = t;
 
-   if(dir == "Cross Up")
+   if (dir == "Cross Up")
    {
       waitingBUY = true;
       waitingSELL = false;
       return;
    }
 
-   if(dir == "Cross Down")
+   if (dir == "Cross Down")
    {
       waitingSELL = true;
       waitingBUY = false;
@@ -901,22 +1025,22 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    currentCrossTime = iTime(_Symbol, _Period, 1);
 
    double dot1Arr[1];
-   if(CopyBuffer(emaHandle, 2, 1, 1, dot1Arr) != 1)
+   if (CopyBuffer(emaHandle, 2, 1, 1, dot1Arr) != 1)
    {
-      currentCrossText  = "None";
+      currentCrossText = "None";
       currentCrossPrice = 0.0;
       return;
    }
 
    double dot1 = dot1Arr[0];
-   if(dot1 == 0.0 || dot1 == EMPTY_VALUE)
+   if (dot1 == 0.0 || dot1 == EMPTY_VALUE)
    {
       currentCrossText = "None";
       return;
    }
 
    currentCrossPrice = dot1;
-   eventPrice        = dot1;
+   eventPrice = dot1;
 
    // Read EMA10 (buffer 0) & EMA39 (buffer 1) at bar1 and bar2
    double s1[1], s2[1], l1[1], l2[1];
@@ -925,16 +1049,16 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    int rl1 = CopyBuffer(emaHandle, 1, 1, 1, l1); // Long  MA bar1
    int rl2 = CopyBuffer(emaHandle, 1, 2, 1, l2); // Long  MA bar2
 
-   if(rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
+   if (rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
    {
       currentCrossText = "Cross";
       return;
    }
 
    double short1 = s1[0], short2 = s2[0];
-   double long1  = l1[0], long2  = l2[0];
+   double long1 = l1[0], long2 = l2[0];
 
-   if(short1 > long1 && short2 <= long2)
+   if (short1 > long1 && short2 <= long2)
    {
       crossUp = true;
       currentCrossText = "Cross Up";
@@ -942,7 +1066,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
       return;
    }
 
-   if(short1 < long1 && short2 >= long2)
+   if (short1 < long1 && short2 >= long2)
    {
       crossDown = true;
       currentCrossText = "Cross Down";
@@ -970,78 +1094,89 @@ string LineUsedName(bool isBuy, long key)
 bool IsLineUsed(bool isBuy, long key)
 {
    // If regime not known yet, don't block by line-used
-   if(currentRegimeEpoch == 0) return false;
+   if (currentRegimeEpoch == 0)
+      return false;
    return GlobalVariableCheck(LineUsedName(isBuy, key));
 }
 
 void MarkLineUsed(bool isBuy, long key)
 {
-   if(currentRegimeEpoch == 0) return;
+   if (currentRegimeEpoch == 0)
+      return;
 
    string name = LineUsedName(isBuy, key);
-   if(!GlobalVariableCheck(name))
+   if (!GlobalVariableCheck(name))
       GlobalVariableSet(name, (double)TimeCurrent());
 
-   if(isBuy) lastUsedHighKey = key;
-   else      lastUsedLowKey  = key;
+   if (isBuy)
+      lastUsedHighKey = key;
+   else
+      lastUsedLowKey = key;
 }
 
 //=================== BREAKOUT CHECKS =========================
 bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 {
    highKeyOut = 0;
-   if(!waitingBUY) return false;
+   if (!waitingBUY)
+      return false;
 
    // HA bar1
-   double haO,haH,haL,haC,haCol;
-   if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
+   double haO, haH, haL, haC, haCol;
+   if (!ReadHA(1, haO, haH, haL, haC, haCol))
+      return false;
 
    // HA bullish
-   if(haCol != 0.0) return false;
+   if (haCol != 0.0)
+      return false;
 
    // HighLine bar1
    double highLine1;
-   if(!ReadHighLineAtShift(1, highLine1)) return false;
+   if (!ReadHighLineAtShift(1, highLine1))
+      return false;
 
    PrintFormat("[%s][CHECK][BUY] HAclose=%.*f HighLine=%.*f | HA>Line=%d",
                _Symbol, _Digits, haC, _Digits, highLine1, (haC > highLine1));
 
    // HA close above HighLine
-   if(haC <= highLine1) return false;
+   if (haC <= highLine1)
+      return false;
 
    // normal candle not bearish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
-   
-   PrintFormat("[%s][CANDLE][BUY] Open=%.*f Close=%.*f | Bull=%d Bear=%d",
-               _Symbol, _Digits, o1, _Digits, c1, (c1>=o1), (c1<o1));
 
-   if(c1 < o1) return false;
+   PrintFormat("[%s][CANDLE][BUY] Open=%.*f Close=%.*f | Bull=%d Bear=%d",
+               _Symbol, _Digits, o1, _Digits, c1, (c1 >= o1), (c1 < o1));
+
+   if (c1 < o1)
+      return false;
 
    long key = LineKey(highLine1);
 
    // If line already used in THIS regime -> skip
-   if(IsLineUsed(true, key))
+   if (IsLineUsed(true, key))
       return false;
 
    // ===== range filter =====
    double lowLine1;
-   if(!ReadLowLineAtShift(1, lowLine1)) return false;
+   if (!ReadLowLineAtShift(1, lowLine1))
+      return false;
 
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
-   if(rangePips < RangeChannelEMA)
+   if (rangePips < RangeChannelEMA)
    {
       PrintFormat("SKIP BUY (range too small) -> NOT MARK USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
                   highLine1, lowLine1, rangePips, RangeChannelEMA, key,
-                  (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
+                  (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
       return false;
    }
 
    PrintFormat("[%s][PASS][BUY] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
                _Symbol, _Digits, highLine1, key, rangePips,
-               (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
+               (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
 
    highKeyOut = key;
    return true;
@@ -1050,58 +1185,65 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 {
    lowKeyOut = 0;
-   if(!waitingSELL) return false;
+   if (!waitingSELL)
+      return false;
 
    // HA bar1
-   double haO,haH,haL,haC,haCol;
-   if(!ReadHA(1, haO,haH,haL,haC,haCol)) return false;
+   double haO, haH, haL, haC, haCol;
+   if (!ReadHA(1, haO, haH, haL, haC, haCol))
+      return false;
 
    // HA bearish
-   if(haCol != 1.0) return false;
+   if (haCol != 1.0)
+      return false;
 
    // LowLine bar1
    double lowLine1;
-   if(!ReadLowLineAtShift(1, lowLine1)) return false;
+   if (!ReadLowLineAtShift(1, lowLine1))
+      return false;
 
    PrintFormat("[%s][CHECK][SELL] HAclose=%.*f LowLine=%.*f | HA<Line=%d",
                _Symbol, _Digits, haC, _Digits, lowLine1, (haC < lowLine1));
 
    // HA close below LowLine
-   if(haC >= lowLine1) return false;
+   if (haC >= lowLine1)
+      return false;
 
    // normal candle not bullish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
 
    PrintFormat("[%s][CANDLE][SELL] Open=%.*f Close=%.*f | Bull=%d Bear=%d",
-               _Symbol, _Digits, o1, _Digits, c1, (c1<=o1), (c1>o1));
+               _Symbol, _Digits, o1, _Digits, c1, (c1 <= o1), (c1 > o1));
 
-   if(c1 > o1) return false;
+   if (c1 > o1)
+      return false;
 
    long key = LineKey(lowLine1);
 
    // If line already used in THIS regime -> skip
-   if(IsLineUsed(false, key))
+   if (IsLineUsed(false, key))
       return false;
 
    // ===== range filter =====
    double highLine1;
-   if(!ReadHighLineAtShift(1, highLine1)) return false;
+   if (!ReadHighLineAtShift(1, highLine1))
+      return false;
 
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
-   if(rangePips < RangeChannelEMA)
+   if (rangePips < RangeChannelEMA)
    {
       PrintFormat("SKIP SELL (range too small) -> NOT MARK USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
                   highLine1, lowLine1, rangePips, RangeChannelEMA, key,
-                  (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
+                  (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
       return false;
    }
 
    PrintFormat("[%s][PASS][SELL] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
                _Symbol, _Digits, lowLine1, key, rangePips,
-               (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
+               (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
 
    lowKeyOut = key;
    return true;
@@ -1111,31 +1253,31 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 bool ExecuteEntry(bool isBuy, long lineKey)
 {
    // gate by forbidden zone (FULLDAY or SESSIONS)
-   datetime endGate=0;
-   if(IsForbiddenNow(endGate))
+   datetime endGate = 0;
+   if (IsForbiddenNow(endGate))
    {
       PrintFormat("[%s][SKIP][%s] ForbiddenNow | endGate=%s",
                   _Symbol, SideText(isBuy),
-                  (endGate>0?TimeToString(endGate,TIME_DATE|TIME_MINUTES):"N/A"));
+                  (endGate > 0 ? TimeToString(endGate, TIME_DATE | TIME_MINUTES) : "N/A"));
       return false;
    }
 
    // gate by DD
-   if(ddBlocked)
+   if (ddBlocked)
    {
       PrintFormat("[%s][SKIP][%s] Blocked by DD", _Symbol, SideText(isBuy));
       return false;
    }
 
    // gate by Profit Target
-   if(profitBlocked)
+   if (profitBlocked)
    {
       PrintFormat("[%s][SKIP][%s] Blocked by ProfitTarget", _Symbol, SideText(isBuy));
       return false;
    }
 
    double sl;
-   if(!FindSLFromNearestOppositeHAPair(isBuy, sl))
+   if (!FindSLFromNearestOppositeHAPair(isBuy, sl))
    {
       PrintFormat("[%s][SKIP][%s] No SL from HA pair", _Symbol, SideText(isBuy));
       return false;
@@ -1146,23 +1288,23 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    double entryNow = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    entryNow = NormalizePrice(entryNow);
 
-   if(isBuy && sl >= entryNow)
+   if (isBuy && sl >= entryNow)
    {
       PrintFormat("[%s][SKIP][BUY] Invalid SL >= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
                   _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
       return false;
    }
 
-   if(!isBuy && sl <= entryNow)
+   if (!isBuy && sl <= entryNow)
    {
       PrintFormat("[%s][SKIP][SELL] Invalid SL <= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
                   _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
       return false;
    }
 
-
    double riskDist = isBuy ? (entryNow - sl) : (sl - entryNow);
-   if(riskDist <= 0) return false;
+   if (riskDist <= 0)
+      return false;
 
    double riskPips = riskDist / pip;
 
@@ -1172,13 +1314,13 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    PrintFormat("[%s][SETUP][%s] entryNow=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f lineKey %I64d",
                _Symbol, SideText(isBuy),
                _Digits, entryNow, _Digits, sl, riskPips, SLMaxPips, lineKey,
-               (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"));
+               (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
 
    // Case 1: within SL_MAX => MARKET
-   if(riskPips <= SLMaxPips + 1e-9)
+   if (riskPips <= SLMaxPips + 1e-9)
    {
       double lots = CalcLotsByRiskUSD(entryNow, sl);
-      if(lots <= 0)
+      if (lots <= 0)
       {
          PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entry=%.*f sl=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy), _Digits, entryNow, _Digits, sl, lineKey);
@@ -1187,16 +1329,18 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 
       double tp = isBuy ? (entryNow + RiskReward * riskDist) : (entryNow - RiskReward * riskDist);
       tp = NormalizePrice(tp);
-
-      if(_Period != PERIOD_M1){
+      if (_Period != PERIOD_M1)
+      {
          tp = 0.0;
       }
 
       bool isSuccess = false;
-      if(isBuy) isSuccess = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
-      else      isSuccess = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
+      if (isBuy)
+         isSuccess = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
+      else
+         isSuccess = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
 
-      if(isSuccess)
+      if (isSuccess)
       {
          double entryFill = trade.ResultPrice();
          PrintFormat("[%s][ORDER][%s] MARKET SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
@@ -1204,7 +1348,10 @@ bool ExecuteEntry(bool isBuy, long lineKey)
                      _Digits, entryFill, lots,
                      _Digits, sl, _Digits, tp, lineKey);
 
-         if(isBuy) waitingBUY = false; else waitingSELL = false;
+         if (isBuy)
+            waitingBUY = false;
+         else
+            waitingSELL = false;
       }
       else
       {
@@ -1228,39 +1375,45 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    tpLimit = NormalizePrice(tpLimit);
 
    double lotsizeLimit = CalcLotsByRiskUSD(entryLimit, sl);
-   if(lotsizeLimit <= 0)
+   if (lotsizeLimit <= 0)
    {
       PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entryLimit=%.*f sl=%.*f lineKey %I64d",
                   _Symbol, SideText(isBuy), _Digits, entryLimit, _Digits, sl, lineKey);
       return false;
    }
 
-   if(_Period != PERIOD_M1){
-         tpLimit = 0.0;
-      }
+   if (_Period != PERIOD_M1)
+   {
+      tpLimit = 0.0;
+   }
 
    bool isLimitSuccess = false;
-   if(isBuy){
-   isLimitSuccess = trade.BuyLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "BUY LIMIT SL_MAX");
-   PrintFormat("[%s][ORDER][LIMIT][SEND] side=%s entry=%.*f vol=%.2f sl=%.*f tp=%.*f SLMaxPips=%.1f lineKey=%I64d",
-               _Symbol, SideText(isBuy),
-               _Digits, entryLimit, lotsizeLimit,
-               _Digits, sl,
-               _Digits, tpLimit,
-               SLMaxPips, lineKey);
-   }
-   else{
-   isLimitSuccess = trade.SellLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "SELL LIMIT SL_MAX");
-   PrintFormat("[%s][ORDER][LIMIT][SEND] side=%s entry=%.*f vol=%.2f sl=%.*f tp=%.*f SLMaxPips=%.1f lineKey=%I64d",
-            _Symbol, SideText(isBuy),
-            _Digits, entryLimit, lotsizeLimit,
-            _Digits, sl,
-            _Digits, tpLimit,
-            SLMaxPips, lineKey);
-   }
-   if(isLimitSuccess)
+   if (isBuy)
    {
-      if(isBuy) waitingBUY = false; else waitingSELL = false;
+      isLimitSuccess = trade.BuyLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "BUY LIMIT SL_MAX");
+      PrintFormat("[%s][ORDER][LIMIT][SEND] side=%s entry=%.*f vol=%.2f sl=%.*f tp=%.*f SLMaxPips=%.1f lineKey=%I64d",
+                  _Symbol, SideText(isBuy),
+                  _Digits, entryLimit, lotsizeLimit,
+                  _Digits, sl,
+                  _Digits, tpLimit,
+                  SLMaxPips, lineKey);
+   }
+   else
+   {
+      isLimitSuccess = trade.SellLimit(lotsizeLimit, entryLimit, _Symbol, sl, tpLimit, ORDER_TIME_GTC, 0, "SELL LIMIT SL_MAX");
+      PrintFormat("[%s][ORDER][LIMIT][SEND] side=%s entry=%.*f vol=%.2f sl=%.*f tp=%.*f SLMaxPips=%.1f lineKey=%I64d",
+                  _Symbol, SideText(isBuy),
+                  _Digits, entryLimit, lotsizeLimit,
+                  _Digits, sl,
+                  _Digits, tpLimit,
+                  SLMaxPips, lineKey);
+   }
+   if (isLimitSuccess)
+   {
+      if (isBuy)
+         waitingBUY = false;
+      else
+         waitingSELL = false;
    }
    else
    {
@@ -1278,40 +1431,45 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 //=================== MANAGEMENT ===============================
 void CancelWaitingOnOppositeCross(bool crossUpNow, bool crossDownNow)
 {
-   if(crossDownNow) CancelPending(ORDER_TYPE_BUY_LIMIT);
-   if(crossUpNow)   CancelPending(ORDER_TYPE_SELL_LIMIT);
+   if (crossDownNow)
+      CancelPending(ORDER_TYPE_BUY_LIMIT);
+   if (crossUpNow)
+      CancelPending(ORDER_TYPE_SELL_LIMIT);
 }
 
 void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
 {
    // DEFAULT LOGIC: M1 TIMEFRAME
    // OVERRIDE for HTF: close position on cross if profitable + BE at ~1R
-   if(_Period != PERIOD_M1)
+   if (_Period != PERIOD_M1)
    {
       double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
       double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
       int total = PositionsTotal();
-      for(int i = total - 1; i >= 0; i--)
+      for (int i = total - 1; i >= 0; i--)
       {
          ulong tk = PositionGetTicket(i);
-         if(tk == 0) continue;
-         if(!PositionSelectByTicket(tk)) continue;
+         if (tk == 0)
+            continue;
+         if (!PositionSelectByTicket(tk))
+            continue;
 
-         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+         if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+            continue;
+         if ((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber)
+            continue;
 
          ENUM_POSITION_TYPE ptype =
-            (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+             (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
          double entry = PositionGetDouble(POSITION_PRICE_OPEN);
          bool isProfitable =
-            (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
+             (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
 
-         if(
-            (ptype == POSITION_TYPE_BUY  && crossDownNow && isProfitable) ||
-            (ptype == POSITION_TYPE_SELL && crossUpNow   && isProfitable)
-         )
+         if (
+             (ptype == POSITION_TYPE_BUY && crossDownNow && isProfitable) ||
+             (ptype == POSITION_TYPE_SELL && crossUpNow && isProfitable))
          {
             trade.PositionClose(tk);
          }
@@ -1325,45 +1483,52 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
    int total = PositionsTotal();
-   for(int i = total - 1; i >= 0; i--)
+   for (int i = total - 1; i >= 0; i--)
    {
       ulong tk = PositionGetTicket(i);
-      if(tk == 0) continue;
-      if(!PositionSelectByTicket(tk)) continue;
+      if (tk == 0)
+         continue;
+      if (!PositionSelectByTicket(tk))
+         continue;
 
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+      if ((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber)
+         continue;
 
       ulong ticket = tk;
       ENUM_POSITION_TYPE ptype = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
       double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-      double sl    = PositionGetDouble(POSITION_SL);
-      double tp    = PositionGetDouble(POSITION_TP);
+      double sl = PositionGetDouble(POSITION_SL);
+      double tp = PositionGetDouble(POSITION_TP);
 
       bool isProfitable = (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
 
       double R = (ptype == POSITION_TYPE_BUY) ? (entry - sl) : (sl - entry);
-      if(R <= 0) continue;
+      if (R <= 0)
+         continue;
 
       double threshold = R - (double)BufferPips * pip;
-      if(threshold < 0) threshold = 0;
+      if (threshold < 0)
+         threshold = 0;
 
-      if(ptype == POSITION_TYPE_BUY)
+      if (ptype == POSITION_TYPE_BUY)
       {
          // ===== BE at ~1R (OPTIONAL) =====
-         if(IsAllowBE)
+         if (IsAllowBE)
          {
-            if((bid - entry) >= threshold)
+            if ((bid - entry) >= threshold)
             {
-               if(sl < entry) trade.PositionModify(ticket, entry, tp);
+               if (sl < entry)
+                  trade.PositionModify(ticket, entry, tp);
             }
          }
 
          // ===== cross rules (KEEP SAME) =====
-         if(crossDownNow)
+         if (crossDownNow)
          {
-            if(isProfitable)
+            if (isProfitable)
                trade.PositionModify(ticket, entry, tp);
             else
                trade.PositionModify(ticket, sl, entry);
@@ -1372,18 +1537,19 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
       else
       {
          // ===== BE at ~1R (OPTIONAL) =====
-         if(IsAllowBE)
+         if (IsAllowBE)
          {
-            if((entry - ask) >= threshold)
+            if ((entry - ask) >= threshold)
             {
-               if(sl > entry) trade.PositionModify(ticket, entry, tp);
+               if (sl > entry)
+                  trade.PositionModify(ticket, entry, tp);
             }
          }
 
          // ===== cross rules (KEEP SAME) =====
-         if(crossUpNow)
+         if (crossUpNow)
          {
-            if(isProfitable)
+            if (isProfitable)
                trade.PositionModify(ticket, entry, tp);
             else
                trade.PositionModify(ticket, sl, entry);
@@ -1395,8 +1561,9 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
 //=================== DEBUG ONCE ===============================
 void DebugPrintEMAOnce()
 {
-   static bool done=false;
-   if(done || !IsDebugOnce) return;
+   static bool done = false;
+   if (done || !IsDebugOnce)
+      return;
    done = true;
 
    double dot1[1], h1[1], l1[1];
@@ -1413,13 +1580,13 @@ void DebugPrintEMAOnce()
    int r4 = CopyBuffer(emaHandle, 4, 1, 1, l1);
    int e4 = GetLastError();
 
-   string dotText = (r2==1 ? (dot1[0]==EMPTY_VALUE ? "EMPTY" : DoubleToString(dot1[0], _Digits)) : "NA");
-   string hText   = (r3==1 ? (h1[0]==EMPTY_VALUE   ? "EMPTY" : DoubleToString(h1[0], _Digits))   : "NA");
-   string lText   = (r4==1 ? (l1[0]==EMPTY_VALUE   ? "EMPTY" : DoubleToString(l1[0], _Digits))   : "NA");
+   string dotText = (r2 == 1 ? (dot1[0] == EMPTY_VALUE ? "EMPTY" : DoubleToString(dot1[0], _Digits)) : "NA");
+   string hText = (r3 == 1 ? (h1[0] == EMPTY_VALUE ? "EMPTY" : DoubleToString(h1[0], _Digits)) : "NA");
+   string lText = (r4 == 1 ? (l1[0] == EMPTY_VALUE ? "EMPTY" : DoubleToString(l1[0], _Digits)) : "NA");
 
-   Print("DEBUG EMA: r2=",r2," err2=",e2," dot1=",dotText,
-         " | r3=",r3," err3=",e3," high1=",hText,
-         " | r4=",r4," err4=",e4," low1=",lText,
+   Print("DEBUG EMA: r2=", r2, " err2=", e2, " dot1=", dotText,
+         " | r3=", r3, " err3=", e3, " high1=", hText,
+         " | r4=", r4, " err4=", e4, " low1=", lText,
          " | haBars=", BarsCalculated(haHandle),
          " emaBars=", BarsCalculated(emaHandle));
 }
@@ -1427,44 +1594,50 @@ void DebugPrintEMAOnce()
 //=================== CHART COMMENT ===============================
 string FormatPriceOrNA(double v)
 {
-   if(v == EMPTY_VALUE) return "N/A";
+   if (v == EMPTY_VALUE)
+      return "N/A";
    return DoubleToString(v, _Digits);
 }
 
 string CrossDirShort(string t)
 {
-   if(t == "Cross Up")   return "Up";
-   if(t == "Cross Down") return "Down";
-   if(t == "Cross")      return "Cross";
+   if (t == "Cross Up")
+      return "Up";
+   if (t == "Cross Down")
+      return "Down";
+   if (t == "Cross")
+      return "Cross";
    return "None";
 }
 
 string FormatCrossLine()
 {
-   if(currentCrossText == "None")
+   if (currentCrossText == "None")
       return "Cross : None";
 
    return "Cross : " + CrossDirShort(currentCrossText) +
           " at " + DoubleToString(currentCrossPrice, _Digits) +
-          " at " + TimeToString(currentCrossTime, TIME_DATE|TIME_MINUTES);
+          " at " + TimeToString(currentCrossTime, TIME_DATE | TIME_MINUTES);
 }
 
 void UpdateChartComment()
 {
-   if(!IsShowChartComment)
+   if (!IsShowChartComment)
    {
       Comment("");
       return;
    }
 
-   if(!IndicatorsReady())
+   if (!IndicatorsReady())
    {
       Comment("Indicators not ready...\n");
       return;
    }
 
-   double hl0Arr[1]; hl0Arr[0] = EMPTY_VALUE;
-   double ll0Arr[1]; ll0Arr[0] = EMPTY_VALUE;
+   double hl0Arr[1];
+   hl0Arr[0] = EMPTY_VALUE;
+   double ll0Arr[1];
+   ll0Arr[0] = EMPTY_VALUE;
 
    bool hasH0 = (CopyBuffer(emaHandle, 3, 0, 1, hl0Arr) == 1 && hl0Arr[0] != EMPTY_VALUE);
    bool hasL0 = (CopyBuffer(emaHandle, 4, 0, 1, ll0Arr) == 1 && ll0Arr[0] != EMPTY_VALUE);
@@ -1472,17 +1645,17 @@ void UpdateChartComment()
    // add range pips on chart comment
    double rangePips = 0.0;
    bool hasRange = (hasH0 && hasL0);
-   if(hasRange)
+   if (hasRange)
       rangePips = MathAbs(hl0Arr[0] - ll0Arr[0]) / PipSize();
 
    // Broker session (FULLDAY only)
-   datetime s=0,e=0;
-   bool inSess = IsInMarketSessionNow(s,e);
+   datetime s = 0, e = 0;
+   bool inSess = IsInMarketSessionNow(s, e);
 
    double hToEnd = 0.0;
-   if(inSess)
+   if (inSess)
    {
-      datetime dummy=0;
+      datetime dummy = 0;
       hToEnd = HoursToSessionEnd(dummy);
    }
 
@@ -1492,26 +1665,26 @@ void UpdateChartComment()
 
    // SESSION ONLY
    datetime vnNow = GetVNTime();
-   string vnNowText = TimeToString(vnNow, TIME_DATE|TIME_MINUTES);
+   string vnNowText = TimeToString(vnNow, TIME_DATE | TIME_MINUTES);
 
-   string vnSessName  = "NONE";
+   string vnSessName = "NONE";
    string vnWindowTxt = "N/A";
-   string vnEndTxt    = "N/A";
+   string vnEndTxt = "N/A";
 
-   if(TradeWindowMode == TRADEWINDOW_SESSIONS)
+   if (TradeWindowMode == TRADEWINDOW_SESSIONS)
    {
-      vnSessName  = CurrentVNSessionName();
+      vnSessName = CurrentVNSessionName();
       vnWindowTxt = VNWindowTextFor(vnSessName);
 
-      if(!forbiddenNow && endGate > 0)
+      if (!forbiddenNow && endGate > 0)
       {
-         datetime vnEnd = endGate + VNDeltaHours()*3600;
-         vnEndTxt = TimeToString(vnEnd, TIME_DATE|TIME_MINUTES);
+         datetime vnEnd = endGate + VNDeltaHours() * 3600;
+         vnEndTxt = TimeToString(vnEnd, TIME_DATE | TIME_MINUTES);
       }
    }
 
    // PnL/DD
-   double pnl  = lastSessionRealizedPnL;
+   double pnl = lastSessionRealizedPnL;
 
    string modeText = (TradeWindowMode == TRADEWINDOW_FULLDAY) ? "FULLDAY" : "SESSIONS";
 
@@ -1519,7 +1692,7 @@ void UpdateChartComment()
    txt += "TradeMode     : " + modeText + "\n";
 
    // --- SESSIONS: show VN block, HIDE broker MarketSession ---
-   if(TradeWindowMode == TRADEWINDOW_SESSIONS)
+   if (TradeWindowMode == TRADEWINDOW_SESSIONS)
    {
       txt += "VN Now        : " + vnNowText + "\n";
       txt += "VN Session    : " + vnSessName + "\n";
@@ -1529,15 +1702,13 @@ void UpdateChartComment()
    }
 
    // --- FULLDAY: show broker session block ---
-   if(TradeWindowMode == TRADEWINDOW_FULLDAY)
+   if (TradeWindowMode == TRADEWINDOW_FULLDAY)
    {
-      txt += "MarketSession : " + (inSess
-               ? (TimeToString(s,TIME_DATE|TIME_MINUTES)+" -> "+TimeToString(e,TIME_DATE|TIME_MINUTES))
-               : "N/A") + "\n";
-      txt += "InSession     : " + (inSess ? "YES":"NO") + "\n";
-      txt += "Forbidden     : " + (forbiddenNow ? "YES":"NO") +
-             " (<= " + DoubleToString(NoNewTradesBeforeEndH,1) +
-             "h; hLeft=" + DoubleToString(hToEnd,2) + ")\n";
+      txt += "MarketSession : " + (inSess ? (TimeToString(s, TIME_DATE | TIME_MINUTES) + " -> " + TimeToString(e, TIME_DATE | TIME_MINUTES)) : "N/A") + "\n";
+      txt += "InSession     : " + (inSess ? "YES" : "NO") + "\n";
+      txt += "Forbidden     : " + (forbiddenNow ? "YES" : "NO") +
+             " (<= " + DoubleToString(NoNewTradesBeforeEndH, 1) +
+             "h; hLeft=" + DoubleToString(hToEnd, 2) + ")\n";
    }
 
    // --- Strategy state (always show) ---
@@ -1547,11 +1718,11 @@ void UpdateChartComment()
           " (min=" + DoubleToString(RangeChannelEMA, 1) + ")\n";
 
    txt += FormatCrossLine() + "\n";
-   txt += "RegimeEpoch   : " + (currentRegimeEpoch>0 ? TimeToString(currentRegimeEpoch, TIME_DATE|TIME_MINUTES) : "0") + "\n";
-   txt += "waitingBUY    : " + (waitingBUY  ? "YES" : "NO") + "\n";
+   txt += "RegimeEpoch   : " + (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0") + "\n";
+   txt += "waitingBUY    : " + (waitingBUY ? "YES" : "NO") + "\n";
    txt += "waitingSELL   : " + (waitingSELL ? "YES" : "NO") + "\n";
    txt += "LastUsedHighK : " + (string)lastUsedHighKey + "\n";
-   txt += "LastUsedLowK  : " + (string)lastUsedLowKey  + "\n";
+   txt += "LastUsedLowK  : " + (string)lastUsedLowKey + "\n";
 
    // --- Risk gates ---
    txt += "SessStartBal  : " + DoubleToString(sessionStartBalance, 2) + "\n";
@@ -1561,18 +1732,431 @@ void UpdateChartComment()
    Comment(txt);
 }
 
+//===================== TELEGRAM MODULE (READ-ONLY) ====================
+input bool EnableTelegram = true;
+input string TG_BotToken = "YOUR_TOKEN";
+input string TG_ChatID = "YOUR_CHAT_ID";
+
+input bool TG_IncludeManual = false;
+
+// --- Anti-duplicate ---
+string TG_Key(const string kind, long id)
+{
+   return "TLS_TG_" + _Symbol + "_" + (string)(int)_Period + "_" + kind + "_" + (string)id;
+}
+bool TG_Sent(const string kind, long id) { return GlobalVariableCheck(TG_Key(kind, id)); }
+void TG_Mark(const string kind, long id) { GlobalVariableSet(TG_Key(kind, id), (double)TimeCurrent()); }
+
+// --- URL encode UTF-8 (Telegram) ---
+string TG_UrlEncode(const string s)
+{
+   uchar a[];
+   StringToCharArray(s, a, 0, WHOLE_ARRAY, CP_UTF8);
+   string o = "";
+   for (int i = 0; i < ArraySize(a); i++)
+   {
+      int c = (int)a[i];
+      if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '-' || c == '_' || c == '.' || c == '~')
+         o += CharToString((ushort)c);
+      else if (c == ' ')
+         o += "%20";
+      else if (c == '\n')
+         o += "%0A";
+      else
+         o += StringFormat("%%%02X", c);
+   }
+   return o;
+}
+
+void TG_Send(const string msg)
+{
+   if (!EnableTelegram)
+      return;
+   if (StringLen(TG_BotToken) < 10 || StringLen(TG_ChatID) < 3)
+      return;
+
+   string url = "https://api.telegram.org/bot" + TG_BotToken + "/sendMessage";
+   string body = "chat_id=" + TG_UrlEncode(TG_ChatID) + "&text=" + TG_UrlEncode(msg);
+
+   uchar data[];
+   StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
+   string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+
+   uchar result[];
+   string result_headers;
+
+   ResetLastError();
+   int r = WebRequest("POST", url, headers, 5000, data, result, result_headers);
+   if (r == -1)
+   {
+      Print("Telegram WebRequest error: ", GetLastError());
+      return;
+   }
+}
+
+string TG_P(double v) { return DoubleToString(v, _Digits); }
+
+//===================== SAFE HISTORY SELECT (IMPORTANT) =================
+bool TG_SelectDealSafe(ulong dealId, int retries = 10, int sleepMs = 50)
+{
+   for (int i = 0; i < retries; i++)
+   {
+      datetime to = TimeCurrent();
+      datetime from = to - 60 * 60 * 24 * 30;
+      HistorySelect(from, to);
+
+      if (HistoryDealSelect(dealId))
+         return true;
+
+      Sleep(sleepMs);
+   }
+   return false;
+}
+
+//===================== MESSAGE FORMATS ================================
+// Pending created
+void TG_SendPendingLimit(bool isBuy, double et, double sl, double tp, long orderId)
+{
+   if (TG_Sent("PEND_LIM", orderId))
+      return;
+
+   string msg =
+       string(isBuy ? "BUY LIMIT" : "SELL LIMIT") + "\n" +
+       "ET  " + TG_P(et) + "\n" +
+       "SL  " + TG_P(sl) + "\n" +
+       "TP  " + TG_P(tp);
+
+   TG_Send(msg);
+   TG_Mark("PEND_LIM", orderId);
+}
+
+// Cancel (generic with reason)
+void TG_SendCancelLimit(bool isBuy, double et, long orderId, const string reason)
+{
+   if (TG_Sent("CANCEL_LIM", orderId))
+      return;
+
+   string msg =
+       "CANCEL " + string(isBuy ? "BUY LIMIT" : "SELL LIMIT") + "\n" +
+       "ET  " + TG_P(et) + "\n" +
+       "REASON: " + reason;
+
+   TG_Send(msg);
+   TG_Mark("CANCEL_LIM", orderId);
+}
+
+void TG_SendCancelLimitByCross(bool isBuy, double et, long orderId)
+{
+   TG_SendCancelLimit(isBuy, et, orderId, "Opposite cross");
+}
+
+void TG_SendCancelLimitByTPBeforeFilled(bool isBuy, double et, long orderId)
+{
+   TG_SendCancelLimit(isBuy, et, orderId, "TP hit before filled");
+}
+
+// Close position (generic with reason)
+void TG_SendClosePosition(bool isBuy, double et, long positionId, const string reason)
+{
+   if (TG_Sent("CLOSE_POS", positionId))
+      return;
+
+   string msg =
+       "CLOSE " + string(isBuy ? "BUY" : "SELL") + "\n" +
+       "ET  " + TG_P(et) + "\n" +
+       "REASON: " + reason;
+
+   TG_Send(msg);
+   TG_Mark("CLOSE_POS", positionId);
+}
+
+// Filled market
+void TG_SendOpenMarket(bool isBuy, double et, double sl, double tp, long uniqId)
+{
+   if (TG_Sent("OPEN_MKT", uniqId))
+      return;
+
+   string msg =
+       string(isBuy ? "BUY NOW" : "SELL NOW") + "\n" +
+       "ET  " + TG_P(et) + "\n" +
+       "SL  " + TG_P(sl) + "\n" +
+       "TP  " + TG_P(tp);
+
+   TG_Send(msg);
+   TG_Mark("OPEN_MKT", uniqId);
+}
+
+// Filled limit
+void TG_SendLimitFilled(bool isBuy, double et, double sl, double tp, long uniqId)
+{
+   if (TG_Sent("FILL_LIM", uniqId))
+      return;
+
+   string msg =
+       string(isBuy ? "BUY LIMIT FILLED" : "SELL LIMIT FILLED") + "\n" +
+       "ET  " + TG_P(et) + "\n" +
+       "SL  " + TG_P(sl) + "\n" +
+       "TP  " + TG_P(tp);
+
+   TG_Send(msg);
+   TG_Mark("FILL_LIM", uniqId);
+}
+
+// TP/SL
+void TG_SendTP(bool isBuyEntry, bool wasLimit, double et, long dealId)
+{
+   string key = wasLimit ? "TP_LIM" : "TP_MKT";
+   if (TG_Sent(key, dealId))
+      return;
+
+   string msg =
+       "TP hit with " + string(isBuyEntry ? "BUY" : "SELL") +
+       (wasLimit ? " LIMIT" : " NOW") +
+       " ET = " + TG_P(et);
+
+   TG_Send(msg);
+   TG_Mark(key, dealId);
+}
+
+void TG_SendSL(bool isBuyEntry, bool wasLimit, double et, long dealId)
+{
+   string key = wasLimit ? "SL_LIM" : "SL_MKT";
+   if (TG_Sent(key, dealId))
+      return;
+
+   string msg =
+       "SL hit with " + string(isBuyEntry ? "BUY" : "SELL") +
+       (wasLimit ? " LIMIT" : " NOW") +
+       " ET = " + TG_P(et);
+
+   TG_Send(msg);
+   TG_Mark(key, dealId);
+}
+
+//===================== HELPERS: origin + SL/TP ========================
+bool TG_GetFillOrigin(ulong dealTicket, bool &wasMarket, bool &wasLimit)
+{
+   wasMarket = false;
+   wasLimit = false;
+
+   if (!TG_SelectDealSafe(dealTicket))
+      return false;
+
+   ulong orderTicket = (ulong)HistoryDealGetInteger(dealTicket, DEAL_ORDER);
+   if (orderTicket == 0)
+      return false;
+
+   if (!HistoryOrderSelect(orderTicket))
+      return false;
+
+   ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)HistoryOrderGetInteger(orderTicket, ORDER_TYPE);
+   if (ot == ORDER_TYPE_BUY || ot == ORDER_TYPE_SELL)
+   {
+      wasMarket = true;
+      return true;
+   }
+   if (ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_SELL_LIMIT)
+   {
+      wasLimit = true;
+      return true;
+   }
+   return false;
+}
+
+bool TG_GetEntryPriceFromPositionHistory(long positionId, double &etOut, bool &isBuyOut,
+                                         long requiredMagic, bool includeManual)
+{
+   etOut = 0.0;
+   isBuyOut = true;
+
+   datetime to = TimeCurrent();
+   datetime from = to - 60 * 60 * 24 * 30;
+   if (!HistorySelect(from, to))
+      return false;
+
+   int deals = (int)HistoryDealsTotal();
+   for (int i = deals - 1; i >= 0; i--)
+   {
+      ulong dk = HistoryDealGetTicket(i);
+      if (dk == 0)
+         continue;
+
+      if (HistoryDealGetString(dk, DEAL_SYMBOL) != _Symbol)
+         continue;
+
+      long magic = (long)HistoryDealGetInteger(dk, DEAL_MAGIC);
+      if (!includeManual && magic != requiredMagic)
+         continue;
+      if (includeManual && magic != requiredMagic && magic != 0)
+         continue; // tuỳ bạn muốn accept magic=0
+
+      long pid = (long)HistoryDealGetInteger(dk, DEAL_POSITION_ID);
+      if (pid != positionId)
+         continue;
+
+      long entry = (long)HistoryDealGetInteger(dk, DEAL_ENTRY);
+      if (entry != DEAL_ENTRY_IN)
+         continue;
+
+      long dtype = (long)HistoryDealGetInteger(dk, DEAL_TYPE);
+      isBuyOut = (dtype == DEAL_TYPE_BUY);
+
+      etOut = HistoryDealGetDouble(dk, DEAL_PRICE);
+      return true;
+   }
+   return false;
+}
+
+bool TG_GetSLTPForEntryDeal(ulong dealId, double &slOut, double &tpOut)
+{
+   slOut = 0.0;
+   tpOut = 0.0;
+
+   double dsl = HistoryDealGetDouble(dealId, DEAL_SL);
+   double dtp = HistoryDealGetDouble(dealId, DEAL_TP);
+   if (dsl > 0.0 || dtp > 0.0)
+   {
+      slOut = dsl;
+      tpOut = dtp;
+      return true;
+   }
+
+   ulong orderTicket = (ulong)HistoryDealGetInteger(dealId, DEAL_ORDER);
+   if (orderTicket > 0 && HistoryOrderSelect(orderTicket))
+   {
+      slOut = HistoryOrderGetDouble(orderTicket, ORDER_SL);
+      tpOut = HistoryOrderGetDouble(orderTicket, ORDER_TP);
+      if (slOut > 0.0 || tpOut > 0.0)
+         return true;
+   }
+
+   if (PositionSelect(_Symbol))
+   {
+      slOut = PositionGetDouble(POSITION_SL);
+      tpOut = PositionGetDouble(POSITION_TP);
+      return (slOut > 0.0 || tpOut > 0.0);
+   }
+   return false;
+}
+
+//===================== MAIN EVENT LISTENER ============================
+void OnTradeTransaction(const MqlTradeTransaction &t,
+                        const MqlTradeRequest &r,
+                        const MqlTradeResult &res)
+{
+   if (t.symbol != _Symbol)
+      return;
+
+   // -------- Pending LIMIT created ----------
+   if (t.type == TRADE_TRANSACTION_ORDER_ADD)
+   {
+      ulong orderId = t.order;
+      if (orderId == 0)
+         return;
+      if (!OrderSelect(orderId))
+         return;
+
+      long magic = (long)OrderGetInteger(ORDER_MAGIC);
+      if (!TG_IncludeManual && magic != MagicNumber)
+         return;
+      if (TG_IncludeManual && magic != MagicNumber && magic != 0)
+         return;
+
+      ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if (ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_SELL_LIMIT)
+      {
+         bool isBuy = (ot == ORDER_TYPE_BUY_LIMIT);
+         TG_SendPendingLimit(isBuy,
+                             OrderGetDouble(ORDER_PRICE_OPEN),
+                             OrderGetDouble(ORDER_SL),
+                             OrderGetDouble(ORDER_TP),
+                             (long)orderId);
+      }
+      return;
+   }
+
+   // -------- Deal added (fills + exits) ----------
+   if (t.type == TRADE_TRANSACTION_DEAL_ADD)
+   {
+      ulong dealId = t.deal;
+      if (dealId == 0)
+         return;
+
+      if (!TG_SelectDealSafe(dealId))
+         return;
+
+      if (HistoryDealGetString(dealId, DEAL_SYMBOL) != _Symbol)
+         return;
+
+      long magic = (long)HistoryDealGetInteger(dealId, DEAL_MAGIC);
+      if (!TG_IncludeManual && magic != MagicNumber)
+         return;
+      if (TG_IncludeManual && magic != MagicNumber && magic != 0)
+         return;
+
+      long entry = (long)HistoryDealGetInteger(dealId, DEAL_ENTRY);
+      long reason = (long)HistoryDealGetInteger(dealId, DEAL_REASON);
+
+      long dtype = (long)HistoryDealGetInteger(dealId, DEAL_TYPE);
+      bool isBuyDeal = (dtype == DEAL_TYPE_BUY);
+
+      // ===== ENTRY IN (FILLED) =====
+      if (entry == DEAL_ENTRY_IN)
+      {
+         double et = HistoryDealGetDouble(dealId, DEAL_PRICE);
+
+         double sl = 0.0, tp = 0.0;
+         TG_GetSLTPForEntryDeal(dealId, sl, tp);
+
+         bool wasMarket = false, wasLimit = false;
+         if (TG_GetFillOrigin(dealId, wasMarket, wasLimit))
+         {
+            if (wasLimit)
+               TG_SendLimitFilled(isBuyDeal, et, sl, tp, (long)dealId);
+            else
+               TG_SendOpenMarket(isBuyDeal, et, sl, tp, (long)dealId);
+         }
+         else
+         {
+            // fallback
+            TG_SendOpenMarket(isBuyDeal, et, sl, tp, (long)dealId);
+         }
+         return;
+      }
+
+      // ===== EXIT OUT (TP/SL) =====
+      if (entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY)
+      {
+         long positionId = (long)HistoryDealGetInteger(dealId, DEAL_POSITION_ID);
+
+         double et = 0.0;
+         bool isBuyEntry = true;
+         TG_GetEntryPriceFromPositionHistory(positionId, et, isBuyEntry, MagicNumber, TG_IncludeManual);
+
+         bool wasMarket = false, wasLimit = false;
+         TG_GetFillOrigin(dealId, wasMarket, wasLimit);
+
+         if (reason == DEAL_REASON_TP)
+            TG_SendTP(isBuyEntry, wasLimit, et, (long)dealId);
+         if (reason == DEAL_REASON_SL)
+            TG_SendSL(isBuyEntry, wasLimit, et, (long)dealId);
+         return;
+      }
+   }
+}
+
 //=================== INIT/DEINIT ===============================
 int OnInit()
 {
    haHandle = iCustom(_Symbol, _Period, HAIndicatorName, BullColor, BearColor);
-   if(haHandle == INVALID_HANDLE)
+   if (haHandle == INVALID_HANDLE)
    {
       Print("Failed HA handle. Name=", HAIndicatorName, " err=", GetLastError());
       return INIT_FAILED;
    }
 
    emaHandle = iCustom(_Symbol, _Period, EMAIndicatorName, EMAShortPeriod, EMALongPeriod, EMAMethod);
-   if(emaHandle == INVALID_HANDLE)
+   if (emaHandle == INVALID_HANDLE)
    {
       Print("Failed EMA handle. Name=", EMAIndicatorName, " err=", GetLastError());
       return INIT_FAILED;
@@ -1584,9 +2168,9 @@ int OnInit()
    // init DD baseline (only when inside a market session)
    ResetSessionDDIfNeeded();
 
-   currentCrossText  = "None";
+   currentCrossText = "None";
    currentCrossPrice = 0.0;
-   currentCrossTime  = 0;
+   currentCrossTime = 0;
 
    currentRegimeEpoch = 0;
 
@@ -1594,7 +2178,7 @@ int OnInit()
    waitingSELL = false;
 
    lastUsedHighKey = 0;
-   lastUsedLowKey  = 0;
+   lastUsedLowKey = 0;
 
    return INIT_SUCCEEDED;
 }
@@ -1602,8 +2186,10 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    Comment("");
-   if(haHandle  != INVALID_HANDLE) IndicatorRelease(haHandle);
-   if(emaHandle != INVALID_HANDLE) IndicatorRelease(emaHandle);
+   if (haHandle != INVALID_HANDLE)
+      IndicatorRelease(haHandle);
+   if (emaHandle != INVALID_HANDLE)
+      IndicatorRelease(emaHandle);
 }
 
 //=================== TICK ===============================
@@ -1616,22 +2202,22 @@ void OnTick()
 
    UpdateChartComment();
 
-   if(!IndicatorsReady())
+   if (!IndicatorsReady())
       return;
 
    DebugPrintEMAOnce();
 
    EnforceForbiddenZone();
 
-   datetime endGate=0;
+   datetime endGate = 0;
    bool forbiddenNow = IsForbiddenNow(endGate);
 
-   if(forbiddenNow && TradeWindowMode == TRADEWINDOW_FULLDAY)
+   if (forbiddenNow && TradeWindowMode == TRADEWINDOW_FULLDAY)
       return;
 
    // Auto-arm once after indicators ready
    static bool didAutoArm = false;
-   if(!didAutoArm)
+   if (!didAutoArm)
    {
       AutoArmFromLatestCross();
       didAutoArm = true;
@@ -1641,75 +2227,74 @@ void OnTick()
    bool crossDownNow = false;
    double crossPriceNow = 0.0;
 
-   if(IsNewBar())
+   if (IsNewBar())
    {
       // Detect REAL cross on last closed bar
       GetCrossEventOnClosedBar(crossUpNow, crossDownNow, crossPriceNow);
 
       // Start new regime on TRUE cross (epoch = bar1 time)
-      if(crossUpNow || crossDownNow)
+      if (crossUpNow || crossDownNow)
          currentRegimeEpoch = iTime(_Symbol, _Period, 1);
 
       // Cancel pending on opposite cross
       CancelWaitingOnOppositeCross(crossUpNow, crossDownNow);
 
       // Arm waiting regardless of exposure
-      if(crossUpNow)
+      if (crossUpNow)
       {
          waitingBUY = true;
          waitingSELL = false;
       }
 
-      if(crossDownNow)
+      if (crossDownNow)
       {
          waitingSELL = true;
          waitingBUY = false;
       }
 
-      if(!ddBlocked && !profitBlocked)
+      if (!ddBlocked && !profitBlocked)
       {
          long highKey = 0, lowKey = 0;
 
          // ===== BUY =====
-         if(CheckBuyBreakoutOnClosedBar(highKey))
+         if (CheckBuyBreakoutOnClosedBar(highKey))
          {
             // skip setup to avoid FOMO
-            if(TradeWindowMode == TRADEWINDOW_SESSIONS && forbiddenNow)
+            if (TradeWindowMode == TRADEWINDOW_SESSIONS && forbiddenNow)
             {
                PrintFormat("[%s][SKIP][BUY] Breakout OUTSIDE VN session -> MARK USED (anti-FOMO) | lineKey=%I64d epoch=%s endGate=%s",
                            _Symbol, highKey,
-                           (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"),
-                           (endGate>0?TimeToString(endGate,TIME_DATE|TIME_MINUTES):"N/A"));
+                           (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"),
+                           (endGate > 0 ? TimeToString(endGate, TIME_DATE | TIME_MINUTES) : "N/A"));
                MarkLineUsed(true, highKey);
                waitingBUY = false;
             }
             else
             {
-               if(ExecuteEntry(true, highKey))
+               if (ExecuteEntry(true, highKey))
                   MarkLineUsed(true, highKey);
             }
          }
 
          // ===== SELL =====
-         if(CheckSellBreakoutOnClosedBar(lowKey))
+         if (CheckSellBreakoutOnClosedBar(lowKey))
          {
-            if(TradeWindowMode == TRADEWINDOW_SESSIONS && forbiddenNow)
+            if (TradeWindowMode == TRADEWINDOW_SESSIONS && forbiddenNow)
             {
                PrintFormat("[%s][SKIP][SELL] Breakout OUTSIDE VN session -> MARK USED (anti-FOMO) | lineKey=%I64d epoch=%s endGate=%s",
                            _Symbol, lowKey,
-                           (currentRegimeEpoch>0?TimeToString(currentRegimeEpoch,TIME_DATE|TIME_MINUTES):"0"),
-                           (endGate>0?TimeToString(endGate,TIME_DATE|TIME_MINUTES):"N/A"));
+                           (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"),
+                           (endGate > 0 ? TimeToString(endGate, TIME_DATE | TIME_MINUTES) : "N/A"));
                MarkLineUsed(false, lowKey);
                waitingSELL = false;
             }
             else
             {
-               if(ExecuteEntry(false, lowKey))
+               if (ExecuteEntry(false, lowKey))
                   MarkLineUsed(false, lowKey);
             }
          }
       }
-
    }
 
    // Manage positions (BE + opposite cross reaction)
