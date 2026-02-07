@@ -15,7 +15,7 @@ input int EMALongPeriod = 39;
 input ENUM_MA_METHOD EMAMethod = MODE_EMA;
 
 input int SlippagePoints = 30;
-input long MagicNumber = 8386272000; // magic number to tracking orders/positions by this EA
+input long MagicNumber = 8386272000; // Magic number
 
 // Risk & SL/BE rules
 input bool IsAllowBE = true;
@@ -27,14 +27,15 @@ input double RiskReward = 2.0;       // TP = RiskReward * Risk (R)
 input double RangeChannelEMA = 10.0; // distance between HighLine and LowLine in PIPS minimum
 
 //=========================== DD (SESSION, REALIZED) ==================
-input double DailyDD_Percent = 3.0; // DD limit (% of account balance)
+input double HTF_TP_Prices = 100.0; // HTF_TP
+input double DailyDD_Percent = 3.0;
 input bool IsCancelPendingsWhenDDHit = true;
 
 // buffer->scan lookback for lines
 input int LineScanLookbackBars = 300;
 
 // Cross scan for auto-arm/comment
-input int CrossScanLookbackBars = 500; // scan to find latest cross dot
+input int CrossScanLookbackBars = 500;
 
 //=========================== SESSION (BROKER MARKET HOURS) =========
 input double NoNewTradesBeforeEndH = 0.1; // forbidden when <= this many hours to session end
@@ -67,15 +68,15 @@ input int EUEndMin = 0;
 
 input int NYStartHour = 21;
 input int NYStartMin = 0;
-input int NYEndHour = 0; // crosses midnight
+input int NYEndHour = 0;
 input int NYEndMin = 0;
 
 // Time conversion (server -> VN). IMPORTANT: set broker server offset correctly.
-input int VNOffsetFromUTC = 7;     // VNOffsetFromUTC
-input int ServerOffsetFromUTC = 0; // ServerOffsetFromUTC
+input int VNOffsetFromUTC = 7;
+input int ServerOffsetFromUTC = 0;
 
 //=========================== PROFIT TARGET (SESSION, REALIZED) ======
-input double DailyProfitTargetUSD = 0.0; // profit target (account currency)
+input double DailyProfitTargetUSD = 0.0;
 input bool IsForceCloseWhenProfitHit = false;
 input bool IsCancelPendingsWhenProfitHit = true;
 
@@ -1331,7 +1332,9 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       tp = NormalizePrice(tp);
       if (_Period != PERIOD_M1)
       {
-         tp = 0.0;
+         double htfTp = isBuy ? (entryNow + HTF_TP_Prices)
+                        : (entryNow - HTF_TP_Prices);
+         tp = NormalizePrice(htfTp);
       }
 
       bool isSuccess = false;
@@ -1384,7 +1387,9 @@ bool ExecuteEntry(bool isBuy, long lineKey)
 
    if (_Period != PERIOD_M1)
    {
-      tpLimit = 0.0;
+      double htfTp = isBuy ? (entryLimit + HTF_TP_Prices)
+                        : (entryLimit - HTF_TP_Prices);
+      tpLimit = NormalizePrice(htfTp);
    }
 
    bool isLimitSuccess = false;
@@ -1988,7 +1993,7 @@ bool TG_GetEntryPriceFromPositionHistory(long positionId, double &etOut, bool &i
       if (!includeManual && magic != requiredMagic)
          continue;
       if (includeManual && magic != requiredMagic && magic != 0)
-         continue; // tuỳ bạn muốn accept magic=0
+         continue;
 
       long pid = (long)HistoryDealGetInteger(dk, DEAL_POSITION_ID);
       if (pid != positionId)
@@ -2137,9 +2142,18 @@ void OnTradeTransaction(const MqlTradeTransaction &t,
          TG_GetFillOrigin(dealId, wasMarket, wasLimit);
 
          if (reason == DEAL_REASON_TP)
+         {
             TG_SendTP(isBuyEntry, wasLimit, et, (long)dealId);
-         if (reason == DEAL_REASON_SL)
+         }
+         else if (reason == DEAL_REASON_SL)
+         {
             TG_SendSL(isBuyEntry, wasLimit, et, (long)dealId);
+         }
+         else
+         {
+            TG_SendClosePosition(isBuyEntry, et, positionId, "Opposite cross");
+         }
+
          return;
       }
    }
