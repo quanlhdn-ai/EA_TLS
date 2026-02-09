@@ -414,18 +414,130 @@ bool IsForbiddenNow(datetime &endOut)
 //=========================== INDICATOR READY ==========================
 bool IndicatorsReady()
 {
-   if (haHandle == INVALID_HANDLE || emaHandle == INVALID_HANDLE)
-      return false;
+    static int retryCount = 0;
+    static datetime lastRetryTime = 0;
+    static datetime lastRecreateTime = 0;
+    
+    const int MAX_RETRIES = 30;
+    const int RETRY_INTERVAL_SEC = 1;
+    const int RECREATE_AFTER_SEC = 60;
+    
+    // Check handles valid
+    if (haHandle == INVALID_HANDLE || emaHandle == INVALID_HANDLE)
+    {
+        Print("[INDICATOR] CRITICAL: Invalid handles | HA:", haHandle, " EMA:", emaHandle);
+        return false;
+    }
 
-   lastHaBars = BarsCalculated(haHandle);
-   lastEmaBars = BarsCalculated(emaHandle);
+    // Check bars calculated
+    long haBars = BarsCalculated(haHandle);
+    long emaBars = BarsCalculated(emaHandle);
+    
+    int requiredBars = EMALongPeriod + 5;
 
-   if (lastHaBars < 10)
-      return false;
-   if (lastEmaBars < (EMALongPeriod + 5))
-      return false;
+    if(haBars < 10 || emaBars < requiredBars)
+    {
+        datetime now = TimeCurrent();
+        
+        if(now != lastRetryTime)
+        {
+            retryCount++;
+            lastRetryTime = now;
+            
+            PrintFormat("[INDICATOR] Waiting... Retry %d/%d | HA bars: %d/%d | EMA bars: %d/%d",
+                       retryCount, MAX_RETRIES, haBars, 10, emaBars, requiredBars);
+            
+            if(retryCount > MAX_RETRIES)
+            {
+                datetime timeSinceLastRecreate = now - lastRecreateTime;
+                
+                if(lastRecreateTime == 0 || timeSinceLastRecreate > RECREATE_AFTER_SEC)
+                {
+                    Print("[INDICATOR] RECOVERY: Recreating handles (stuck > ", MAX_RETRIES, " seconds)");
+                    Print("[INDICATOR] Old handles - HA:", haHandle, " EMA:", emaHandle);
+                    
+                    // Release old
+                    if(haHandle != INVALID_HANDLE) IndicatorRelease(haHandle);
+                    if(emaHandle != INVALID_HANDLE) IndicatorRelease(emaHandle);
+                    
+                    // Small delay
+                    Sleep(100);
+                    
+                    // Recreate
+                    haHandle = iCustom(_Symbol, _Period, HAIndicatorName, BullColor, BearColor);
+                    emaHandle = iCustom(_Symbol, _Period, EMAIndicatorName, 
+                                        EMAShortPeriod, EMALongPeriod, EMAMethod);
+                    
+                    Print("[INDICATOR] New handles - HA:", haHandle, " EMA:", emaHandle);
+                    
+                    if(haHandle == INVALID_HANDLE || emaHandle == INVALID_HANDLE)
+                    {
+                        Print("[INDICATOR] CRITICAL: Failed to recreate handles!");
+                        return false;
+                    }
+                    
+                    lastRecreateTime = now;
+                    retryCount = 0;  // Reset counter
+                    
+                    Print("[INDICATOR] Handles recreated successfully, waiting for data...");
+                }
+                else
+                {
+                    PrintFormat("[INDICATOR] Waiting for recreated indicators to load... (%.0fs since recreate)",
+                               (double)timeSinceLastRecreate);
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    if(retryCount > 0)
+    {
+        PrintFormat("[INDICATOR] Ready after %d retries | HA bars: %d | EMA bars: %d",
+                   retryCount, haBars, emaBars);
+        retryCount = 0;
+        lastRetryTime = 0;
+    }
+    
+    double hl0[], ll0[], dot0[];
+    
+    if(CopyBuffer(emaHandle, 3, 0, 1, hl0) != 1)
+    {
+        Print("[INDICATOR] Warning: Failed to copy HighLine buffer");
+        return false;
+    }
+    if(CopyBuffer(emaHandle, 4, 0, 1, ll0) != 1)
+    {
+        Print("[INDICATOR] Warning: Failed to copy LowLine buffer");
+        return false;
+    }
+    if(CopyBuffer(emaHandle, 2, 0, 1, dot0) != 1)
+    {
+        Print("[INDICATOR] Warning: Failed to copy Dot buffer");
+        return false;
+    }
 
-   return true;
+    if(hl0[0]==EMPTY_VALUE || ll0[0]==EMPTY_VALUE)
+    {
+        Print("[INDICATOR] Warning: Empty values in EMA line buffers");
+        return false;
+    }
+    
+
+    double haClose[];
+    if(CopyBuffer(haHandle, 3, 0, 1, haClose) != 1)
+    {
+        Print("[INDICATOR] Warning: Failed to copy HA Close buffer");
+        return false;
+    }
+    if(haClose[0]==EMPTY_VALUE)
+    {
+        Print("[INDICATOR] Warning: Empty value in HA Close");
+        return false;
+    }
+
+    return true;
 }
 
 //=========================== INDICATOR READS ===========================
@@ -965,13 +1077,13 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
       double short1 = s1[0], short2 = s2[0];
       double long1 = l1[0], long2 = l2[0];
 
-      if (short1 > long1 && short2 <= long2)
+      if (short1 > long1 && short2 < long2)
       {
          dirOut = "Cross Up";
          return true;
       }
 
-      if (short1 < long1 && short2 >= long2)
+      if (short1 < long1 && short2 > long2)
       {
          dirOut = "Cross Down";
          return true;
@@ -1059,7 +1171,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    double short1 = s1[0], short2 = s2[0];
    double long1 = l1[0], long2 = l2[0];
 
-   if (short1 > long1 && short2 <= long2)
+   if (short1 > long1 && short2 < long2)
    {
       crossUp = true;
       currentCrossText = "Cross Up";
@@ -1067,7 +1179,7 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
       return;
    }
 
-   if (short1 < long1 && short2 >= long2)
+   if (short1 < long1 && short2 > long2)
    {
       crossDown = true;
       currentCrossText = "Cross Down";
@@ -1155,9 +1267,13 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    long key = LineKey(highLine1);
 
-   // If line already used in THIS regime -> skip
-   if (IsLineUsed(true, key))
-      return false;
+    if (IsLineUsed(true, key))
+    {
+        PrintFormat("[%s][SKIP][BUY] Line already used in regime | key=%I64d epoch=%s",
+                    _Symbol, key,
+                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+        return false;
+    }
 
    // ===== range filter =====
    double lowLine1;
@@ -1167,20 +1283,24 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
-   if (rangePips < RangeChannelEMA)
-   {
-      PrintFormat("SKIP BUY (range too small) -> NOT MARK USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
-                  highLine1, lowLine1, rangePips, RangeChannelEMA, key,
-                  (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
-      return false;
-   }
+    if (rangePips < RangeChannelEMA)
+    {
+        PrintFormat("[%s][SKIP][BUY] Range too small -> MARK USED (prevent retry) | High=%.5f Low=%.5f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
+                    _Symbol, highLine1, lowLine1, rangePips, RangeChannelEMA, key,
+                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+        
+        MarkLineUsed(true, key);
+        
+        highKeyOut = 0;
+        return false;
+    }
 
-   PrintFormat("[%s][PASS][BUY] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
-               _Symbol, _Digits, highLine1, key, rangePips,
-               (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+    PrintFormat("[%s][PASS][BUY] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
+                _Symbol, _Digits, highLine1, key, rangePips,
+                (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
 
-   highKeyOut = key;
-   return true;
+    highKeyOut = key;
+    return true;
 }
 
 bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
@@ -1222,9 +1342,13 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    long key = LineKey(lowLine1);
 
-   // If line already used in THIS regime -> skip
-   if (IsLineUsed(false, key))
-      return false;
+    if (IsLineUsed(false, key))
+    {
+        PrintFormat("[%s][SKIP][SELL] Line already used in regime | key=%I64d epoch=%s",
+                    _Symbol, key,
+                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+        return false;
+    }
 
    // ===== range filter =====
    double highLine1;
@@ -1234,20 +1358,24 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
-   if (rangePips < RangeChannelEMA)
-   {
-      PrintFormat("SKIP SELL (range too small) -> NOT MARK USED: High=%.3f Low=%.3f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
-                  highLine1, lowLine1, rangePips, RangeChannelEMA, key,
-                  (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
-      return false;
-   }
+    if (rangePips < RangeChannelEMA)
+    {
+        PrintFormat("[%s][SKIP][SELL] Range too small -> MARK USED (prevent retry) | High=%.5f Low=%.5f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
+                    _Symbol, highLine1, lowLine1, rangePips, RangeChannelEMA, key,
+                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+        
+        MarkLineUsed(false, key);
+        
+        lowKeyOut = 0;
+        return false;
+    }
 
-   PrintFormat("[%s][PASS][SELL] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
-               _Symbol, _Digits, lowLine1, key, rangePips,
-               (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+    PrintFormat("[%s][PASS][SELL] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
+                _Symbol, _Digits, lowLine1, key, rangePips,
+                (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
 
-   lowKeyOut = key;
-   return true;
+    lowKeyOut = key;
+    return true;
 }
 
 //=================== EXECUTE ENTRY ===============================
@@ -2229,14 +2357,65 @@ void OnTick()
    if (forbiddenNow && TradeWindowMode == TRADEWINDOW_FULLDAY)
       return;
 
-   // Auto-arm once after indicators ready
-   static bool didAutoArm = false;
-   if (!didAutoArm)
-   {
-      AutoArmFromLatestCross();
-      didAutoArm = true;
-   }
-
+    // =================== AUTO-ARM LOGIC ===================
+    static bool didAutoArm = false;
+    static datetime lastAutoArmTime = 0;
+    static datetime lastSessionStart = 0;
+    static int lastSessionDay = 0;
+    
+    datetime now = TimeCurrent();
+    MqlDateTime dtNow;
+    TimeToStruct(now, dtNow);
+    int currentDay = dtNow.day;
+    
+    bool shouldAutoArm = false;
+    string armReason = "";
+    
+    if (!didAutoArm)
+    {
+        shouldAutoArm = true;
+        armReason = "First initialization";
+    }
+    else if(currentDay != lastSessionDay && lastSessionDay > 0)
+    {
+        shouldAutoArm = true;
+        armReason = StringFormat("Day changed (old: %d, new: %d)", lastSessionDay, currentDay);
+    }
+    else
+    {
+        datetime s, e;
+        if(GetCurrentSymbolSessionWindow(now, s, e))
+        {
+            if(s != lastSessionStart && lastSessionStart > 0)
+            {
+                if(MathAbs((int)(s - lastSessionStart)) > 3600)
+                {
+                    shouldAutoArm = true;
+                    armReason = StringFormat("Session changed | Old: %s New: %s",
+                                           TimeToString(lastSessionStart, TIME_DATE|TIME_MINUTES),
+                                           TimeToString(s, TIME_DATE|TIME_MINUTES));
+                }
+            }
+            lastSessionStart = s;
+        }
+    }
+    
+    if(!shouldAutoArm && (now - lastAutoArmTime) > 4*3600)
+    {
+        shouldAutoArm = true;
+        armReason = "Periodic refresh (4 hours)";
+    }
+    
+    // Execute auto-arm
+    if(shouldAutoArm)
+    {
+        PrintFormat("[AUTO_ARM] Triggered | Reason: %s", armReason);
+        AutoArmFromLatestCross();
+        
+        didAutoArm = true;
+        lastAutoArmTime = now;
+        lastSessionDay = currentDay;
+    }
    bool crossUpNow = false;
    bool crossDownNow = false;
    double crossPriceNow = 0.0;
