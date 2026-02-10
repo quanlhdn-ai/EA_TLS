@@ -52,6 +52,10 @@ static int      lastCrossUpIdx     = -1;   // shift index of last crossUp (close
 static int      lastCrossDownIdx   = -1;   // shift index of last crossDown (closed bar)
 static datetime lastBarTime0       = 0;
 
+//--- Parameter tracking for reset detection
+static int savedShortPeriod = 0;
+static int savedLongPeriod = 0;
+
 //+------------------------------------------------------------------+
 //| Draw/update level line                                           |
 //+------------------------------------------------------------------+
@@ -109,6 +113,10 @@ int OnInit()
 
    if(handleShort == INVALID_HANDLE || handleLong == INVALID_HANDLE)
       return(INIT_FAILED);
+   
+   // Initialize parameter tracking
+   savedShortPeriod = EMAShortPeriod;
+   savedLongPeriod = EMALongPeriod;
 
    return(INIT_SUCCEEDED);
 }
@@ -130,8 +138,11 @@ int OnCalculate(const int rates_total,
    if(rates_total < EMALongPeriod + 2)
       return 0;
 
-   // Reset on load
-   if(prev_calculated == 0)
+   // Check if parameters changed - force reset
+   bool parametersChanged = (savedShortPeriod != EMAShortPeriod || savedLongPeriod != EMALongPeriod);
+   
+   // Reset on load or parameter change
+   if(prev_calculated == 0 || parametersChanged)
    {
       currentHighVal   = 0.0;
       currentLowVal    = 0.0;
@@ -141,6 +152,9 @@ int OnCalculate(const int rates_total,
 
       ObjectDelete(0, "TLS_HighLine");
       ObjectDelete(0, "TLS_LowLine");
+      
+      savedShortPeriod = EMAShortPeriod;
+      savedLongPeriod = EMALongPeriod;
 
       // clear buffers once
       for(int j=rates_total-1; j>=0; --j)
@@ -152,7 +166,7 @@ int OnCalculate(const int rates_total,
    }
 
    int newBars = 1;
-   if(prev_calculated > 0)
+   if(prev_calculated > 0 && !parametersChanged)
    {
       newBars = rates_total - prev_calculated;
       if(newBars < 1) newBars = 1;
@@ -165,17 +179,19 @@ int OnCalculate(const int rates_total,
    }
 
    bool isNewBar = (lastBarTime0 != 0 && time[0] != lastBarTime0);
-   if(isNewBar && prev_calculated > 0)
+   if(isNewBar && prev_calculated > 0 && !parametersChanged)
    {
-      if(lastCrossUpIdx   >= 0) lastCrossUpIdx   += newBars;
-      if(lastCrossDownIdx >= 0) lastCrossDownIdx += newBars;
+      if(lastCrossUpIdx   >= 0) lastCrossUpIdx++;
+      if(lastCrossDownIdx >= 0) lastCrossDownIdx++;
    }
    lastBarTime0 = time[0];
+   
+   if(lastCrossUpIdx >= rates_total) lastCrossUpIdx = rates_total - 1;
+   if(lastCrossDownIdx >= rates_total) lastCrossDownIdx = rates_total - 1;
 
-   // Determine MA range to copy
    int far  = MathMax(lastCrossUpIdx, lastCrossDownIdx);
-   int need = MathMax(EMALongPeriod + 5, newBars + 3);
-   if(far >= 0) need = MathMax(need, far + 2);
+   int need = MathMax(EMALongPeriod * 2 + 10, newBars + 5);
+   if(far >= 0) need = MathMax(need, far + 5);
    if(need > rates_total) need = rates_total;
 
    int copiedShort = CopyBuffer(handleShort, 0, 0, need, ShortMABuffer);
@@ -183,7 +199,7 @@ int OnCalculate(const int rates_total,
    if(copiedShort <= 0 || copiedLong <= 0)
       return 0;
 
-   if(prev_calculated == 0)
+   if(prev_calculated == 0 || parametersChanged)
    {
       copiedShort = CopyBuffer(handleShort, 0, 0, rates_total, ShortMABuffer);
       copiedLong  = CopyBuffer(handleLong,  0, 0, rates_total, LongMABuffer);
@@ -278,7 +294,7 @@ int OnCalculate(const int rates_total,
 
          if(lastCrossUpIdx >= 0 && lastCrossUpIdx >= i)
          {
-            int need2 = MathMax(need, lastCrossUpIdx + 2);
+            int need2 = MathMax(need, lastCrossUpIdx + 5);
             if(need2 > rates_total) need2 = rates_total;
             if(need2 != need)
             {
@@ -291,7 +307,7 @@ int OnCalculate(const int rates_total,
             int    maxIdx = -1;
             for(int k=lastCrossUpIdx; k>=i; --k)
             {
-               if(ShortMABuffer[k] > maxVal)
+               if(k < rates_total && ShortMABuffer[k] > maxVal)
                {
                   maxVal = ShortMABuffer[k];
                   maxIdx = k;
@@ -312,7 +328,7 @@ int OnCalculate(const int rates_total,
 
          if(lastCrossDownIdx >= 0 && lastCrossDownIdx >= i)
          {
-            int need2 = MathMax(need, lastCrossDownIdx + 2);
+            int need2 = MathMax(need, lastCrossDownIdx + 5);
             if(need2 > rates_total) need2 = rates_total;
             if(need2 != need)
             {
@@ -325,7 +341,7 @@ int OnCalculate(const int rates_total,
             int    minIdx = -1;
             for(int k=lastCrossDownIdx; k>=i; --k)
             {
-               if(ShortMABuffer[k] < minVal)
+               if(k < rates_total && ShortMABuffer[k] < minVal)
                {
                   minVal = ShortMABuffer[k];
                   minIdx = k;
@@ -349,14 +365,14 @@ int OnCalculate(const int rates_total,
    HighLineData[1] = HighLineData[0];
    LowLineData[1]  = LowLineData[0];
 
-   if(currentHighVal != EMPTY_VALUE && lastCrossUpIdx >= 0 && lastCrossUpIdx < rates_total)
+   if(currentHighVal != 0.0 && currentHighVal != EMPTY_VALUE && lastCrossUpIdx >= 0 && lastCrossUpIdx < rates_total)
    {
       int highIdx = lastCrossUpIdx;
       if(lastCrossDownIdx >= 0 && lastCrossDownIdx < lastCrossUpIdx)
       {
          double maxVal = -DBL_MAX;
          int maxIdx = -1;
-         for(int k=lastCrossUpIdx; k>=lastCrossDownIdx; --k)
+         for(int k=lastCrossUpIdx; k>=lastCrossDownIdx && k>=0; --k)
          {
             if(k < rates_total && ShortMABuffer[k] > maxVal)
             {
@@ -369,14 +385,14 @@ int OnCalculate(const int rates_total,
       DrawOrUpdateLevelLine("TLS_HighLine", time[highIdx], currentHighVal, clrRed);
    }
 
-   if(currentLowVal != EMPTY_VALUE && lastCrossDownIdx >= 0 && lastCrossDownIdx < rates_total)
+   if(currentLowVal != 0.0 && currentLowVal != EMPTY_VALUE && lastCrossDownIdx >= 0 && lastCrossDownIdx < rates_total)
    {
       int lowIdx = lastCrossDownIdx;
       if(lastCrossUpIdx >= 0 && lastCrossUpIdx < lastCrossDownIdx)
       {
          double minVal = DBL_MAX;
          int minIdx = -1;
-         for(int k=lastCrossDownIdx; k>=lastCrossUpIdx; --k)
+         for(int k=lastCrossDownIdx; k>=lastCrossUpIdx && k>=0; --k)
          {
             if(k < rates_total && ShortMABuffer[k] < minVal)
             {
