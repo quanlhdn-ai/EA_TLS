@@ -19,9 +19,9 @@ input long MagicNumber = 8386272000; // Magic number
 
 // Risk & SL/BE rules
 input bool IsAllowBE = true;
-input double RiskUSDPerTrade = 40.0; // risk per trade in USD
+input double RiskUSDPerTrade = 200.0; // risk per trade in USD
 input int BufferPips = 5;            // SL buffer from HA pair in PIPS
-input double SLMaxPips = 70.0;
+input double SLMaxPips = 400.0;
 input int SL_LookbackBars = 500;     // lookback to find nearest HA pair
 input double RiskReward = 2.0;       // TP = RiskReward * Risk (R)
 input double RangeChannelEMA = 10.0; // distance between HighLine and LowLine in PIPS minimum
@@ -1412,26 +1412,40 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       return false;
    }
 
+   double highLine1, lowLine1;
+   if (!ReadHighLineAtShift(1, highLine1))
+   {
+      return false;
+   }
+   if (!ReadLowLineAtShift(1, lowLine1))
+   {
+      return false;
+   }
+
+   double midChannel = NormalizePrice((highLine1 + lowLine1) / 2.0);
+
+   PrintFormat("[%s][MID-CHANNEL][%s] HighLine=%.5f LowLine=%.5f Mid=%.5f",
+               _Symbol, SideText(isBuy), highLine1, lowLine1, midChannel);
+
    double pip = PipSize();
 
-   double entryNow = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   entryNow = NormalizePrice(entryNow);
+   double entry = midChannel;
 
-   if (isBuy && sl >= entryNow)
+   if (isBuy && sl >= entry)
    {
-      PrintFormat("[%s][SKIP][BUY] Invalid SL >= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
-                  _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
+      PrintFormat("[%s][SKIP][BUY] Invalid SL >= entry | entry=%.*f sl=%.*f lineKey %I64d",
+                  _Symbol, _Digits, entry, _Digits, sl, lineKey);
       return false;
    }
 
-   if (!isBuy && sl <= entryNow)
+   if (!isBuy && sl <= entry)
    {
-      PrintFormat("[%s][SKIP][SELL] Invalid SL <= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
-                  _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
+      PrintFormat("[%s][SKIP][SELL] Invalid SL <= entry | entry=%.*f sl=%.*f lineKey %I64d",
+                  _Symbol, _Digits, entry, _Digits, sl, lineKey);
       return false;
    }
 
-   double riskDist = isBuy ? (entryNow - sl) : (sl - entryNow);
+   double riskDist = isBuy ? (entry - sl) : (sl - entry);
    if (riskDist <= 0)
       return false;
 
@@ -1440,43 +1454,44 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
 
-   PrintFormat("[%s][SETUP][%s] entryNow=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f lineKey %I64d",
+   PrintFormat("[%s][SETUP][%s] ENTRY(mid)=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f lineKey %I64d",
                _Symbol, SideText(isBuy),
-               _Digits, entryNow, _Digits, sl, riskPips, SLMaxPips, lineKey,
-               (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+               _Digits, entry, _Digits, sl, riskPips, SLMaxPips, lineKey);
 
-   // Case 1: within SL_MAX => MARKET
+   // Case 1: within SL_MAX => LIMIT ORDER (MID-CHANNEL)
    if (riskPips <= SLMaxPips + 1e-9)
    {
-      double lots = CalcLotsByRiskUSD(entryNow, sl);
+      double lots = CalcLotsByRiskUSD(entry, sl);
       if (lots <= 0)
       {
          PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entry=%.*f sl=%.*f lineKey %I64d",
-                     _Symbol, SideText(isBuy), _Digits, entryNow, _Digits, sl, lineKey);
+                     _Symbol, SideText(isBuy), _Digits, entry, _Digits, sl, lineKey);
          return false;
       }
 
-      double tp = isBuy ? (entryNow + RiskReward * riskDist) : (entryNow - RiskReward * riskDist);
+      double tp = isBuy ? (entry + RiskReward * riskDist) : (entry - RiskReward * riskDist);
       tp = NormalizePrice(tp);
+
+      // HTF override
       if (_Period != PERIOD_M1)
       {
-         double htfTp = isBuy ? (entryNow + HTF_TP_Prices)
-                        : (entryNow - HTF_TP_Prices);
+         double htfTp = isBuy ? (entry + HTF_TP_Prices)
+                        : (entry - HTF_TP_Prices);
          tp = NormalizePrice(htfTp);
       }
 
       bool isSuccess = false;
       if (isBuy)
-         isSuccess = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
+         isSuccess = trade.BuyLimit(lots, entry, _Symbol, sl, tp, ORDER_TIME_GTC, 0, "BUY LIMIT MID");
       else
-         isSuccess = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
+         isSuccess = trade.SellLimit(lots, entry, _Symbol, sl, tp, ORDER_TIME_GTC, 0, "SELL LIMIT MID");
 
       if (isSuccess)
       {
          double entryFill = trade.ResultPrice();
-         PrintFormat("[%s][ORDER][%s] MARKET SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
+         PrintFormat("[%s][ORDER][%s] LIMIT(mid) SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy),
-                     _Digits, entryFill, lots,
+                     _Digits, entry, lots,
                      _Digits, sl, _Digits, tp, lineKey);
 
          if (isBuy)
@@ -1486,7 +1501,7 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       }
       else
       {
-         PrintFormat("[%s][FAIL][%s] MARKET | ret=%d %s | Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
+         PrintFormat("[%s][FAIL][%s] LIMIT(mid) | ret=%d %s | Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy),
                      trade.ResultRetcode(),
                      trade.ResultRetcodeDescription(),
