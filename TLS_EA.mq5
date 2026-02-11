@@ -1584,6 +1584,75 @@ void CancelWaitingOnOppositeCross(bool crossUpNow, bool crossDownNow)
    if (crossUpNow)
       CancelPending(ORDER_TYPE_SELL_LIMIT);
 }
+struct PositionCrossWarning
+{
+   ulong ticket;
+   int oppositeCrossCount;
+   datetime lastCrossTime;
+};
+
+// Static array to track warnings (max 100 positions)
+static PositionCrossWarning crossWarnings[100];
+static int crossWarningsCount = 0;
+
+int GetWarningIndex(ulong ticket)
+{
+   for(int i = 0; i < crossWarningsCount; i++)
+   {
+      if(crossWarnings[i].ticket == ticket)
+         return i;
+   }
+   return -1;
+}
+
+void UpdateCrossWarning(ulong ticket, bool increment)
+{
+   int idx = GetWarningIndex(ticket);
+   
+   if(idx < 0)
+   {
+      // Create new entry
+      if(crossWarningsCount < 100)
+      {
+         idx = crossWarningsCount;
+         crossWarnings[idx].ticket = ticket;
+         crossWarnings[idx].oppositeCrossCount = 0;
+         crossWarningsCount++;
+      }
+      else
+      {
+         Print("[WARNING] Cross warning array full!");
+         return;
+      }
+   }
+   
+   if(increment)
+   {
+      crossWarnings[idx].oppositeCrossCount++;
+      crossWarnings[idx].lastCrossTime = TimeCurrent();
+      
+      PrintFormat("[CROSS_WARNING] Position #%I64u | OppositeCross TOTAL count: %d",
+                  ticket, crossWarnings[idx].oppositeCrossCount);
+   }
+}
+
+void RemoveCrossWarningWhenPositionClosed(ulong ticket)
+{
+   int idx = GetWarningIndex(ticket);
+   if(idx < 0) return;
+   
+   for(int i = idx; i < crossWarningsCount - 1; i++)
+   {
+      crossWarnings[i] = crossWarnings[i + 1];
+   }
+   crossWarningsCount--;
+}
+
+int GetOppositeCrossCount(ulong ticket)
+{
+   int idx = GetWarningIndex(ticket);
+   return (idx >= 0) ? crossWarnings[idx].oppositeCrossCount : 0;
+}
 
 void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
 {
@@ -1612,14 +1681,69 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
              (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
          double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-         bool isProfitable =
-             (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
+         bool isProfitable = (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
 
-         if (
-             (ptype == POSITION_TYPE_BUY && crossDownNow && isProfitable) ||
-             (ptype == POSITION_TYPE_SELL && crossUpNow && isProfitable))
+         bool isOppositeCross = false;
+         
+         if(ptype == POSITION_TYPE_BUY)
          {
-            trade.PositionClose(tk);
+            if(crossDownNow) isOppositeCross = true;      // BUY + CrossDown = Opposite
+         }
+         else
+         {
+            if(crossUpNow) isOppositeCross = true;        // SELL + CrossUp = Opposite
+         }
+         
+         if(isOppositeCross)
+         {
+            int currentCount = GetOppositeCrossCount(tk);
+            
+            if(currentCount == 0)
+            {
+               UpdateCrossWarning(tk, true); // Increment to 1
+               
+               string side = (ptype == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+               string crossDir = (crossUpNow) ? "Cross UP" : "Cross DOWN";
+               
+               PrintFormat("[HTF][WARNING #1] Position %s #%I64u | %s detected (1st opposite) | Entry=%.5f Current=%.5f | Profitable=%s",
+                          side, tk, crossDir, entry, 
+                          (ptype == POSITION_TYPE_BUY ? bid : ask),
+                          (isProfitable ? "YES" : "NO"));
+               
+               // Send Telegram warning
+               TG_SendCrossWarning(ptype == POSITION_TYPE_BUY, entry, tk, 1);
+            }
+            else if(currentCount == 1)
+            {
+               UpdateCrossWarning(tk, true); // Increment to 2
+               
+               string side = (ptype == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+               string crossDir = (crossUpNow) ? "Cross UP" : "Cross DOWN";
+               
+               if(isProfitable)
+               {
+                  PrintFormat("[HTF][CLOSE #2] Position %s #%I64u | %s detected (2nd opposite) | CLOSING (Profitable) | Entry=%.5f Exit=%.5f",
+                             side, tk, crossDir, entry, 
+                             (ptype == POSITION_TYPE_BUY ? bid : ask));
+                  
+                  TG_SendClosePosition(ptype == POSITION_TYPE_BUY, entry, (long)tk, 
+                                      "2nd opposite cross (profitable)");
+                  
+                  trade.PositionClose(tk);
+                  RemoveCrossWarningWhenPositionClosed(tk);
+               }
+               else
+               {
+                  PrintFormat("[HTF][SKIP #2] Position %s #%I64u | %s detected (2nd opposite) | NOT closing (Not profitable) | Entry=%.5f Current=%.5f",
+                             side, tk, crossDir, entry, 
+                             (ptype == POSITION_TYPE_BUY ? bid : ask));
+               }
+            }
+            else
+            {
+               PrintFormat("[HTF][INFO] Position #%I64u | Opposite cross count: %d (no action - already processed)",
+                          tk, currentCount + 1);
+            }
          }
       }
 
@@ -2081,6 +2205,21 @@ void TG_SendSL(bool isBuyEntry, bool wasLimit, double et, long dealId)
    TG_Mark(key, dealId);
 }
 
+void TG_SendCrossWarning(bool isBuy, double et, long dealId, int warningNumber)
+{
+   string key = StringFormat("CROSS_WARN_%d", warningNumber);
+   if (TG_Sent(key, dealId))
+      return;
+
+   string msg =
+       "WARNING #" + IntegerToString(warningNumber) + " - OPPOSITE CROSS\n" +
+       string(isBuy ? "BUY" : "SELL") + " position\n" +
+       "ET  " + TG_P(et) + "\n" +
+       "Action: " + (warningNumber == 1 ? "Monitor closely" : "Will close if profitable on next opposite cross");
+
+   TG_Send(msg);
+   TG_Mark(key, dealId);
+}
 //===================== HELPERS: origin + SL/TP ========================
 bool TG_GetFillOrigin(ulong dealTicket, bool &wasMarket, bool &wasLimit)
 {
