@@ -138,10 +138,8 @@ int OnCalculate(const int rates_total,
    if(rates_total < EMALongPeriod + 2)
       return 0;
 
-   // Check if parameters changed - force reset
    bool parametersChanged = (savedShortPeriod != EMAShortPeriod || savedLongPeriod != EMALongPeriod);
    
-   // Reset on load or parameter change
    if(prev_calculated == 0 || parametersChanged)
    {
       currentHighVal   = 0.0;
@@ -156,13 +154,9 @@ int OnCalculate(const int rates_total,
       savedShortPeriod = EMAShortPeriod;
       savedLongPeriod = EMALongPeriod;
 
-      // clear buffers once
-      for(int j=rates_total-1; j>=0; --j)
-      {
-         CrossDotBuffer[j] = EMPTY_VALUE;
-         HighLineData[j]   = EMPTY_VALUE;
-         LowLineData[j]    = EMPTY_VALUE;
-      }
+      ArrayInitialize(CrossDotBuffer, EMPTY_VALUE);
+      ArrayInitialize(HighLineData, EMPTY_VALUE);
+      ArrayInitialize(LowLineData, EMPTY_VALUE);
    }
 
    int newBars = 1;
@@ -189,22 +183,15 @@ int OnCalculate(const int rates_total,
    if(lastCrossUpIdx >= rates_total) lastCrossUpIdx = rates_total - 1;
    if(lastCrossDownIdx >= rates_total) lastCrossDownIdx = rates_total - 1;
 
-   int far  = MathMax(lastCrossUpIdx, lastCrossDownIdx);
-   int need = MathMax(EMALongPeriod * 2 + 10, newBars + 5);
-   if(far >= 0) need = MathMax(need, far + 5);
-   if(need > rates_total) need = rates_total;
-
-   int copiedShort = CopyBuffer(handleShort, 0, 0, need, ShortMABuffer);
-   int copiedLong  = CopyBuffer(handleLong,  0, 0, need, LongMABuffer);
+   int copiedShort = CopyBuffer(handleShort, 0, 0, rates_total, ShortMABuffer);
+   int copiedLong  = CopyBuffer(handleLong,  0, 0, rates_total, LongMABuffer);
+   
    if(copiedShort <= 0 || copiedLong <= 0)
       return 0;
 
+   // ===== FULL RECALCULATION =====
    if(prev_calculated == 0 || parametersChanged)
    {
-      copiedShort = CopyBuffer(handleShort, 0, 0, rates_total, ShortMABuffer);
-      copiedLong  = CopyBuffer(handleLong,  0, 0, rates_total, LongMABuffer);
-      if(copiedShort <= 0 || copiedLong <= 0) return 0;
-
       for(int i=rates_total-2; i>=1; --i)
       {
          bool crossUp   = (ShortMABuffer[i] > LongMABuffer[i]) &&
@@ -294,18 +281,9 @@ int OnCalculate(const int rates_total,
 
          if(lastCrossUpIdx >= 0 && lastCrossUpIdx >= i)
          {
-            int need2 = MathMax(need, lastCrossUpIdx + 5);
-            if(need2 > rates_total) need2 = rates_total;
-            if(need2 != need)
-            {
-               CopyBuffer(handleShort, 0, 0, need2, ShortMABuffer);
-               CopyBuffer(handleLong,  0, 0, need2, LongMABuffer);
-               need = need2;
-            }
-
             double maxVal = -DBL_MAX;
             int    maxIdx = -1;
-            for(int k=lastCrossUpIdx; k>=i; --k)
+            for(int k=lastCrossUpIdx; k>=i && k>=0; --k)
             {
                if(k < rates_total && ShortMABuffer[k] > maxVal)
                {
@@ -328,18 +306,9 @@ int OnCalculate(const int rates_total,
 
          if(lastCrossDownIdx >= 0 && lastCrossDownIdx >= i)
          {
-            int need2 = MathMax(need, lastCrossDownIdx + 5);
-            if(need2 > rates_total) need2 = rates_total;
-            if(need2 != need)
-            {
-               CopyBuffer(handleShort, 0, 0, need2, ShortMABuffer);
-               CopyBuffer(handleLong,  0, 0, need2, LongMABuffer);
-               need = need2;
-            }
-
             double minVal = DBL_MAX;
             int    minIdx = -1;
-            for(int k=lastCrossDownIdx; k>=i; --k)
+            for(int k=lastCrossDownIdx; k>=i && k>=0; --k)
             {
                if(k < rates_total && ShortMABuffer[k] < minVal)
                {
@@ -357,53 +326,11 @@ int OnCalculate(const int rates_total,
       }
    }
 
-   // EA uses shift1 (confirmed closed candle)
    CrossDotBuffer[0] = EMPTY_VALUE;
-
-   HighLineData[0] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-   LowLineData[0]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
-   HighLineData[1] = HighLineData[0];
-   LowLineData[1]  = LowLineData[0];
-
-   if(currentHighVal != 0.0 && currentHighVal != EMPTY_VALUE && lastCrossUpIdx >= 0 && lastCrossUpIdx < rates_total)
-   {
-      int highIdx = lastCrossUpIdx;
-      if(lastCrossDownIdx >= 0 && lastCrossDownIdx < lastCrossUpIdx)
-      {
-         double maxVal = -DBL_MAX;
-         int maxIdx = -1;
-         for(int k=lastCrossUpIdx; k>=lastCrossDownIdx && k>=0; --k)
-         {
-            if(k < rates_total && ShortMABuffer[k] > maxVal)
-            {
-               maxVal = ShortMABuffer[k];
-               maxIdx = k;
-            }
-         }
-         if(maxIdx >= 0) highIdx = maxIdx;
-      }
-      DrawOrUpdateLevelLine("TLS_HighLine", time[highIdx], currentHighVal, clrRed);
-   }
-
-   if(currentLowVal != 0.0 && currentLowVal != EMPTY_VALUE && lastCrossDownIdx >= 0 && lastCrossDownIdx < rates_total)
-   {
-      int lowIdx = lastCrossDownIdx;
-      if(lastCrossUpIdx >= 0 && lastCrossUpIdx < lastCrossDownIdx)
-      {
-         double minVal = DBL_MAX;
-         int minIdx = -1;
-         for(int k=lastCrossDownIdx; k>=lastCrossUpIdx && k>=0; --k)
-         {
-            if(k < rates_total && ShortMABuffer[k] < minVal)
-            {
-               minVal = ShortMABuffer[k];
-               minIdx = k;
-            }
-         }
-         if(minIdx >= 0) lowIdx = minIdx;
-      }
-      DrawOrUpdateLevelLine("TLS_LowLine", time[lowIdx], currentLowVal, clrGreen);
-   }
+   HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
+   LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
+   HighLineData[1]   = HighLineData[0];
+   LowLineData[1]    = LowLineData[0];
 
    return rates_total;
 }
