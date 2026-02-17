@@ -2,6 +2,18 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
+#define LINE_USED_FILE "TLS_LineUsed.dat"
+struct LineUsedRecord
+{
+   datetime regimeEpoch;
+   long lineKey; 
+   bool isBuy; 
+   datetime usedTime;
+};
+
+LineUsedRecord usedLines[];
+int totalUsedLines = 0;
+
 //------------------------- Inputs ----------------------------------
 input string HAIndicatorName = "TLS_HA";
 input string EMAIndicatorName = "TLS_EMA";
@@ -19,9 +31,9 @@ input long MagicNumber = 8386272000; // Magic number
 
 // Risk & SL/BE rules
 input bool IsAllowBE = true;
-input double RiskUSDPerTrade = 200.0; // risk per trade in USD
+input double RiskUSDPerTrade = 100.0; // risk per trade in USD
 input int BufferPips = 5;            // SL buffer from HA pair in PIPS
-input double SLMaxPips = 400.0;
+input double SLMaxPips = 500.0;
 input int SL_LookbackBars = 500;     // lookback to find nearest HA pair
 input double RiskReward = 2.0;       // TP = RiskReward * Risk (R)
 input double RangeChannelEMA = 10.0; // distance between HighLine and LowLine in PIPS minimum
@@ -93,7 +105,51 @@ input bool IsDebugOnce = true;
 int haHandle = INVALID_HANDLE;
 int emaHandle = INVALID_HANDLE;
 
-//------------------------- State -----------------------------------
+// BUY/SELL zones
+//======================== PRICE ZONE FILTER =============================
+input bool EnablePriceZoneFilter = true;  
+input int ZoneActivationPips = 10;       
+
+// Buy Zones
+input double BuyZone1 = 0.0;
+input double BuyZone2 = 0.0;
+input double BuyZone3 = 0.0;
+input double BuyZone4 = 0.0;
+input double BuyZone5 = 0.0;
+input double BuyZone6 = 0.0;
+input double BuyZone7 = 0.0;
+input double BuyZone8 = 0.0;
+input double BuyZone9 = 0.0;
+input double BuyZone10 = 0.0;
+
+// Sell Zones
+input double SellZone1 = 0.0;
+input double SellZone2 = 0.0;
+input double SellZone3 = 0.0;
+input double SellZone4 = 0.0;
+input double SellZone5 = 0.0;
+input double SellZone6 = 0.0;
+input double SellZone7 = 0.0;
+input double SellZone8 = 0.0;
+input double SellZone9 = 0.0;
+input double SellZone10 = 0.0;
+
+double buyZones[];  
+double sellZones[];
+bool buyZonesUsed[];
+bool sellZonesUsed[];
+int totalBuyZones = 0;
+int totalSellZones = 0;
+
+datetime lastBuyZoneHitTime = 0;
+double lastBuyZoneHitPrice = 0.0;
+datetime lastSellZoneHitTime = 0;
+double lastSellZoneHitPrice = 0.0;
+
+bool buyZoneActivated = false;
+bool sellZoneActivated = false;
+
+
 datetime lastBarTime = 0;
 
 // session DD tracking
@@ -130,6 +186,192 @@ int lastHaBars = 0;
 int lastEmaBars = 0;
 
 //============================== UTILS ==============================
+void LoadPriceZones()
+{
+   ArrayResize(buyZones, 0);
+   ArrayResize(sellZones, 0);
+   totalBuyZones = 0;
+   totalSellZones = 0;
+   
+   double tempBuyZones[10] = {
+      BuyZone1, BuyZone2, BuyZone3, BuyZone4, BuyZone5,
+      BuyZone6, BuyZone7, BuyZone8, BuyZone9, BuyZone10
+   };
+   
+   double tempSellZones[10] = {
+      SellZone1, SellZone2, SellZone3, SellZone4, SellZone5,
+      SellZone6, SellZone7, SellZone8, SellZone9, SellZone10
+   };
+   
+   for(int i = 0; i < 10; i++)
+   {
+      if(tempBuyZones[i] > 0.0)
+      {
+         ArrayResize(buyZones, totalBuyZones + 1);
+         buyZones[totalBuyZones] = NormalizePrice(tempBuyZones[i]);
+         totalBuyZones++;
+      }
+   }
+   
+   for(int i = 0; i < 10; i++)
+   {
+      if(tempSellZones[i] > 0.0)
+      {
+         ArrayResize(sellZones, totalSellZones + 1);
+         sellZones[totalSellZones] = NormalizePrice(tempSellZones[i]);
+         totalSellZones++;
+      }
+   }
+   
+   ArraySort(buyZones);
+   ArraySort(sellZones);
+   
+   // ========== INIT USED ARRAYS ==========
+   ArrayResize(buyZonesUsed, totalBuyZones);
+   ArrayResize(sellZonesUsed, totalSellZones);
+   ArrayFill(buyZonesUsed, 0, totalBuyZones, false);
+   ArrayFill(sellZonesUsed, 0, totalSellZones, false);
+   
+   if(totalBuyZones > 0)
+   {
+      string buyList = "";
+      for(int i = 0; i < totalBuyZones; i++)
+         buyList += DoubleToString(buyZones[i], _Digits) + (i < totalBuyZones-1 ? ", " : "");
+      PrintFormat("[ZONE] Loaded %d BUY zones: %s", totalBuyZones, buyList);
+   }
+   else
+   {
+      Print("[ZONE] No BUY zones configured");
+   }
+   
+   if(totalSellZones > 0)
+   {
+      string sellList = "";
+      for(int i = 0; i < totalSellZones; i++)
+         sellList += DoubleToString(sellZones[i], _Digits) + (i < totalSellZones-1 ? ", " : "");
+      PrintFormat("[ZONE] Loaded %d SELL zones: %s", totalSellZones, sellList);
+   }
+   else
+   {
+      Print("[ZONE] No SELL zones configured");
+   }
+}
+bool IsPriceInZone(double currentPrice, double zonePrice, int activationPips)
+{
+   if(zonePrice <= 0.0)
+      return false;
+   
+   double pip = PipSize();
+   double distance = MathAbs(currentPrice - zonePrice);
+   double threshold = (double)activationPips * pip;
+   
+   return (distance <= threshold);
+}
+
+
+bool FindNearestZoneHit(bool isBuy, double &zoneOut, int &zoneIndexOut)
+{
+   zoneOut = 0.0;
+   zoneIndexOut = -1;
+   
+   double currentPrice = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_BID) 
+                                : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   
+   int total = isBuy ? totalBuyZones : totalSellZones;
+   
+   if(total == 0)
+      return false;
+   
+   double nearestZone = 0.0;
+   double minDistance = DBL_MAX;
+   int nearestIndex = -1;
+   
+   for(int i = 0; i < total; i++)
+   {
+      if(isBuy && buyZonesUsed[i])
+         continue;
+      if(!isBuy && sellZonesUsed[i])
+         continue;
+      
+      double zonePrice = isBuy ? buyZones[i] : sellZones[i];
+      
+      if(IsPriceInZone(currentPrice, zonePrice, ZoneActivationPips))
+      {
+         double distance = MathAbs(currentPrice - zonePrice);
+         if(distance < minDistance)
+         {
+            minDistance = distance;
+            nearestZone = zonePrice;
+            nearestIndex = i;
+         }
+      }
+   }
+   
+   if(nearestZone > 0.0)
+   {
+      zoneOut = nearestZone;
+      zoneIndexOut = nearestIndex;
+      return true;
+   }
+   
+   return false;
+}
+
+void UpdateZoneActivation()
+{
+   if(!EnablePriceZoneFilter)
+   {
+      buyZoneActivated = true; 
+      sellZoneActivated = true;
+      return;
+   }
+   
+   datetime now = TimeCurrent();
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   
+   if(!buyZoneActivated)
+   {
+      double buyZoneHit = 0.0;
+      int buyZoneIndex = -1;
+      
+      if(FindNearestZoneHit(true, buyZoneHit, buyZoneIndex))
+      {
+         buyZoneActivated = true;
+         lastBuyZoneHitPrice = buyZoneHit;
+         lastBuyZoneHitTime = now;
+         
+         PrintFormat("[ZONE][BUY]  ACTIVATED | Zone: %.*f | Index: %d | Current: %.*f", 
+                     _Digits, buyZoneHit, buyZoneIndex, _Digits, bid);
+         PrintFormat("[ZONE][BUY] → Will stay active until used or opposite cross");
+      }
+   }
+   
+   if(!sellZoneActivated)
+   {
+      double sellZoneHit = 0.0;
+      int sellZoneIndex = -1;
+      
+      if(FindNearestZoneHit(false, sellZoneHit, sellZoneIndex))
+      {
+         sellZoneActivated = true;
+         lastSellZoneHitPrice = sellZoneHit;
+         lastSellZoneHitTime = now;
+         
+         PrintFormat("[ZONE][SELL] ACTIVATED | Zone: %.*f | Index: %d | Current: %.*f", 
+                     _Digits, sellZoneHit, sellZoneIndex, _Digits, ask);
+         PrintFormat("[ZONE][SELL] → Will stay active until used or opposite cross");
+      }
+   }
+}
+
+void ResetZoneActivation()
+{
+   if(!EnablePriceZoneFilter)
+      return;
+   PrintFormat("[ZONE] Zone states reset (cross event)");
+}
+
 double PipSize()
 {
    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
@@ -1204,27 +1446,178 @@ string LineUsedName(bool isBuy, long key)
           (isBuy ? "BUY" : "SELL") + "_E" + (string)epoch + "_K" + (string)key;
 }
 
+void LoadLineUsedFromFile()
+{
+   ArrayResize(usedLines, 0);
+   totalUsedLines = 0;
+   
+   int handle = FileOpen(LINE_USED_FILE, FILE_READ | FILE_BIN);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[LINE_USED] No existing file, starting fresh");
+      return;
+   }
+   
+   while(!FileIsEnding(handle))
+   {
+      LineUsedRecord rec;
+      rec.regimeEpoch = (datetime)FileReadLong(handle);
+      rec.lineKey = FileReadLong(handle);
+      rec.isBuy = (bool)FileReadInteger(handle);
+      rec.usedTime = (datetime)FileReadLong(handle);
+      
+      if(rec.regimeEpoch == 0)
+         break;  // End of valid data
+      
+      ArrayResize(usedLines, totalUsedLines + 1);
+      usedLines[totalUsedLines] = rec;
+      totalUsedLines++;
+   }
+   
+   FileClose(handle);
+   
+   PrintFormat("[LINE_USED] Loaded %d records from file", totalUsedLines);
+}
+
+void SaveLineUsedToFile()
+{
+   int handle = FileOpen(LINE_USED_FILE, FILE_WRITE | FILE_BIN);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[LINE_USED] ERROR: Cannot save to file, error: ", GetLastError());
+      return;
+   }
+   
+   for(int i = 0; i < totalUsedLines; i++)
+   {
+      FileWriteLong(handle, (long)usedLines[i].regimeEpoch);
+      FileWriteLong(handle, usedLines[i].lineKey);
+      FileWriteInteger(handle, (int)usedLines[i].isBuy);
+      FileWriteLong(handle, (long)usedLines[i].usedTime);
+   }
+   
+   FileClose(handle);
+   
+   PrintFormat("[LINE_USED] Saved %d records to file", totalUsedLines);
+}
+
+void CleanupOldLineUsedRecords()
+{
+   datetime now = TimeCurrent();
+   datetime threshold = now - (7 * 24 * 60 * 60);  
+   
+   int newSize = 0;
+   for(int i = 0; i < totalUsedLines; i++)
+   {
+      if(usedLines[i].usedTime >= threshold)
+      {
+         if(newSize != i)
+            usedLines[newSize] = usedLines[i];
+         newSize++;
+      }
+   }
+   
+   int removed = totalUsedLines - newSize;
+   if(removed > 0)
+   {
+      ArrayResize(usedLines, newSize);
+      totalUsedLines = newSize;
+      SaveLineUsedToFile();
+      PrintFormat("[LINE_USED] Cleaned up %d old records (> 7 days)", removed);
+   }
+}
+
 bool IsLineUsed(bool isBuy, long key)
 {
-   // If regime not known yet, don't block by line-used
-   if (currentRegimeEpoch == 0)
+   if(currentRegimeEpoch == 0)
       return false;
-   return GlobalVariableCheck(LineUsedName(isBuy, key));
+   
+   for(int i = 0; i < totalUsedLines; i++)
+   {
+      if(usedLines[i].regimeEpoch == currentRegimeEpoch &&
+         usedLines[i].lineKey == key &&
+         usedLines[i].isBuy == isBuy)
+      {
+         return true;
+      }
+   }
+   
+   return false;
 }
 
 void MarkLineUsed(bool isBuy, long key)
 {
-   if (currentRegimeEpoch == 0)
+   if(currentRegimeEpoch == 0)
       return;
-
-   string name = LineUsedName(isBuy, key);
-   if (!GlobalVariableCheck(name))
-      GlobalVariableSet(name, (double)TimeCurrent());
-
-   if (isBuy)
+   
+   for(int i = 0; i < totalUsedLines; i++)
+   {
+      if(usedLines[i].regimeEpoch == currentRegimeEpoch &&
+         usedLines[i].lineKey == key &&
+         usedLines[i].isBuy == isBuy)
+      {
+         PrintFormat("[LINE_USED] Already marked: %s key=%I64d epoch=%s",
+                     (isBuy ? "BUY" : "SELL"), key,
+                     TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES));
+         return;
+      }
+   }
+   
+   LineUsedRecord rec;
+   rec.regimeEpoch = currentRegimeEpoch;
+   rec.lineKey = key;
+   rec.isBuy = isBuy;
+   rec.usedTime = TimeCurrent();
+   
+   ArrayResize(usedLines, totalUsedLines + 1);
+   usedLines[totalUsedLines] = rec;
+   totalUsedLines++;
+   
+   SaveLineUsedToFile();
+   
+   PrintFormat("[LINE_USED] Marked used: %s key=%I64d epoch=%s (total: %d)",
+               (isBuy ? "BUY" : "SELL"), key,
+               TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES),
+               totalUsedLines);
+   
+   if(isBuy)
       lastUsedHighKey = key;
    else
       lastUsedLowKey = key;
+}
+
+void ResetLineUsedForNewRegime()
+{
+   PrintFormat("[LINE_USED] New regime started: %s (keeping %d old records)",
+               TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES),
+               totalUsedLines);
+}
+
+void MarkZoneUsed(bool isBuy, double zonePrice)
+{
+   int total = isBuy ? totalBuyZones : totalSellZones;
+   
+   for(int i = 0; i < total; i++)
+   {
+      double zone = isBuy ? buyZones[i] : sellZones[i];
+      
+      if(MathAbs(zone - zonePrice) < 0.1)
+      {
+         if(isBuy)
+         {
+            buyZonesUsed[i] = true;
+            PrintFormat("[ZONE][BUY] Zone MARKED USED | Price: %.*f | Index: %d", 
+                        _Digits, zonePrice, i);
+         }
+         else
+         {
+            sellZonesUsed[i] = true;
+            PrintFormat("[ZONE][SELL] Zone MARKED USED | Price: %.*f | Index: %d", 
+                        _Digits, zonePrice, i);
+         }
+         break;
+      }
+   }
 }
 
 //=================== BREAKOUT CHECKS =========================
@@ -1234,16 +1627,24 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    if (!waitingBUY)
       return false;
 
-   // HA bar1
+   if(EnablePriceZoneFilter)
+   {
+      if(!buyZoneActivated)
+      {
+         return false;
+      }
+      
+      PrintFormat("[%s][PASS][BUY]  Zone filter PASSED | Zone: %.*f", 
+                  _Symbol, _Digits, lastBuyZoneHitPrice);
+   }
+   
    double haO, haH, haL, haC, haCol;
    if (!ReadHA(1, haO, haH, haL, haC, haCol))
       return false;
 
-   // HA bullish
    if (haCol != 0.0)
       return false;
 
-   // HighLine bar1
    double highLine1;
    if (!ReadHighLineAtShift(1, highLine1))
       return false;
@@ -1251,11 +1652,9 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    PrintFormat("[%s][CHECK][BUY] HAclose=%.*f HighLine=%.*f | HA>Line=%d",
                _Symbol, _Digits, haC, _Digits, highLine1, (haC > highLine1));
 
-   // HA close above HighLine
    if (haC <= highLine1)
       return false;
 
-   // normal candle not bearish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
 
@@ -1267,15 +1666,14 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
 
    long key = LineKey(highLine1);
 
-    if (IsLineUsed(true, key))
-    {
-        PrintFormat("[%s][SKIP][BUY] Line already used in regime | key=%I64d epoch=%s",
-                    _Symbol, key,
-                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
-        return false;
-    }
+   if (IsLineUsed(true, key))
+   {
+      PrintFormat("[%s][SKIP][BUY] Line already used in regime | key=%I64d epoch=%s",
+                  _Symbol, key,
+                  (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+      return false;
+   }
 
-   // ===== range filter =====
    double lowLine1;
    if (!ReadLowLineAtShift(1, lowLine1))
       return false;
@@ -1283,24 +1681,22 @@ bool CheckBuyBreakoutOnClosedBar(long &highKeyOut)
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
-    if (rangePips < RangeChannelEMA)
-    {
-        PrintFormat("[%s][SKIP][BUY] Range too small -> MARK USED (prevent retry) | High=%.5f Low=%.5f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
-                    _Symbol, highLine1, lowLine1, rangePips, RangeChannelEMA, key,
-                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
-        
-        MarkLineUsed(true, key);
-        
-        highKeyOut = 0;
-        return false;
-    }
+   if (rangePips < RangeChannelEMA)
+   {
+      PrintFormat("[%s][SKIP][BUY] Range too small -> MARK USED | High=%.5f Low=%.5f Range=%.1f < Min=%.1f",
+                  _Symbol, highLine1, lowLine1, rangePips, RangeChannelEMA);
+      
+      MarkLineUsed(true, key);
+      
+      highKeyOut = 0;
+      return false;
+   }
 
-    PrintFormat("[%s][PASS][BUY] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
-                _Symbol, _Digits, highLine1, key, rangePips,
-                (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+   PrintFormat("[%s][PASS][BUY] All conditions PASSED | line=%.*f key=%I64d range=%.1f",
+               _Symbol, _Digits, highLine1, key, rangePips);
 
-    highKeyOut = key;
-    return true;
+   highKeyOut = key;
+   return true;
 }
 
 bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
@@ -1309,16 +1705,24 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    if (!waitingSELL)
       return false;
 
-   // HA bar1
+   if(EnablePriceZoneFilter)
+   {
+      if(!sellZoneActivated)
+      {
+         return false;
+      }
+      
+      PrintFormat("[%s][PASS][SELL]  Zone filter PASSED | Zone: %.*f", 
+                  _Symbol, _Digits, lastSellZoneHitPrice);
+   }
+
    double haO, haH, haL, haC, haCol;
    if (!ReadHA(1, haO, haH, haL, haC, haCol))
       return false;
 
-   // HA bearish
    if (haCol != 1.0)
       return false;
 
-   // LowLine bar1
    double lowLine1;
    if (!ReadLowLineAtShift(1, lowLine1))
       return false;
@@ -1326,11 +1730,9 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    PrintFormat("[%s][CHECK][SELL] HAclose=%.*f LowLine=%.*f | HA<Line=%d",
                _Symbol, _Digits, haC, _Digits, lowLine1, (haC < lowLine1));
 
-   // HA close below LowLine
    if (haC >= lowLine1)
       return false;
 
-   // normal candle not bullish (allow doji)
    double o1 = iOpen(_Symbol, _Period, 1);
    double c1 = iClose(_Symbol, _Period, 1);
 
@@ -1342,15 +1744,14 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
 
    long key = LineKey(lowLine1);
 
-    if (IsLineUsed(false, key))
-    {
-        PrintFormat("[%s][SKIP][SELL] Line already used in regime | key=%I64d epoch=%s",
-                    _Symbol, key,
-                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
-        return false;
-    }
+   if (IsLineUsed(false, key))
+   {
+      PrintFormat("[%s][SKIP][SELL] Line already used in regime | key=%I64d epoch=%s",
+                  _Symbol, key,
+                  (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+      return false;
+   }
 
-   // ===== range filter =====
    double highLine1;
    if (!ReadHighLineAtShift(1, highLine1))
       return false;
@@ -1358,24 +1759,22 @@ bool CheckSellBreakoutOnClosedBar(long &lowKeyOut)
    double pip = PipSize();
    double rangePips = MathAbs(highLine1 - lowLine1) / pip;
 
-    if (rangePips < RangeChannelEMA)
-    {
-        PrintFormat("[%s][SKIP][SELL] Range too small -> MARK USED (prevent retry) | High=%.5f Low=%.5f Range=%.1f < Min=%.1f key=%I64d epoch=%s",
-                    _Symbol, highLine1, lowLine1, rangePips, RangeChannelEMA, key,
-                    (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
-        
-        MarkLineUsed(false, key);
-        
-        lowKeyOut = 0;
-        return false;
-    }
+   if (rangePips < RangeChannelEMA)
+   {
+      PrintFormat("[%s][SKIP][SELL] Range too small -> MARK USED | High=%.5f Low=%.5f Range=%.1f < Min=%.1f",
+                  _Symbol, highLine1, lowLine1, rangePips, RangeChannelEMA);
+      
+      MarkLineUsed(false, key);
+      
+      lowKeyOut = 0;
+      return false;
+   }
 
-    PrintFormat("[%s][PASS][SELL] Conditions PASSED | line=%.*f key=%I64d range=%.1f epoch=%s",
-                _Symbol, _Digits, lowLine1, key, rangePips,
-                (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
+   PrintFormat("[%s][PASS][SELL] All conditions PASSED | line=%.*f key=%I64d range=%.1f",
+               _Symbol, _Digits, lowLine1, key, rangePips);
 
-    lowKeyOut = key;
-    return true;
+   lowKeyOut = key;
+   return true;
 }
 
 //=================== EXECUTE ENTRY ===============================
@@ -1412,40 +1811,26 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       return false;
    }
 
-   double highLine1, lowLine1;
-   if (!ReadHighLineAtShift(1, highLine1))
-   {
-      return false;
-   }
-   if (!ReadLowLineAtShift(1, lowLine1))
-   {
-      return false;
-   }
-
-   double midChannel = NormalizePrice((highLine1 + lowLine1) / 2.0);
-
-   PrintFormat("[%s][MID-CHANNEL][%s] HighLine=%.5f LowLine=%.5f Mid=%.5f",
-               _Symbol, SideText(isBuy), highLine1, lowLine1, midChannel);
-
    double pip = PipSize();
 
-   double entry = midChannel;
+   double entryNow = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   entryNow = NormalizePrice(entryNow);
 
-   if (isBuy && sl >= entry)
+   if (isBuy && sl >= entryNow)
    {
-      PrintFormat("[%s][SKIP][BUY] Invalid SL >= entry | entry=%.*f sl=%.*f lineKey %I64d",
-                  _Symbol, _Digits, entry, _Digits, sl, lineKey);
+      PrintFormat("[%s][SKIP][BUY] Invalid SL >= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
+                  _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
       return false;
    }
 
-   if (!isBuy && sl <= entry)
+   if (!isBuy && sl <= entryNow)
    {
-      PrintFormat("[%s][SKIP][SELL] Invalid SL <= entry | entry=%.*f sl=%.*f lineKey %I64d",
-                  _Symbol, _Digits, entry, _Digits, sl, lineKey);
+      PrintFormat("[%s][SKIP][SELL] Invalid SL <= entryNow | entryNow=%.*f sl=%.*f lineKey %I64d",
+                  _Symbol, _Digits, entryNow, _Digits, sl, lineKey);
       return false;
    }
 
-   double riskDist = isBuy ? (entry - sl) : (sl - entry);
+   double riskDist = isBuy ? (entryNow - sl) : (sl - entryNow);
    if (riskDist <= 0)
       return false;
 
@@ -1454,45 +1839,50 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
 
-   PrintFormat("[%s][SETUP][%s] ENTRY(mid)=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f lineKey %I64d",
+   PrintFormat("[%s][SETUP][%s] entryNow=%.*f sl=%.*f riskPips=%.1f SLMax=%.1f lineKey %I64d",
                _Symbol, SideText(isBuy),
-               _Digits, entry, _Digits, sl, riskPips, SLMaxPips, lineKey);
+               _Digits, entryNow, _Digits, sl, riskPips, SLMaxPips, lineKey,
+               (currentRegimeEpoch > 0 ? TimeToString(currentRegimeEpoch, TIME_DATE | TIME_MINUTES) : "0"));
 
-   // Case 1: within SL_MAX => LIMIT ORDER (MID-CHANNEL)
+   // Case 1: within SL_MAX => MARKET
    if (riskPips <= SLMaxPips + 1e-9)
    {
-      double lots = CalcLotsByRiskUSD(entry, sl);
+      double lots = CalcLotsByRiskUSD(entryNow, sl);
       if (lots <= 0)
       {
          PrintFormat("[%s][SKIP][%s] lots<=0 (CalcLotsByRiskUSD) | entry=%.*f sl=%.*f lineKey %I64d",
-                     _Symbol, SideText(isBuy), _Digits, entry, _Digits, sl, lineKey);
+                     _Symbol, SideText(isBuy), _Digits, entryNow, _Digits, sl, lineKey);
          return false;
       }
 
-      double tp = isBuy ? (entry + RiskReward * riskDist) : (entry - RiskReward * riskDist);
+      double tp = isBuy ? (entryNow + RiskReward * riskDist) : (entryNow - RiskReward * riskDist);
       tp = NormalizePrice(tp);
-
-      // HTF override
       if (_Period != PERIOD_M1)
       {
-         double htfTp = isBuy ? (entry + HTF_TP_Prices)
-                        : (entry - HTF_TP_Prices);
+         double htfTp = isBuy ? (entryNow + HTF_TP_Prices)
+                        : (entryNow - HTF_TP_Prices);
          tp = NormalizePrice(htfTp);
       }
 
       bool isSuccess = false;
       if (isBuy)
-         isSuccess = trade.BuyLimit(lots, entry, _Symbol, sl, tp, ORDER_TIME_GTC, 0, "BUY LIMIT MID");
+         isSuccess = trade.Buy(lots, _Symbol, 0.0, sl, tp, "BUY MARKET");
       else
-         isSuccess = trade.SellLimit(lots, entry, _Symbol, sl, tp, ORDER_TIME_GTC, 0, "SELL LIMIT MID");
+         isSuccess = trade.Sell(lots, _Symbol, 0.0, sl, tp, "SELL MARKET");
 
       if (isSuccess)
       {
          double entryFill = trade.ResultPrice();
-         PrintFormat("[%s][ORDER][%s] LIMIT(mid) SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
+         PrintFormat("[%s][ORDER][%s] MARKET SENT | ENTRY=%.*f Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy),
-                     _Digits, entry, lots,
+                     _Digits, entryFill, lots,
                      _Digits, sl, _Digits, tp, lineKey);
+
+         if(EnablePriceZoneFilter)
+         {
+            double usedZone = isBuy ? lastBuyZoneHitPrice : lastSellZoneHitPrice;
+            MarkZoneUsed(isBuy, usedZone);
+         }
 
          if (isBuy)
             waitingBUY = false;
@@ -1501,7 +1891,7 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       }
       else
       {
-         PrintFormat("[%s][FAIL][%s] LIMIT(mid) | ret=%d %s | Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
+         PrintFormat("[%s][FAIL][%s] MARKET | ret=%d %s | Vol=%.2f SL=%.*f TP=%.*f lineKey %I64d",
                      _Symbol, SideText(isBuy),
                      trade.ResultRetcode(),
                      trade.ResultRetcodeDescription(),
@@ -1558,6 +1948,12 @@ bool ExecuteEntry(bool isBuy, long lineKey)
    }
    if (isLimitSuccess)
    {
+      if(EnablePriceZoneFilter)
+      {
+         double usedZone = isBuy ? lastBuyZoneHitPrice : lastSellZoneHitPrice;
+         MarkZoneUsed(isBuy, usedZone);
+      }
+
       if (isBuy)
          waitingBUY = false;
       else
@@ -1583,75 +1979,6 @@ void CancelWaitingOnOppositeCross(bool crossUpNow, bool crossDownNow)
       CancelPending(ORDER_TYPE_BUY_LIMIT);
    if (crossUpNow)
       CancelPending(ORDER_TYPE_SELL_LIMIT);
-}
-struct PositionCrossWarning
-{
-   ulong ticket;
-   int oppositeCrossCount;
-   datetime lastCrossTime;
-};
-
-// Static array to track warnings (max 100 positions)
-static PositionCrossWarning crossWarnings[100];
-static int crossWarningsCount = 0;
-
-int GetWarningIndex(ulong ticket)
-{
-   for(int i = 0; i < crossWarningsCount; i++)
-   {
-      if(crossWarnings[i].ticket == ticket)
-         return i;
-   }
-   return -1;
-}
-
-void UpdateCrossWarning(ulong ticket, bool increment)
-{
-   int idx = GetWarningIndex(ticket);
-   
-   if(idx < 0)
-   {
-      // Create new entry
-      if(crossWarningsCount < 100)
-      {
-         idx = crossWarningsCount;
-         crossWarnings[idx].ticket = ticket;
-         crossWarnings[idx].oppositeCrossCount = 0;
-         crossWarningsCount++;
-      }
-      else
-      {
-         Print("[WARNING] Cross warning array full!");
-         return;
-      }
-   }
-   
-   if(increment)
-   {
-      crossWarnings[idx].oppositeCrossCount++;
-      crossWarnings[idx].lastCrossTime = TimeCurrent();
-      
-      PrintFormat("[CROSS_WARNING] Position #%I64u | OppositeCross TOTAL count: %d",
-                  ticket, crossWarnings[idx].oppositeCrossCount);
-   }
-}
-
-void RemoveCrossWarningWhenPositionClosed(ulong ticket)
-{
-   int idx = GetWarningIndex(ticket);
-   if(idx < 0) return;
-   
-   for(int i = idx; i < crossWarningsCount - 1; i++)
-   {
-      crossWarnings[i] = crossWarnings[i + 1];
-   }
-   crossWarningsCount--;
-}
-
-int GetOppositeCrossCount(ulong ticket)
-{
-   int idx = GetWarningIndex(ticket);
-   return (idx >= 0) ? crossWarnings[idx].oppositeCrossCount : 0;
 }
 
 void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
@@ -1681,69 +2008,14 @@ void ManageBreakEvenAndCrossRules(bool crossUpNow, bool crossDownNow)
              (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
          double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-         bool isProfitable = (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
+         bool isProfitable =
+             (ptype == POSITION_TYPE_BUY) ? (bid > entry) : (ask < entry);
 
-         bool isOppositeCross = false;
-         
-         if(ptype == POSITION_TYPE_BUY)
+         if (
+             (ptype == POSITION_TYPE_BUY && crossDownNow && isProfitable) ||
+             (ptype == POSITION_TYPE_SELL && crossUpNow && isProfitable))
          {
-            if(crossDownNow) isOppositeCross = true;      // BUY + CrossDown = Opposite
-         }
-         else
-         {
-            if(crossUpNow) isOppositeCross = true;        // SELL + CrossUp = Opposite
-         }
-         
-         if(isOppositeCross)
-         {
-            int currentCount = GetOppositeCrossCount(tk);
-            
-            if(currentCount == 0)
-            {
-               UpdateCrossWarning(tk, true); // Increment to 1
-               
-               string side = (ptype == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-               string crossDir = (crossUpNow) ? "Cross UP" : "Cross DOWN";
-               
-               PrintFormat("[HTF][WARNING #1] Position %s #%I64u | %s detected (1st opposite) | Entry=%.5f Current=%.5f | Profitable=%s",
-                          side, tk, crossDir, entry, 
-                          (ptype == POSITION_TYPE_BUY ? bid : ask),
-                          (isProfitable ? "YES" : "NO"));
-               
-               // Send Telegram warning
-               TG_SendCrossWarning(ptype == POSITION_TYPE_BUY, entry, tk, 1);
-            }
-            else if(currentCount == 1)
-            {
-               UpdateCrossWarning(tk, true); // Increment to 2
-               
-               string side = (ptype == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-               string crossDir = (crossUpNow) ? "Cross UP" : "Cross DOWN";
-               
-               if(isProfitable)
-               {
-                  PrintFormat("[HTF][CLOSE #2] Position %s #%I64u | %s detected (2nd opposite) | CLOSING (Profitable) | Entry=%.5f Exit=%.5f",
-                             side, tk, crossDir, entry, 
-                             (ptype == POSITION_TYPE_BUY ? bid : ask));
-                  
-                  TG_SendClosePosition(ptype == POSITION_TYPE_BUY, entry, (long)tk, 
-                                      "2nd opposite cross (profitable)");
-                  
-                  trade.PositionClose(tk);
-                  RemoveCrossWarningWhenPositionClosed(tk);
-               }
-               else
-               {
-                  PrintFormat("[HTF][SKIP #2] Position %s #%I64u | %s detected (2nd opposite) | NOT closing (Not profitable) | Entry=%.5f Current=%.5f",
-                             side, tk, crossDir, entry, 
-                             (ptype == POSITION_TYPE_BUY ? bid : ask));
-               }
-            }
-            else
-            {
-               PrintFormat("[HTF][INFO] Position #%I64u | Opposite cross count: %d (no action - already processed)",
-                          tk, currentCount + 1);
-            }
+            trade.PositionClose(tk);
          }
       }
 
@@ -1963,6 +2235,25 @@ void UpdateChartComment()
    string txt = "";
    txt += "TradeMode     : " + modeText + "\n";
 
+    if(EnablePriceZoneFilter)
+      {
+         txt += "─────────────────────────\n";
+         txt += "PRICE ZONE FILTER: ON\n";
+         txt += "BuyZoneActive : " + (buyZoneActivated ? " YES" : " NO") + "\n";
+         if(buyZoneActivated && lastBuyZoneHitPrice > 0)
+            txt += "  └─ Zone: " + DoubleToString(lastBuyZoneHitPrice, _Digits) + 
+                  " @ " + TimeToString(lastBuyZoneHitTime, TIME_MINUTES) + "\n";
+         
+         txt += "SellZoneActive: " + (sellZoneActivated ? " YES" : " NO") + "\n";
+         if(sellZoneActivated && lastSellZoneHitPrice > 0)
+            txt += "  └─ Zone: " + DoubleToString(lastSellZoneHitPrice, _Digits) + 
+                  " @ " + TimeToString(lastSellZoneHitTime, TIME_MINUTES) + "\n";
+         
+         txt += "TotalBuyZones : " + IntegerToString(totalBuyZones) + "\n";
+         txt += "TotalSellZones: " + IntegerToString(totalSellZones) + "\n";
+         txt += "─────────────────────────\n";
+      }
+
    // --- SESSIONS: show VN block, HIDE broker MarketSession ---
    if (TradeWindowMode == TRADEWINDOW_SESSIONS)
    {
@@ -2001,6 +2292,40 @@ void UpdateChartComment()
    txt += "SessPnL(real) : " + DoubleToString(pnl, 2) + "\n";
    txt += "DD Limit      : -" + DoubleToString(sessionLossLimit, 2) + "\n";
    txt += "DD Blocked    : " + (ddBlocked ? "YES" : "NO") + "\n";
+   txt += "─────────────────────────\n";
+
+   // Log for zones with [USED] and << for active zone (if any)
+   for(int i = 0; i < totalBuyZones; i++)
+   {
+      string usedStr = (i < ArraySize(buyZonesUsed) && buyZonesUsed[i]) ? " [USED]" : "";
+      string activeStr = (buyZoneActivated && MathAbs(buyZones[i] - lastBuyZoneHitPrice) < 0.1) ? " <<" : "";
+      
+      double pip = PipSize();
+      double zoneFrom = buyZones[i] - ZoneActivationPips * pip;
+      double zoneTo   = buyZones[i] + ZoneActivationPips * pip;
+      
+      txt += "  [BUY ZONE " + IntegerToString(i+1) + "] " +
+            DoubleToString(buyZones[i], _Digits) +
+            "  [" + DoubleToString(zoneFrom, _Digits) +
+            " - " + DoubleToString(zoneTo,   _Digits) + "]" +
+            usedStr + activeStr + "\n";
+   }
+   for(int i = 0; i < totalSellZones; i++)
+   {
+      string usedStr = (i < ArraySize(sellZonesUsed) && sellZonesUsed[i]) ? " [USED]" : "";
+      string activeStr = (sellZoneActivated && MathAbs(sellZones[i] - lastSellZoneHitPrice) < 0.1) ? " <<" : "";
+      
+      double pip = PipSize();
+      double zoneFrom = sellZones[i] - ZoneActivationPips * pip;
+      double zoneTo   = sellZones[i] + ZoneActivationPips * pip;
+      
+      txt += "  [SELL ZONE " + IntegerToString(i+1) + "] " +
+            DoubleToString(sellZones[i], _Digits) +
+            "  [" + DoubleToString(zoneFrom, _Digits) +
+            " - " + DoubleToString(zoneTo,   _Digits) + "]" +
+            usedStr + activeStr + "\n";
+   }
+   
    Comment(txt);
 }
 
@@ -2205,21 +2530,6 @@ void TG_SendSL(bool isBuyEntry, bool wasLimit, double et, long dealId)
    TG_Mark(key, dealId);
 }
 
-void TG_SendCrossWarning(bool isBuy, double et, long dealId, int warningNumber)
-{
-   string key = StringFormat("CROSS_WARN_%d", warningNumber);
-   if (TG_Sent(key, dealId))
-      return;
-
-   string msg =
-       "WARNING #" + IntegerToString(warningNumber) + " - OPPOSITE CROSS\n" +
-       string(isBuy ? "BUY" : "SELL") + " position\n" +
-       "ET  " + TG_P(et) + "\n" +
-       "Action: " + (warningNumber == 1 ? "Monitor closely" : "Will close if profitable on next opposite cross");
-
-   TG_Send(msg);
-   TG_Mark(key, dealId);
-}
 //===================== HELPERS: origin + SL/TP ========================
 bool TG_GetFillOrigin(ulong dealTicket, bool &wasMarket, bool &wasLimit)
 {
@@ -2461,6 +2771,9 @@ int OnInit()
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
 
+   LoadLineUsedFromFile();
+   CleanupOldLineUsedRecords();
+
    // init DD baseline (only when inside a market session)
    ResetSessionDDIfNeeded();
 
@@ -2476,12 +2789,19 @@ int OnInit()
    lastUsedHighKey = 0;
    lastUsedLowKey = 0;
 
+   LoadPriceZones(); 
+   buyZoneActivated = false;
+   sellZoneActivated = false;
+
    return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason)
 {
    Comment("");
+   SaveLineUsedToFile();
+   PrintFormat("[LINE_USED] Saved %d records on EA deinit (reason: %d)", totalUsedLines, reason);
+
    if (haHandle != INVALID_HANDLE)
       IndicatorRelease(haHandle);
    if (emaHandle != INVALID_HANDLE)
@@ -2491,6 +2811,7 @@ void OnDeinit(const int reason)
 //=================== TICK ===============================
 void OnTick()
 {
+   UpdateZoneActivation();
    UpdateSessionDDGate();
    UpdateSessionProfitGate();
 
@@ -2580,8 +2901,20 @@ void OnTick()
       GetCrossEventOnClosedBar(crossUpNow, crossDownNow, crossPriceNow);
 
       // Start new regime on TRUE cross (epoch = bar1 time)
-      if (crossUpNow || crossDownNow)
+      if (crossUpNow || crossDownNow){
          currentRegimeEpoch = iTime(_Symbol, _Period, 1);
+         if(crossUpNow)
+         {
+            sellZoneActivated = false;
+            PrintFormat("[ZONE] SELL zone deactivated (Cross Up)");
+         }
+         
+         if(crossDownNow)
+         {
+            buyZoneActivated = false;
+            PrintFormat("[ZONE] BUY zone deactivated (Cross Down)");
+         }
+      }
 
       // Cancel pending on opposite cross
       CancelWaitingOnOppositeCross(crossUpNow, crossDownNow);
