@@ -1353,7 +1353,9 @@ void AutoArmFromLatestCross()
    currentCrossText = dir;
    currentCrossPrice = p;
    currentCrossTime = t;
-   currentRegimeEpoch = t;
+   
+   if(currentRegimeEpoch == 0)
+      currentRegimeEpoch = t;
 
    if (dir == "Cross Up")
    {
@@ -2873,12 +2875,6 @@ void OnTick()
             }
             lastSessionStart = s;
         }
-    }
-    
-    if(!shouldAutoArm && (now - lastAutoArmTime) > 4*3600)
-    {
-        shouldAutoArm = true;
-        armReason = "Periodic refresh (4 hours)";
     }
     
     // Execute auto-arm
