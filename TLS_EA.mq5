@@ -2,7 +2,18 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
+#define ZONE_USED_FILE "TLS_ZoneUsed.dat"
 #define LINE_USED_FILE "TLS_LineUsed.dat"
+
+struct ZoneUsedRecord
+{
+   bool  isBuy;
+   double zonePrice;
+   datetime usedTime;
+};
+
+ZoneUsedRecord usedZones[];
+int totalUsedZones = 0;
 struct LineUsedRecord
 {
    datetime regimeEpoch;
@@ -105,7 +116,6 @@ input bool IsDebugOnce = true;
 int haHandle = INVALID_HANDLE;
 int emaHandle = INVALID_HANDLE;
 
-// BUY/SELL zones
 //======================== PRICE ZONE FILTER =============================
 input bool EnablePriceZoneFilter = true;  
 input int ZoneActivationPips = 10;       
@@ -149,7 +159,6 @@ double lastSellZoneHitPrice = 0.0;
 bool buyZoneActivated = false;
 bool sellZoneActivated = false;
 
-
 datetime lastBarTime = 0;
 
 // session DD tracking
@@ -171,21 +180,78 @@ bool waitingSELL = false;
 // For comment only
 long lastUsedHighKey = 0;
 long lastUsedLowKey = 0;
-
-// current cross (for comment)
+int lastHaBars = 0;
+int lastEmaBars = 0;
 string currentCrossText = "None"; // "Cross Up" / "Cross Down" / "Cross" / "None"
 double currentCrossPrice = 0.0;
 datetime currentCrossTime = 0;
 
 //=================== REGIME (one setup per regime) ==================
-// currentRegimeEpoch changes on each TRUE cross, and also gets set at startup by AutoArm (ý #6)
 datetime currentRegimeEpoch = 0;
 
-// last BarsCalculated (for comment)
-int lastHaBars = 0;
-int lastEmaBars = 0;
-
 //============================== UTILS ==============================
+void LoadZoneUsedFromFile()
+{
+   ArrayResize(usedZones, 0);
+   totalUsedZones = 0;
+
+   int handle = FileOpen(ZONE_USED_FILE, FILE_READ | FILE_BIN);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[ZONE_USED] No existing file, starting fresh");
+      return;
+   }
+
+   while(!FileIsEnding(handle))
+   {
+      ZoneUsedRecord rec;
+      rec.isBuy      = (bool)FileReadInteger(handle);
+      rec.zonePrice  = FileReadDouble(handle);
+      rec.usedTime   = (datetime)FileReadLong(handle);
+
+      if(rec.zonePrice <= 0)
+         break;
+
+      ArrayResize(usedZones, totalUsedZones + 1);
+      usedZones[totalUsedZones] = rec;
+      totalUsedZones++;
+   }
+
+   FileClose(handle);
+   PrintFormat("[ZONE_USED] Loaded %d records from file", totalUsedZones);
+}
+
+void SaveZoneUsedToFile()
+{
+   int handle = FileOpen(ZONE_USED_FILE, FILE_WRITE | FILE_BIN);
+   if(handle == INVALID_HANDLE)
+   {
+      Print("[ZONE_USED] ERROR: Cannot save to file, error: ", GetLastError());
+      return;
+   }
+
+   for(int i = 0; i < totalUsedZones; i++)
+   {
+      FileWriteInteger(handle, (int)usedZones[i].isBuy);
+      FileWriteDouble(handle, usedZones[i].zonePrice);
+      FileWriteLong(handle, (long)usedZones[i].usedTime);
+   }
+
+   FileClose(handle);
+   PrintFormat("[ZONE_USED] Saved %d records to file", totalUsedZones);
+}
+
+bool IsZoneUsedFromFile(bool isBuy, double zonePrice)
+{
+   for(int i = 0; i < totalUsedZones; i++)
+   {
+      if(usedZones[i].isBuy == isBuy &&
+         MathAbs(usedZones[i].zonePrice - zonePrice) < 0.1)
+         return true;
+   }
+   return false;
+}
+
 void LoadPriceZones()
 {
    ArrayResize(buyZones, 0);
@@ -232,11 +298,32 @@ void LoadPriceZones()
    ArrayFill(buyZonesUsed, 0, totalBuyZones, false);
    ArrayFill(sellZonesUsed, 0, totalSellZones, false);
    
+   // ========== RESTORE USED STATE FROM FILE ==========
+   for(int i = 0; i < totalBuyZones; i++)
+   {
+      if(IsZoneUsedFromFile(true, buyZones[i]))
+      {
+         buyZonesUsed[i] = true;
+         PrintFormat("[ZONE_USED] BUY zone restored as USED: %.*f", _Digits, buyZones[i]);
+      }
+   }
+   for(int i = 0; i < totalSellZones; i++)
+   {
+      if(IsZoneUsedFromFile(false, sellZones[i]))
+      {
+         sellZonesUsed[i] = true;
+         PrintFormat("[ZONE_USED] SELL zone restored as USED: %.*f", _Digits, sellZones[i]);
+      }
+   }
+   
+   // ========== LOG ==========
    if(totalBuyZones > 0)
    {
       string buyList = "";
       for(int i = 0; i < totalBuyZones; i++)
-         buyList += DoubleToString(buyZones[i], _Digits) + (i < totalBuyZones-1 ? ", " : "");
+         buyList += DoubleToString(buyZones[i], _Digits) + 
+                    (buyZonesUsed[i] ? "[USED]" : "") +
+                    (i < totalBuyZones-1 ? ", " : "");
       PrintFormat("[ZONE] Loaded %d BUY zones: %s", totalBuyZones, buyList);
    }
    else
@@ -248,7 +335,9 @@ void LoadPriceZones()
    {
       string sellList = "";
       for(int i = 0; i < totalSellZones; i++)
-         sellList += DoubleToString(sellZones[i], _Digits) + (i < totalSellZones-1 ? ", " : "");
+         sellList += DoubleToString(sellZones[i], _Digits) + 
+                     (sellZonesUsed[i] ? "[USED]" : "") +
+                     (i < totalSellZones-1 ? ", " : "");
       PrintFormat("[ZONE] Loaded %d SELL zones: %s", totalSellZones, sellList);
    }
    else
@@ -256,6 +345,7 @@ void LoadPriceZones()
       Print("[ZONE] No SELL zones configured");
    }
 }
+
 bool IsPriceInZone(double currentPrice, double zonePrice, int activationPips)
 {
    if(zonePrice <= 0.0)
@@ -388,14 +478,6 @@ double PipSize()
    return _Point;
 }
 
-bool IsValidLevel(double v)
-{
-   if (v == EMPTY_VALUE)
-      return false;
-   if (!MathIsValidNumber(v))
-      return false;
-   return true;
-}
 
 double NormalizePrice(double p) { return NormalizeDouble(p, _Digits); }
 
@@ -744,25 +826,21 @@ bool IndicatorsReady()
     
     double hl0[], ll0[], dot0[];
     
-    if(CopyBuffer(emaHandle, 3, 0, 1, hl0) != 1)
+    double hlVal, llVal;
+    if(!ReadHighLineAtShift(0, hlVal))
     {
-        Print("[INDICATOR] Warning: Failed to copy HighLine buffer");
+        Print("[INDICATOR] Warning: Failed to read HighLine at shift=0");
         return false;
     }
-    if(CopyBuffer(emaHandle, 4, 0, 1, ll0) != 1)
+    if(!ReadLowLineAtShift(0, llVal))
     {
-        Print("[INDICATOR] Warning: Failed to copy LowLine buffer");
+        Print("[INDICATOR] Warning: Failed to read LowLine at shift=0");
         return false;
     }
+    
     if(CopyBuffer(emaHandle, 2, 0, 1, dot0) != 1)
     {
         Print("[INDICATOR] Warning: Failed to copy Dot buffer");
-        return false;
-    }
-
-    if(hl0[0]==EMPTY_VALUE || ll0[0]==EMPTY_VALUE)
-    {
-        Print("[INDICATOR] Warning: Empty values in EMA line buffers");
         return false;
     }
     
@@ -804,47 +882,52 @@ bool ReadHA(int shift, double &haOpen, double &haHigh, double &haLow, double &ha
    return true;
 }
 
-// Read line exactly at shift (no scan)
 bool ReadHighLineAtShift(int shift, double &v)
 {
    double a[1];
-
-   ResetLastError();
-   int r = CopyBuffer(emaHandle, 3, shift, 1, a);
-
-   if (r != 1)
+   int maxRetry = 5;
+   
+   for(int i = 0; i < maxRetry; i++)
    {
-      // retry once (indicator may not be ready on first tick)
-      Sleep(1);
       ResetLastError();
-      r = CopyBuffer(emaHandle, 3, shift, 1, a);
-      if (r != 1)
-         return false;
+      int r = CopyBuffer(emaHandle, 3, shift, 1, a);
+      
+      if(r == 1 && a[0] != EMPTY_VALUE && MathIsValidNumber(a[0]) && a[0] > 0)
+      {
+         v = a[0];
+         return true;
+      }
+      
+      Sleep(50);
    }
-
-   v = a[0];
-   return IsValidLevel(v);
+   
+   PrintFormat("[WARN] ReadHighLineAtShift failed after %d retries | shift=%d lastErr=%d",
+               maxRetry, shift, GetLastError());
+   return false;
 }
 
 bool ReadLowLineAtShift(int shift, double &v)
 {
    double a[1];
-
-   ResetLastError();
-   int r = CopyBuffer(emaHandle, 4, shift, 1, a);
-
-   if (r != 1)
+   int maxRetry = 5;
+   
+   for(int i = 0; i < maxRetry; i++)
    {
-      // retry once
-      Sleep(1);
       ResetLastError();
-      r = CopyBuffer(emaHandle, 4, shift, 1, a);
-      if (r != 1)
-         return false;
+      int r = CopyBuffer(emaHandle, 4, shift, 1, a);
+      
+      if(r == 1 && a[0] != EMPTY_VALUE && MathIsValidNumber(a[0]) && a[0] > 0)
+      {
+         v = a[0];
+         return true;
+      }
+      
+      Sleep(50);
    }
-
-   v = a[0];
-   return IsValidLevel(v);
+   
+   PrintFormat("[WARN] ReadLowLineAtShift failed after %d retries | shift=%d lastErr=%d",
+               maxRetry, shift, GetLastError());
+   return false;
 }
 
 //=================== EXPOSURE HELPERS ===============================
@@ -1598,25 +1681,34 @@ void ResetLineUsedForNewRegime()
 void MarkZoneUsed(bool isBuy, double zonePrice)
 {
    int total = isBuy ? totalBuyZones : totalSellZones;
-   
    for(int i = 0; i < total; i++)
    {
       double zone = isBuy ? buyZones[i] : sellZones[i];
-      
       if(MathAbs(zone - zonePrice) < 0.1)
       {
          if(isBuy)
          {
             buyZonesUsed[i] = true;
-            PrintFormat("[ZONE][BUY] Zone MARKED USED | Price: %.*f | Index: %d", 
+            PrintFormat("[ZONE][BUY] Zone MARKED USED | Price: %.*f | Index: %d",
                         _Digits, zonePrice, i);
          }
          else
          {
             sellZonesUsed[i] = true;
-            PrintFormat("[ZONE][SELL] Zone MARKED USED | Price: %.*f | Index: %d", 
+            PrintFormat("[ZONE][SELL] Zone MARKED USED | Price: %.*f | Index: %d",
                         _Digits, zonePrice, i);
          }
+
+         ZoneUsedRecord rec;
+         rec.isBuy     = isBuy;
+         rec.zonePrice = zonePrice;
+         rec.usedTime  = TimeCurrent();
+
+         ArrayResize(usedZones, totalUsedZones + 1);
+         usedZones[totalUsedZones] = rec;
+         totalUsedZones++;
+
+         SaveZoneUsedToFile();
          break;
       }
    }
@@ -2775,22 +2867,20 @@ int OnInit()
 
    LoadLineUsedFromFile();
    CleanupOldLineUsedRecords();
-
+   
    // init DD baseline (only when inside a market session)
    ResetSessionDDIfNeeded();
-
    currentCrossText = "None";
    currentCrossPrice = 0.0;
    currentCrossTime = 0;
-
    currentRegimeEpoch = 0;
-
+   
    waitingBUY = false;
    waitingSELL = false;
-
    lastUsedHighKey = 0;
    lastUsedLowKey = 0;
-
+   
+   LoadZoneUsedFromFile();
    LoadPriceZones(); 
    buyZoneActivated = false;
    sellZoneActivated = false;
@@ -2803,6 +2893,9 @@ void OnDeinit(const int reason)
    Comment("");
    SaveLineUsedToFile();
    PrintFormat("[LINE_USED] Saved %d records on EA deinit (reason: %d)", totalUsedLines, reason);
+
+   SaveZoneUsedToFile();
+   PrintFormat("[ZONE_USED] Saved %d zone records on EA deinit (reason: %d)", totalUsedZones, reason);
 
    if (haHandle != INVALID_HANDLE)
       IndicatorRelease(haHandle);
