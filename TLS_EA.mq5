@@ -118,7 +118,9 @@ int emaHandle = INVALID_HANDLE;
 
 //======================== PRICE ZONE FILTER =============================
 input bool EnablePriceZoneFilter = true;  
-input int ZoneActivationPips = 10;       
+input int ZoneActivationPips = 10;
+input bool UseSLFromZone   = true;
+input int  ZoneSLBufferPips = 30;       
 
 // Buy Zones
 input double BuyZone1 = 0.0;
@@ -1905,8 +1907,18 @@ bool ExecuteEntry(bool isBuy, long lineKey)
       PrintFormat("[%s][SKIP][%s] No SL from HA pair", _Symbol, SideText(isBuy));
       return false;
    }
-
    double pip = PipSize();
+
+   if(EnablePriceZoneFilter && UseSLFromZone)
+   {
+      double zonePrice = isBuy ? lastBuyZoneHitPrice : lastSellZoneHitPrice;
+      if(zonePrice > 0.0)
+      {
+         double SLZone = isBuy ? NormalizePrice(zonePrice - ZoneSLBufferPips * pip)
+                                   : NormalizePrice(zonePrice + ZoneSLBufferPips * pip);
+         sl = SLZone;
+      }
+   }
 
    double entryNow = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    entryNow = NormalizePrice(entryNow);
