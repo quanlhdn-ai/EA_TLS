@@ -158,6 +158,7 @@ double lastSellZoneHitPrice = 0.0;
 
 bool buyZoneActivated = false;
 bool sellZoneActivated = false;
+bool armPendingDeferred = false;
 
 datetime lastBarTime = 0;
 
@@ -2973,9 +2974,9 @@ void OnTick()
     // Execute auto-arm
     if(shouldAutoArm)
     {
-        PrintFormat("[AUTO_ARM] Triggered | Reason: %s", armReason);
-        AutoArmFromLatestCross();
+        PrintFormat("[AUTO_ARM] Queued| Reason: %s", armReason);
         
+        armPendingDeferred = true;
         didAutoArm = true;
         lastAutoArmTime = now;
         lastSessionDay = currentDay;
@@ -2986,6 +2987,12 @@ void OnTick()
 
    if (IsNewBar())
    {
+      if(armPendingDeferred)
+      {
+         armPendingDeferred = false;
+         PrintFormat("[AUTO_ARM] Executed on new bar (deferred, buffers fresh)");
+         AutoArmFromLatestCross();
+      }
       // Detect REAL cross on last closed bar
       GetCrossEventOnClosedBar(crossUpNow, crossDownNow, crossPriceNow);
 
