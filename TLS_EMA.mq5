@@ -41,20 +41,22 @@ double CrossDotBuffer[];
 double HighLineData[];
 double LowLineData[];
 
-//--- Handles
 int handleShort = INVALID_HANDLE;
 int handleLong  = INVALID_HANDLE;
 
-//--- Persistent state
-static double   currentHighVal     = 0.0;
-static double   currentLowVal      = 0.0;
-static int      lastCrossUpIdx     = -1;   // shift index of last crossUp (closed bar)
-static int      lastCrossDownIdx   = -1;   // shift index of last crossDown (closed bar)
-static datetime lastBarTime0       = 0;
+static datetime lastCrossUpTime   = 0;
+static datetime lastCrossDownTime = 0;
+static double   currentHighVal    = 0.0;
+static double   currentLowVal     = 0.0;
+static int      savedShortPeriod  = 0;
+static int      savedLongPeriod   = 0;
 
-//--- Parameter tracking for reset detection
-static int savedShortPeriod = 0;
-static int savedLongPeriod = 0;
+int GetShiftByTime(const datetime &time[], datetime t, int total)
+{
+   for(int i = 0; i < total; i++)
+      if(time[i] == t) return i;
+   return -1;
+}
 
 //+------------------------------------------------------------------+
 //| Draw/update level line                                           |
@@ -112,13 +114,19 @@ int OnInit()
    handleLong  = iMA(_Symbol, _Period, EMALongPeriod,  0, EMAMethod, PRICE_CLOSE);
 
    if(handleShort == INVALID_HANDLE || handleLong == INVALID_HANDLE)
-      return(INIT_FAILED);
-   
-   // Initialize parameter tracking
-   savedShortPeriod = EMAShortPeriod;
-   savedLongPeriod = EMALongPeriod;
+      return INIT_FAILED;
 
-   return(INIT_SUCCEEDED);
+   currentHighVal    = 0.0;
+   currentLowVal     = 0.0;
+   lastCrossUpTime   = 0;
+   lastCrossDownTime = 0;
+   savedShortPeriod  = EMAShortPeriod;
+   savedLongPeriod   = EMALongPeriod;
+
+   ObjectDelete(0, "TLS_HighLine");
+   ObjectDelete(0, "TLS_LowLine");
+
+   return INIT_SUCCEEDED;
 }
 
 //+------------------------------------------------------------------+
@@ -139,21 +147,16 @@ int OnCalculate(const int rates_total,
       return 0;
 
    bool parametersChanged = (savedShortPeriod != EMAShortPeriod || savedLongPeriod != EMALongPeriod);
-   
-   if(prev_calculated == 0 || parametersChanged)
+   if(parametersChanged)
    {
-      currentHighVal   = 0.0;
-      currentLowVal    = 0.0;
-      lastCrossUpIdx   = -1;
-      lastCrossDownIdx = -1;
-      lastBarTime0     = 0;
-
+      currentHighVal    = 0.0;
+      currentLowVal     = 0.0;
+      lastCrossUpTime   = 0;
+      lastCrossDownTime = 0;
+      savedShortPeriod  = EMAShortPeriod;
+      savedLongPeriod   = EMALongPeriod;
       ObjectDelete(0, "TLS_HighLine");
       ObjectDelete(0, "TLS_LowLine");
-      
-      savedShortPeriod = EMAShortPeriod;
-      savedLongPeriod = EMALongPeriod;
-
       ArrayInitialize(CrossDotBuffer, EMPTY_VALUE);
       ArrayInitialize(HighLineData, EMPTY_VALUE);
       ArrayInitialize(LowLineData, EMPTY_VALUE);
@@ -171,142 +174,46 @@ int OnCalculate(const int rates_total,
 
    int validBars = MathMin(copiedShort, copiedLong);
 
-   for(int i = 0; i < validBars && i < rates_total; i++)
+   for(int i = 0; i < validBars; i++)
    {
       ShortMABuffer[i] = tempShort[i];
       LongMABuffer[i]  = tempLong[i];
    }
 
-   int newBars = 1;
-   if(prev_calculated > 0 && !parametersChanged)
+   bool fullRecalc = (prev_calculated == 0 || parametersChanged);
+   int  loopFrom   = fullRecalc
+                     ? MathMin(validBars - 2, rates_total - 2)
+                     : MathMax(1, MathMin(rates_total - prev_calculated + 1, validBars - 2));
+
+   if(fullRecalc)
    {
-      newBars = rates_total - prev_calculated;
-      if(newBars < 1) newBars = 1;
-      if(newBars > rates_total - 2) newBars = rates_total - 2;
-   }
-   else
-   {
-      newBars = rates_total - 2;
-      if(newBars < 1) newBars = 1;
-   }
-
-   // ===== New bar detection =====
-   bool isNewBar = (lastBarTime0 != 0 && time[0] != lastBarTime0);
-   if(isNewBar && prev_calculated > 0 && !parametersChanged)
-   {
-      if(lastCrossUpIdx   >= 0) lastCrossUpIdx++;
-      if(lastCrossDownIdx >= 0) lastCrossDownIdx++;
-   }
-   lastBarTime0 = time[0];
-
-   if(lastCrossUpIdx   >= rates_total) lastCrossUpIdx   = rates_total - 1;
-   if(lastCrossDownIdx >= rates_total) lastCrossDownIdx = rates_total - 1;
-
-   // ===== FULL RECALCULATION =====
-   if(prev_calculated == 0 || parametersChanged)
-   {
-      int loopMax = MathMin(validBars - 2, rates_total - 2);
-
-      for(int i = loopMax; i >= 1; --i)
-      {
-         if(tempShort[i] == EMPTY_VALUE || tempShort[i+1] == EMPTY_VALUE) continue;
-         if(tempLong[i]  == EMPTY_VALUE || tempLong[i+1]  == EMPTY_VALUE) continue;
-
-         bool crossUp   = (tempShort[i] >  tempLong[i]) &&
-                          (tempShort[i+1] <= tempLong[i+1]);
-
-         bool crossDown = (tempShort[i] <  tempLong[i]) &&
-                          (tempShort[i+1] >= tempLong[i+1]);
-
-         if(crossUp || crossDown)
-            CrossDotBuffer[i] = tempShort[i];
-
-         if(crossDown)
-         {
-            lastCrossDownIdx = i;
-            if(lastCrossUpIdx >= 0 && lastCrossUpIdx >= i)
-            {
-               double maxVal = -DBL_MAX;
-               int    maxIdx = -1;
-               for(int k = lastCrossUpIdx; k >= i; --k)
-               {
-                  if(tempShort[k] != EMPTY_VALUE && tempShort[k] > maxVal)
-                  {
-                     maxVal = tempShort[k];
-                     maxIdx = k;
-                  }
-               }
-               if(maxIdx >= 0)
-               {
-                  currentHighVal = maxVal;
-                  DrawOrUpdateLevelLine("TLS_HighLine", time[maxIdx], currentHighVal, clrRed);
-               }
-            }
-         }
-
-         if(crossUp)
-         {
-            lastCrossUpIdx = i;
-            if(lastCrossDownIdx >= 0 && lastCrossDownIdx >= i)
-            {
-               double minVal = DBL_MAX;
-               int    minIdx = -1;
-               for(int k = lastCrossDownIdx; k >= i; --k)
-               {
-                  if(tempShort[k] != EMPTY_VALUE && tempShort[k] < minVal)
-                  {
-                     minVal = tempShort[k];
-                     minIdx = k;
-                  }
-               }
-               if(minIdx >= 0)
-               {
-                  currentLowVal = minVal;
-                  DrawOrUpdateLevelLine("TLS_LowLine", time[minIdx], currentLowVal, clrGreen);
-               }
-            }
-         }
-
-         HighLineData[i] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-         LowLineData[i]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
-      }
-
-      CrossDotBuffer[0] = EMPTY_VALUE;
-      HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-      LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
-      HighLineData[1]   = HighLineData[0];
-      LowLineData[1]    = LowLineData[0];
-
-      return rates_total;
+      ArrayInitialize(CrossDotBuffer, EMPTY_VALUE);
+      ArrayInitialize(HighLineData,   EMPTY_VALUE);
+      ArrayInitialize(LowLineData,    EMPTY_VALUE);
    }
 
-   // ===== INCREMENTAL UPDATE =====
-   int from = MathMin(newBars, rates_total - 2);
-   from = MathMin(from, validBars - 2);
-
-   for(int i = from; i >= 1; --i)
+   // ===== MAIN LOOP =====
+   for(int i = loopFrom; i >= 1; i--)
    {
-      if(tempShort[i] == EMPTY_VALUE || tempShort[i+1] == EMPTY_VALUE) continue;
-      if(tempLong[i]  == EMPTY_VALUE || tempLong[i+1]  == EMPTY_VALUE) continue;
+      if(tempShort[i]   == EMPTY_VALUE || tempShort[i+1] == EMPTY_VALUE) continue;
+      if(tempLong[i]    == EMPTY_VALUE || tempLong[i+1]  == EMPTY_VALUE) continue;
 
-      bool crossUp   = (tempShort[i] >  tempLong[i]) &&
-                       (tempShort[i+1] <= tempLong[i+1]);
-
-      bool crossDown = (tempShort[i] <  tempLong[i]) &&
-                       (tempShort[i+1] >= tempLong[i+1]);
+      bool crossUp   = (tempShort[i] >  tempLong[i]) && (tempShort[i+1] <= tempLong[i+1]);
+      bool crossDown = (tempShort[i] <  tempLong[i]) && (tempShort[i+1] >= tempLong[i+1]);
 
       if(crossUp || crossDown)
          CrossDotBuffer[i] = tempShort[i];
 
       if(crossDown)
       {
-         lastCrossDownIdx = i;
+         lastCrossDownTime = time[i];
 
-         if(lastCrossUpIdx >= 0 && lastCrossUpIdx >= i)
+         int upShift = GetShiftByTime(time, lastCrossUpTime, rates_total);
+         if(lastCrossUpTime != 0 && upShift >= 0 && upShift >= i)
          {
             double maxVal = -DBL_MAX;
             int    maxIdx = -1;
-            for(int k = lastCrossUpIdx; k >= i && k >= 0; --k)
+            for(int k = upShift; k >= i; k--)
             {
                if(k < validBars && tempShort[k] != EMPTY_VALUE && tempShort[k] > maxVal)
                {
@@ -324,13 +231,14 @@ int OnCalculate(const int rates_total,
 
       if(crossUp)
       {
-         lastCrossUpIdx = i;
+         lastCrossUpTime = time[i];
 
-         if(lastCrossDownIdx >= 0 && lastCrossDownIdx >= i)
+         int downShift = GetShiftByTime(time, lastCrossDownTime, rates_total);
+         if(lastCrossDownTime != 0 && downShift >= 0 && downShift >= i)
          {
             double minVal = DBL_MAX;
             int    minIdx = -1;
-            for(int k = lastCrossDownIdx; k >= i && k >= 0; --k)
+            for(int k = downShift; k >= i; k--)
             {
                if(k < validBars && tempShort[k] != EMPTY_VALUE && tempShort[k] < minVal)
                {
@@ -345,19 +253,22 @@ int OnCalculate(const int rates_total,
             }
          }
       }
+
+      HighLineData[i] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
+      LowLineData[i]  = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
    }
 
    CrossDotBuffer[0] = EMPTY_VALUE;
    HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-   LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
+   LowLineData[0]    = HighLineData[0];
    HighLineData[1]   = HighLineData[0];
-   LowLineData[1]    = LowLineData[0];
+   LowLineData[1]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
 
    return rates_total;
 }
 
 //+------------------------------------------------------------------+
-//| Deinit                                                           |
+//| OnDeinit                                                         |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {

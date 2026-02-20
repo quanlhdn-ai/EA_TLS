@@ -866,22 +866,49 @@ bool IndicatorsReady()
 //=========================== INDICATOR READS ===========================
 bool ReadHA(int shift, double &haOpen, double &haHigh, double &haLow, double &haClose, double &haColor)
 {
+   int maxRetry = 5;
    double buf[1];
-   if (CopyBuffer(haHandle, 0, shift, 1, buf) != 1)
-      return false;
-   haOpen = buf[0];
-   if (CopyBuffer(haHandle, 1, shift, 1, buf) != 1)
-      return false;
-   haHigh = buf[0];
-   if (CopyBuffer(haHandle, 2, shift, 1, buf) != 1)
-      return false;
-   haLow = buf[0];
-   if (CopyBuffer(haHandle, 3, shift, 1, buf) != 1)
-      return false;
-   haClose = buf[0];
-   if (CopyBuffer(haHandle, 4, shift, 1, buf) != 1)
-      return false;
-   haColor = buf[0];
+
+   bool isSuccess = false;
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(haHandle, 0, shift, 1, buf) == 1) { haOpen = buf[0]; isSuccess = true; break; }
+      Sleep(50);
+   }
+   if(!isSuccess) return false;
+
+   isSuccess = false;
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(haHandle, 1, shift, 1, buf) == 1) { haHigh = buf[0]; isSuccess = true; break; }
+      Sleep(50);
+   }
+   if(!isSuccess) return false;
+
+   isSuccess = false;
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(haHandle, 2, shift, 1, buf) == 1) { haLow = buf[0]; isSuccess = true; break; }
+      Sleep(50);
+   }
+   if(!isSuccess) return false;
+
+   isSuccess = false;
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(haHandle, 3, shift, 1, buf) == 1) { haClose = buf[0]; isSuccess = true; break; }
+      Sleep(50);
+   }
+   if(!isSuccess) return false;
+
+   isSuccess = false;
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(haHandle, 4, shift, 1, buf) == 1) { haColor = buf[0]; isSuccess = true; break; }
+      Sleep(50);
+   }
+   if(!isSuccess) return false;
+
    return true;
 }
 
@@ -1373,12 +1400,18 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
    dirOut = "None";
    timeOut = 0;
 
-   double dot[1];
+   int maxRetry = 5;
 
-   for (int sh = 1; sh <= lookback; sh++)
+   for(int sh = 1; sh <= lookback; sh++)
    {
-      if (CopyBuffer(emaHandle, 2, sh, 1, dot) != 1)
-         continue;
+      double dot[1];
+      bool isSuccess = false;
+      for(int retry = 0; retry < maxRetry; retry++)
+      {
+         if(CopyBuffer(emaHandle, 2, sh, 1, dot) == 1) { isSuccess = true; break; }
+         Sleep(50);
+      }
+      if(!isSuccess) continue;
 
       double d = dot[0];
       if (d == 0.0 || d == EMPTY_VALUE)
@@ -1389,33 +1422,41 @@ bool FindLatestCross(int lookback, int &shiftOut, double &priceOut, string &dirO
       priceOut = d;
       timeOut = iTime(_Symbol, _Period, sh);
 
-      // Determine direction by EMA short/long at sh and sh+1
       double s1[1], s2[1], l1[1], l2[1];
-      int rs1 = CopyBuffer(emaHandle, 0, sh, 1, s1);
-      int rs2 = CopyBuffer(emaHandle, 0, sh + 1, 1, s2);
-      int rl1 = CopyBuffer(emaHandle, 1, sh, 1, l1);
-      int rl2 = CopyBuffer(emaHandle, 1, sh + 1, 1, l2);
+      bool rs1 = false, rs2 = false, rl1 = false, rl2 = false;
 
-      if (rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
+      for(int retry = 0; retry < maxRetry; retry++)
+      {
+         if(CopyBuffer(emaHandle, 0, sh, 1, s1) == 1) { rs1 = true; break; }
+         Sleep(50);
+      }
+      for(int retry = 0; retry < maxRetry; retry++)
+      {
+         if(CopyBuffer(emaHandle, 0, sh + 1, 1, s2) == 1) { rs2 = true; break; }
+         Sleep(50);
+      }
+      for(int retry = 0; retry < maxRetry; retry++)
+      {
+         if(CopyBuffer(emaHandle, 1, sh,     1, l1) == 1) { rl1 = true; break; }
+         Sleep(50);
+      }
+      for(int retry = 0; retry < maxRetry; retry++)
+      {
+         if(CopyBuffer(emaHandle, 1, sh + 1, 1, l2) == 1) { rl2 = true; break; }
+         Sleep(50);
+      }
+
+      if(!rs1 || !rs2 || !rl1 || !rl2)
       {
          dirOut = "Cross";
          return true;
       }
 
       double short1 = s1[0], short2 = s2[0];
-      double long1 = l1[0], long2 = l2[0];
+      double long1  = l1[0], long2  = l2[0];
 
-      if (short1 > long1 && short2 < long2)
-      {
-         dirOut = "Cross Up";
-         return true;
-      }
-
-      if (short1 < long1 && short2 > long2)
-      {
-         dirOut = "Cross Down";
-         return true;
-      }
+      if(short1 > long1 && short2 < long2) { dirOut = "Cross Up";   return true; }
+      if(short1 < long1 && short2 > long2) { dirOut = "Cross Down"; return true; }
 
       dirOut = "Cross";
       return true;
@@ -1467,8 +1508,16 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
 
    currentCrossTime = iTime(_Symbol, _Period, 1);
 
+   int maxRetry = 5;
+
    double dot1Arr[1];
-   if (CopyBuffer(emaHandle, 2, 1, 1, dot1Arr) != 1)
+   bool isDotCross = false;
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if (CopyBuffer(emaHandle, 2, 1, 1, dot1Arr) == 1) { isDotCross = true; break; }
+      Sleep(50);
+   }
+   if(!isDotCross)
    {
       currentCrossText = "None";
       currentCrossPrice = 0.0;
@@ -1485,14 +1534,31 @@ void GetCrossEventOnClosedBar(bool &crossUp, bool &crossDown, double &eventPrice
    currentCrossPrice = dot1;
    eventPrice = dot1;
 
-   // Read EMA10 (buffer 0) & EMA39 (buffer 1) at bar1 and bar2
    double s1[1], s2[1], l1[1], l2[1];
-   int rs1 = CopyBuffer(emaHandle, 0, 1, 1, s1); // Short MA bar1
-   int rs2 = CopyBuffer(emaHandle, 0, 2, 1, s2); // Short MA bar2
-   int rl1 = CopyBuffer(emaHandle, 1, 1, 1, l1); // Long  MA bar1
-   int rl2 = CopyBuffer(emaHandle, 1, 2, 1, l2); // Long  MA bar2
+   bool rs1 = false, rs2 = false, rl1 = false, rl2 = false;
 
-   if (rs1 != 1 || rs2 != 1 || rl1 != 1 || rl2 != 1)
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(emaHandle, 0, 1, 1, s1) == 1) { rs1 = true; break; }
+      Sleep(50);
+   }
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(emaHandle, 0, 2, 1, s2) == 1) { rs2 = true; break; }
+      Sleep(50);
+   }
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(emaHandle, 1, 1, 1, l1) == 1) { rl1 = true; break; }
+      Sleep(50);
+   }
+   for(int retry = 0; retry < maxRetry; retry++)
+   {
+      if(CopyBuffer(emaHandle, 1, 2, 1, l2) == 1) { rl2 = true; break; }
+      Sleep(50);
+   }
+
+   if(!rs1 || !rs2 || !rl1 || !rl2)
    {
       currentCrossText = "Cross";
       return;
@@ -2285,19 +2351,16 @@ void UpdateChartComment()
       return;
    }
 
-   double hl0Arr[1];
-   hl0Arr[0] = EMPTY_VALUE;
-   double ll0Arr[1];
-   ll0Arr[0] = EMPTY_VALUE;
-
-   bool hasH0 = (CopyBuffer(emaHandle, 3, 0, 1, hl0Arr) == 1 && hl0Arr[0] != EMPTY_VALUE);
-   bool hasL0 = (CopyBuffer(emaHandle, 4, 0, 1, ll0Arr) == 1 && ll0Arr[0] != EMPTY_VALUE);
+   double hl0 = EMPTY_VALUE;
+   double ll0 = EMPTY_VALUE;
+   bool hasH0 = ReadHighLineAtShift(1, hl0);
+   bool hasL0 = ReadLowLineAtShift(1, ll0);
 
    // add range pips on chart comment
    double rangePips = 0.0;
    bool hasRange = (hasH0 && hasL0);
    if (hasRange)
-      rangePips = MathAbs(hl0Arr[0] - ll0Arr[0]) / PipSize();
+      rangePips = MathAbs(hl0 - ll0) / PipSize();
 
    // Broker session (FULLDAY only)
    datetime s = 0, e = 0;
@@ -2382,8 +2445,8 @@ void UpdateChartComment()
    }
 
    // --- Strategy state (always show) ---
-   txt += "HighLine(0)   : " + (hasH0 ? FormatPriceOrNA(hl0Arr[0]) : "N/A") + "\n";
-   txt += "LowLine(0)    : " + (hasL0 ? FormatPriceOrNA(ll0Arr[0]) : "N/A") + "\n";
+   txt += "HighLine(1)   : " + (hasH0 ? FormatPriceOrNA(hl0) : "N/A") + "\n";
+   txt += "LowLine(1)    : " + (hasL0 ? FormatPriceOrNA(ll0) : "N/A") + "\n";
    txt += "RangePips     : " + (hasRange ? DoubleToString(rangePips, 1) : "N/A") +
           " (min=" + DoubleToString(RangeChannelEMA, 1) + ")\n";
 
