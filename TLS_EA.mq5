@@ -36,6 +36,8 @@ input color BearColor = C'242,54,69';
 input int EMAShortPeriod = 10;
 input int EMALongPeriod = 39;
 input ENUM_MA_METHOD EMAMethod = MODE_EMA;
+input int ForceReinitMinutes = 60;
+datetime lastReinitTime = 0;
 
 input int SlippagePoints = 30;
 input long MagicNumber = 8386272000; // Magic number
@@ -861,6 +863,33 @@ bool IndicatorsReady()
     }
 
     return true;
+}
+
+void ForceReinitIndicators()
+{
+   datetime now = TimeCurrent();
+   if(ForceReinitMinutes <= 0) return;
+   if((now - lastReinitTime) < ForceReinitMinutes * 60) return;
+   
+   PrintFormat("[REINIT] Force recreating handles after %d minutes", ForceReinitMinutes);
+   
+   if(haHandle  != INVALID_HANDLE) { IndicatorRelease(haHandle);  haHandle  = INVALID_HANDLE; }
+   if(emaHandle != INVALID_HANDLE) { IndicatorRelease(emaHandle); emaHandle = INVALID_HANDLE; }
+   
+   Sleep(200);
+   
+   haHandle  = iCustom(_Symbol, _Period, HAIndicatorName, BullColor, BearColor);
+   emaHandle = iCustom(_Symbol, _Period, EMAIndicatorName,
+                       EMAShortPeriod, EMALongPeriod, EMAMethod);
+   
+   if(haHandle == INVALID_HANDLE || emaHandle == INVALID_HANDLE)
+   {
+      PrintFormat("[REINIT] FAILED to recreate handles!");
+      return;
+   }
+   
+   lastReinitTime = now;
+   PrintFormat("[REINIT] Done | HA=%d EMA=%d", haHandle, emaHandle);
 }
 
 //=========================== INDICATOR READS ===========================
@@ -2982,6 +3011,7 @@ void OnDeinit(const int reason)
 //=================== TICK ===============================
 void OnTick()
 {
+   ForceReinitIndicators();
    UpdateZoneActivation();
    UpdateSessionDDGate();
    UpdateSessionProfitGate();

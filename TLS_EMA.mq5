@@ -44,23 +44,13 @@ double LowLineData[];
 int handleShort = INVALID_HANDLE;
 int handleLong  = INVALID_HANDLE;
 
-static datetime lastCrossUpTime   = 0;
-static datetime lastCrossDownTime = 0;
 static double   currentHighVal    = 0.0;
 static double   currentLowVal     = 0.0;
-static int      savedShortPeriod  = 0;
-static int      savedLongPeriod   = 0;
+static int      lastCrossUpShift   = -1;
+static int      lastCrossDownShift = -1;
+static int      savedShortPeriod   = 0;
+static int      savedLongPeriod    = 0;
 
-int GetShiftByTime(const datetime &time[], datetime t, int total)
-{
-   for(int i = 0; i < total; i++)
-      if(time[i] == t) return i;
-   return -1;
-}
-
-//+------------------------------------------------------------------+
-//| Draw/update level line                                           |
-//+------------------------------------------------------------------+
 void DrawOrUpdateLevelLine(const string name, const datetime timeStart, const double price, const color clr)
 {
    if(ObjectFind(0, name) < 0)
@@ -118,8 +108,8 @@ int OnInit()
 
    currentHighVal    = 0.0;
    currentLowVal     = 0.0;
-   lastCrossUpTime   = 0;
-   lastCrossDownTime = 0;
+   lastCrossUpShift   = -1;
+   lastCrossDownShift = -1;
    savedShortPeriod  = EMAShortPeriod;
    savedLongPeriod   = EMALongPeriod;
 
@@ -151,8 +141,8 @@ int OnCalculate(const int rates_total,
    {
       currentHighVal    = 0.0;
       currentLowVal     = 0.0;
-      lastCrossUpTime   = 0;
-      lastCrossDownTime = 0;
+      lastCrossUpShift   = -1;
+      lastCrossDownShift = -1;
       savedShortPeriod  = EMAShortPeriod;
       savedLongPeriod   = EMALongPeriod;
       ObjectDelete(0, "TLS_HighLine");
@@ -187,6 +177,10 @@ int OnCalculate(const int rates_total,
 
    if(fullRecalc)
    {
+      currentHighVal     = 0.0;
+      currentLowVal      = 0.0;
+      lastCrossUpShift   = -1;
+      lastCrossDownShift = -1;
       ArrayInitialize(CrossDotBuffer, EMPTY_VALUE);
       ArrayInitialize(HighLineData,   EMPTY_VALUE);
       ArrayInitialize(LowLineData,    EMPTY_VALUE);
@@ -206,14 +200,11 @@ int OnCalculate(const int rates_total,
 
       if(crossDown)
       {
-         lastCrossDownTime = time[i];
-
-         int upShift = GetShiftByTime(time, lastCrossUpTime, rates_total);
-         if(lastCrossUpTime != 0 && upShift >= 0 && upShift >= i)
+         if(lastCrossUpShift > i && lastCrossUpShift >= 0)
          {
             double maxVal = -DBL_MAX;
             int    maxIdx = -1;
-            for(int k = upShift; k >= i; k--)
+            for(int k = lastCrossUpShift; k >= i; k--)
             {
                if(k < validBars && tempShort[k] != EMPTY_VALUE && tempShort[k] > maxVal)
                {
@@ -227,18 +218,16 @@ int OnCalculate(const int rates_total,
                DrawOrUpdateLevelLine("TLS_HighLine", time[maxIdx], currentHighVal, clrRed);
             }
          }
+         lastCrossDownShift = i;
       }
 
       if(crossUp)
       {
-         lastCrossUpTime = time[i];
-
-         int downShift = GetShiftByTime(time, lastCrossDownTime, rates_total);
-         if(lastCrossDownTime != 0 && downShift >= 0 && downShift >= i)
+         if(lastCrossDownShift > i && lastCrossDownShift >= 0)
          {
             double minVal = DBL_MAX;
             int    minIdx = -1;
-            for(int k = downShift; k >= i; k--)
+            for(int k = lastCrossDownShift; k >= i; k--)
             {
                if(k < validBars && tempShort[k] != EMPTY_VALUE && tempShort[k] < minVal)
                {
@@ -252,6 +241,7 @@ int OnCalculate(const int rates_total,
                DrawOrUpdateLevelLine("TLS_LowLine", time[minIdx], currentLowVal, clrGreen);
             }
          }
+         lastCrossUpShift = i;
       }
 
       HighLineData[i] = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
@@ -260,16 +250,13 @@ int OnCalculate(const int rates_total,
 
    CrossDotBuffer[0] = EMPTY_VALUE;
    HighLineData[0]   = (currentHighVal != 0.0) ? currentHighVal : EMPTY_VALUE;
-   LowLineData[0]    = HighLineData[0];
+   LowLineData[0]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
    HighLineData[1]   = HighLineData[0];
-   LowLineData[1]    = (currentLowVal  != 0.0) ? currentLowVal  : EMPTY_VALUE;
+   LowLineData[1]    = LowLineData[0];
 
    return rates_total;
 }
 
-//+------------------------------------------------------------------+
-//| OnDeinit                                                         |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
    ObjectDelete(0, "TLS_HighLine");
