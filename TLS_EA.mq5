@@ -43,7 +43,7 @@ input string TG_ChatID = "YOUR_CHAT_ID";
 input bool TG_IncludeManual = false;
 
 // IFVG Indicator
-input string IFVGIndicatorName = "IFVG";
+input string IFVGIndicatorName = "TLS_iFVG";
 input int IFVGLookback = 300;
 input color IFVGBuyColor = C'13,186,186';
 input color IFVGSellColor = C'220,50,50';
