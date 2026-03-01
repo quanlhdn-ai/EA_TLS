@@ -56,11 +56,6 @@ input bool IsShowChartComment = true;
 
 // DD tracking
 input double DailyDD_Percent = 3.0;
-datetime sessionStartTime    = 0;
-double   sessionStartBalance = 0.0;
-double   sessionLossLimit    = 0.0;
-bool     ddBlocked           = false;
-double   lastSessionRealizedPnL = 0.0;
 
 // Risk
 input double RiskUSDPerTrade = 100.0; // Risk per trade in USD
@@ -101,6 +96,19 @@ input double SellZone9 = 0.0;
 input double SellZone10 = 0.0;
 
 //=========================== GLOBALS ================================
+datetime sessionStartTime    = 0;
+double   sessionStartBalance = 0.0;
+double   sessionLossLimit    = 0.0;
+bool     ddBlocked           = false;
+double   lastSessionRealizedPnL = 0.0;
+
+bool     buyZoneActivated      = false;
+bool     sellZoneActivated     = false;
+datetime lastBuyZoneHitTime    = 0;
+double   lastBuyZoneHitPrice   = 0.0;
+datetime lastSellZoneHitTime   = 0;
+double   lastSellZoneHitPrice  = 0.0;
+
 int ifvgHandle = INVALID_HANDLE;
 
 double buyZones[];
@@ -180,6 +188,82 @@ bool IsNewBar()
 string SideText(bool isBuy) { return isBuy ? "BUY" : "SELL"; }
 
 //=========================== ZONE USED FILE =========================
+bool FindNearestZoneHit(bool isBuy, double &zoneOut, int &zoneIndexOut)
+{
+   zoneOut      = 0.0;
+   zoneIndexOut = -1;
+
+   double currentPrice = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_BID)
+                                : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   int    total      = isBuy ? totalBuyZones  : totalSellZones;
+   double pip        = PipSize();
+   double threshold  = ZoneActivationPips * pip;
+
+   double minDistance = DBL_MAX;
+   int    nearestIdx  = -1;
+   double nearestZone = 0.0;
+
+   for(int i = 0; i < total; i++)
+   {
+      if(isBuy  && buyZonesUsed[i])  continue;
+      if(!isBuy && sellZonesUsed[i]) continue;
+
+      double zonePrice = isBuy ? buyZones[i] : sellZones[i];
+      double distance  = MathAbs(currentPrice - zonePrice);
+
+      if(distance <= threshold && distance < minDistance)
+      {
+         minDistance  = distance;
+         nearestZone  = zonePrice;
+         nearestIdx   = i;
+      }
+   }
+
+   if(nearestIdx >= 0)
+   {
+      zoneOut      = nearestZone;
+      zoneIndexOut = nearestIdx;
+      return true;
+   }
+   return false;
+}
+
+void UpdateZoneActivation()
+{
+   datetime now = TimeCurrent();
+
+   // BUY zone
+   if(!buyZoneActivated)
+   {
+      double zonePrice = 0.0;
+      int    zoneIdx   = -1;
+      if(FindNearestZoneHit(true, zonePrice, zoneIdx))
+      {
+         buyZoneActivated   = true;
+         lastBuyZoneHitPrice = zonePrice;
+         lastBuyZoneHitTime  = now;
+         PrintFormat("[ZONE][BUY] ACTIVATED | Zone=%.*f Idx=%d",
+                     _Digits, zonePrice, zoneIdx);
+      }
+   }
+
+   // SELL zone
+   if(!sellZoneActivated)
+   {
+      double zonePrice = 0.0;
+      int    zoneIdx   = -1;
+      if(FindNearestZoneHit(false, zonePrice, zoneIdx))
+      {
+         sellZoneActivated   = true;
+         lastSellZoneHitPrice = zonePrice;
+         lastSellZoneHitTime  = now;
+         PrintFormat("[ZONE][SELL] ACTIVATED | Zone=%.*f Idx=%d",
+                     _Digits, zonePrice, zoneIdx);
+      }
+   }
+}
+
 void LoadZoneUsedFromFile()
 {
    ArrayResize(usedZones, 0);
@@ -247,6 +331,20 @@ void MarkZoneUsed(bool isBuy, double zonePrice)
       SaveZoneUsedToFile();
 
       PrintFormat("[ZONE] %s zone MARKED USED: %.*f", SideText(isBuy), _Digits, zonePrice);
+
+      if(isBuy)
+      {
+         buyZoneActivated    = false;
+         lastBuyZoneHitPrice = 0.0;
+         PrintFormat("[ZONE] BUY activation reset → waiting for next zone");
+      }
+      else
+      {
+         sellZoneActivated    = false;
+         lastSellZoneHitPrice = 0.0;
+         PrintFormat("[ZONE] SELL activation reset → waiting for next zone");
+      }
+
       break;
    }
 }
@@ -572,71 +670,146 @@ bool ExecuteEntry(bool isBuy, int zoneIdx)
 //=========================== IFVG SIGNAL CHECK ======================
 // Called on new bar. Reads IFVG buffers at bar 1 (just closed).
 // Buffer 0 = BuyTop, 1 = BuyBot, 2 = SellTop, 3 = SellBot
+
 void CheckIFVGSignals()
 {
-   if (ifvgHandle == INVALID_HANDLE)
-      return;
+   if(ifvgHandle == INVALID_HANDLE) return;
+
+   int scanBars = MathMin(IFVGLookback, Bars(_Symbol, _Period) - 1);
+   if(scanBars <= 0) return;
 
    double buyTop[], buyBot[], sellTop[], sellBot[];
-   if (CopyBuffer(ifvgHandle, 0, 1, scanBarsOnSignalCheck, buyTop) != scanBarsOnSignalCheck)
-      return;
-   if (CopyBuffer(ifvgHandle, 1, 1, scanBarsOnSignalCheck, buyBot) != scanBarsOnSignalCheck)
-      return;
-   if (CopyBuffer(ifvgHandle, 2, 1, scanBarsOnSignalCheck, sellTop) != scanBarsOnSignalCheck)
-      return;
-   if (CopyBuffer(ifvgHandle, 3, 1, scanBarsOnSignalCheck, sellBot) != scanBarsOnSignalCheck)
-      return;
+   if(CopyBuffer(ifvgHandle, 0, 1, scanBars, buyTop)  != scanBars) { PrintFormat("[IFVG][WARN] CopyBuffer buf0 failed"); return; }
+   if(CopyBuffer(ifvgHandle, 1, 1, scanBars, buyBot)  != scanBars) { PrintFormat("[IFVG][WARN] CopyBuffer buf1 failed"); return; }
+   if(CopyBuffer(ifvgHandle, 2, 1, scanBars, sellTop) != scanBars) { PrintFormat("[IFVG][WARN] CopyBuffer buf2 failed"); return; }
+   if(CopyBuffer(ifvgHandle, 3, 1, scanBars, sellBot) != scanBars) { PrintFormat("[IFVG][WARN] CopyBuffer buf3 failed"); return; }
 
-   // BUY
-   for (int i = 0; i < scanBarsOnSignalCheck; i++)
+   // ===== BUY =====
+   PrintFormat("[IFVG][BUY] ZoneActive=%s | lastBuyZoneHitPrice=%.*f | lastBuySignalTime=%s",
+               buyZoneActivated ? "YES" : "NO",
+               _Digits, lastBuyZoneHitPrice,
+               TimeToString(lastBuySignalTime, TIME_DATE|TIME_MINUTES));
+
+   if(buyZoneActivated)
    {
-      datetime barTime = iTime(_Symbol, _Period, i + 1);
-      if (buyTop[i] <= 0 || buyTop[i] == EMPTY_VALUE)
-         continue;
-      if (barTime == lastBuySignalTime)
-         continue;
-
-      double midpoint = (buyTop[i] + buyBot[i]) / 2.0;
-      int zoneIdx = FindZoneForPrice(true, midpoint);
-
-      PrintFormat("[IFVG][BUY] bar=%d | Top=%.*f Bot=%.*f Mid=%.*f ZoneIdx=%d",
-                  i + 1, _Digits, buyTop[i], _Digits, buyBot[i], _Digits, midpoint, zoneIdx);
-
-      if (zoneIdx >= 0)
+      int zoneIdx = -1;
+      for(int z = 0; z < totalBuyZones; z++)
       {
-         lastBuySignalTime = barTime;
-         ExecuteEntry(true, zoneIdx);
-         break;
+         PrintFormat("[IFVG][BUY] checking zone[%d]=%.*f used=%s | diff=%.*f threshold=0.1",
+                     z, _Digits, buyZones[z], buyZonesUsed[z] ? "YES" : "NO",
+                     _Digits, MathAbs(buyZones[z] - lastBuyZoneHitPrice));
+         if(!buyZonesUsed[z] && MathAbs(buyZones[z] - lastBuyZoneHitPrice) < 0.1)
+         { zoneIdx = z; break; }
+      }
+
+      if(zoneIdx < 0)
+      {
+         PrintFormat("[IFVG][BUY] SKIP: zoneIdx not found | lastBuyZoneHitPrice=%.*f",
+                     _Digits, lastBuyZoneHitPrice);
+      }
+      else
+      {
+         PrintFormat("[IFVG][BUY] zoneIdx=%d | scanning %d bars for IFVG signal", zoneIdx, scanBars);
+         int validCount = 0;
+         for(int i = 0; i < scanBars; i++)
+         {
+            if(MathIsValidNumber(buyTop[i]) && buyTop[i] > 0 && buyTop[i] < 1e10)
+            {
+               validCount++;
+               PrintFormat("[IFVG][BUY][VALID] bar=%d time=%s Top=%.*f Bot=%.*f",
+                           i+1, TimeToString(iTime(_Symbol, _Period, i+1), TIME_DATE|TIME_MINUTES),
+                           _Digits, buyTop[i], _Digits, buyBot[i]);
+            }
+         }
+         PrintFormat("[IFVG][BUY] Valid signals in buffer: %d / %d bars", validCount, scanBars);
+
+         bool foundSignal = false;
+         for(int i = 0; i < scanBars; i++)
+         {
+            datetime barTime = iTime(_Symbol, _Period, i + 1);
+
+            if(!MathIsValidNumber(buyTop[i]) || buyTop[i] <= 0 || buyTop[i] >= 1e10)
+               continue; 
+               
+            if(barTime == lastBuySignalTime)
+            {
+               PrintFormat("[IFVG][BUY] bar=%d SKIP: already fired | barTime=%s",
+                           i+1, TimeToString(barTime, TIME_DATE|TIME_MINUTES));
+               continue;
+            }
+
+            PrintFormat("[IFVG][BUY] bar=%d PASS → ExecuteEntry | barTime=%s Top=%.*f Bot=%.*f",
+                        i+1, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
+                        _Digits, buyTop[i], _Digits, buyBot[i]);
+            lastBuySignalTime = barTime;
+            ExecuteEntry(true, zoneIdx);
+            foundSignal = true;
+            break;
+         }
+         if(!foundSignal)
+            PrintFormat("[IFVG][BUY] No valid IFVG signal found in %d bars", scanBars);
       }
    }
 
-   // SELL
-   for (int i = 0; i < scanBarsOnSignalCheck; i++)
+   // ===== SELL =====
+   PrintFormat("[IFVG][SELL] ZoneActive=%s | lastSellZoneHitPrice=%.*f | lastSellSignalTime=%s",
+               sellZoneActivated ? "YES" : "NO",
+               _Digits, lastSellZoneHitPrice,
+               TimeToString(lastSellSignalTime, TIME_DATE|TIME_MINUTES));
+
+   if(sellZoneActivated)
    {
-      datetime barTime = iTime(_Symbol, _Period, i + 1);
-      if (sellTop[i] <= 0 || sellTop[i] == EMPTY_VALUE)
-         continue;
-      if (barTime == lastSellSignalTime)
-         continue;
-
-      double midpoint = (sellTop[i] + sellBot[i]) / 2.0;
-      int zoneIdx = FindZoneForPrice(false, midpoint);
-
-      PrintFormat("[IFVG][SELL] bar=%d | Top=%.*f Bot=%.*f Mid=%.*f ZoneIdx=%d",
-                  i + 1, _Digits, sellTop[i], _Digits, sellBot[i], _Digits, midpoint, zoneIdx);
-
-      if (zoneIdx >= 0)
+      int zoneIdx = -1;
+      for(int z = 0; z < totalSellZones; z++)
       {
-         lastSellSignalTime = barTime;
-         ExecuteEntry(false, zoneIdx);
-         break;
+         PrintFormat("[IFVG][SELL] checking zone[%d]=%.*f used=%s | diff=%.*f threshold=0.1",
+                     z, _Digits, sellZones[z], sellZonesUsed[z] ? "YES" : "NO",
+                     _Digits, MathAbs(sellZones[z] - lastSellZoneHitPrice));
+         if(!sellZonesUsed[z] && MathAbs(sellZones[z] - lastSellZoneHitPrice) < 0.1)
+         { zoneIdx = z; break; }
+      }
+
+      if(zoneIdx < 0)
+      {
+         PrintFormat("[IFVG][SELL] SKIP: zoneIdx not found | lastSellZoneHitPrice=%.*f",
+                     _Digits, lastSellZoneHitPrice);
+      }
+      else
+      {
+         PrintFormat("[IFVG][SELL] zoneIdx=%d | scanning %d bars for IFVG signal", zoneIdx, scanBars);
+         bool foundSignal = false;
+         for(int i = 0; i < scanBars; i++)
+         {
+            datetime barTime = iTime(_Symbol, _Period, i + 1);
+
+            if(!MathIsValidNumber(sellTop[i]) || sellTop[i] <= 0 || sellTop[i] >= 1e10)
+               continue;
+
+            if(barTime == lastSellSignalTime)
+            {
+               PrintFormat("[IFVG][SELL] bar=%d SKIP: already fired | barTime=%s",
+                           i+1, TimeToString(barTime, TIME_DATE|TIME_MINUTES));
+               continue;
+            }
+
+            PrintFormat("[IFVG][SELL] bar=%d PASS → ExecuteEntry | barTime=%s Top=%.*f Bot=%.*f",
+                        i+1, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
+                        _Digits, sellTop[i], _Digits, sellBot[i]);
+            lastSellSignalTime = barTime;
+            ExecuteEntry(false, zoneIdx);
+            foundSignal = true;
+            break;
+         }
+         if(!foundSignal)
+            PrintFormat("[IFVG][SELL] No valid IFVG signal found in %d bars", scanBars);
       }
    }
 }
+
 //=========================== CHART COMMENT ==========================
 void UpdateChartComment()
 {
-   if (!IsShowChartComment)
+   if(!IsShowChartComment)
    {
       Comment("");
       return;
@@ -645,30 +818,53 @@ void UpdateChartComment()
    string txt = "";
    txt += "IFVG Handle  : " + (ifvgHandle != INVALID_HANDLE ? "OK" : "FAIL") + "\n";
    txt += "DD Blocked   : " + (ddBlocked ? "YES" : "NO") + "\n";
-   txt += "PnL (today)  : " + DoubleToString(lastSessionRealizedPnL, 2) + "\n";
+   txt += "PnL (session): " + DoubleToString(lastSessionRealizedPnL, 2) + "\n";
    txt += "DD Limit     : -" + DoubleToString(sessionLossLimit, 2) + "\n";
    txt += "-----------------------------------------\n";
 
+   // Zone activation state
+   txt += "BuyZoneActive : " + (buyZoneActivated  ? "YES" : "NO") + "\n";
+   if(buyZoneActivated && lastBuyZoneHitPrice > 0)
+      txt += "  └─ Zone: " + DoubleToString(lastBuyZoneHitPrice, _Digits) +
+             " @ " + TimeToString(lastBuyZoneHitTime, TIME_MINUTES) + "\n";
+
+   txt += "SellZoneActive: " + (sellZoneActivated ? "YES" : "NO") + "\n";
+   if(sellZoneActivated && lastSellZoneHitPrice > 0)
+      txt += "  └─ Zone: " + DoubleToString(lastSellZoneHitPrice, _Digits) +
+             " @ " + TimeToString(lastSellZoneHitTime, TIME_MINUTES) + "\n";
+
+   txt += "-----------------------------------------\n";
+
+   // Zone list
    double pip = PipSize();
-   for (int i = 0; i < totalBuyZones; i++)
+   for(int i = 0; i < totalBuyZones; i++)
    {
-      string used = buyZonesUsed[i] ? " [USED]" : "";
+      string usedStr   = buyZonesUsed[i] ? " [USED]" : "";
+      string activeStr = (buyZoneActivated &&
+                          MathAbs(buyZones[i] - lastBuyZoneHitPrice) < _Point) ? " <<" : "";
       double zFrom = buyZones[i] - ZoneActivationPips * pip;
-      double zTo = buyZones[i] + ZoneActivationPips * pip;
-      txt += "[BUY  " + IntegerToString(i + 1) + "] " +
+      double zTo   = buyZones[i] + ZoneActivationPips * pip;
+
+      txt += "  [BUY  " + IntegerToString(i + 1) + "] " +
              DoubleToString(buyZones[i], _Digits) +
-             "  [" + DoubleToString(zFrom, _Digits) + " - " + DoubleToString(zTo, _Digits) + "]" +
-             used + "\n";
+             "  [" + DoubleToString(zFrom, _Digits) +
+             " - " + DoubleToString(zTo,   _Digits) + "]" +
+             usedStr + activeStr + "\n";
    }
-   for (int i = 0; i < totalSellZones; i++)
+
+   for(int i = 0; i < totalSellZones; i++)
    {
-      string used = sellZonesUsed[i] ? " [USED]" : "";
+      string usedStr   = sellZonesUsed[i] ? " [USED]" : "";
+      string activeStr = (sellZoneActivated &&
+                          MathAbs(sellZones[i] - lastSellZoneHitPrice) < _Point) ? " <<" : "";
       double zFrom = sellZones[i] - ZoneActivationPips * pip;
-      double zTo = sellZones[i] + ZoneActivationPips * pip;
-      txt += "[SELL " + IntegerToString(i + 1) + "] " +
+      double zTo   = sellZones[i] + ZoneActivationPips * pip;
+
+      txt += "  [SELL " + IntegerToString(i + 1) + "] " +
              DoubleToString(sellZones[i], _Digits) +
-             "  [" + DoubleToString(zFrom, _Digits) + " - " + DoubleToString(zTo, _Digits) + "]" +
-             used + "\n";
+             "  [" + DoubleToString(zFrom, _Digits) +
+             " - " + DoubleToString(zTo,   _Digits) + "]" +
+             usedStr + activeStr + "\n";
    }
 
    Comment(txt);
@@ -846,6 +1042,11 @@ int OnInit()
    lastBuySignalTime = iTime(_Symbol, _Period, 1);
    lastSellSignalTime = iTime(_Symbol, _Period, 1);
 
+   buyZoneActivated    = false;
+   sellZoneActivated   = false;
+   lastBuyZoneHitPrice = 0.0;
+   lastSellZoneHitPrice = 0.0;
+
    return INIT_SUCCEEDED;
 }
 
@@ -861,7 +1062,7 @@ void OnDeinit(const int reason)
 void OnTick()
 {
    ManageBreakEven();
-   
+   UpdateZoneActivation();
    if (!IsNewBar())
    return;
    UpdateSessionDDGate();

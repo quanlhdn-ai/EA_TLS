@@ -1,9 +1,3 @@
-//+------------------------------------------------------------------+
-//|                                                       IFVG.mq5  |
-//|              Inversion Fair Value Gap  –  BUY & SELL Zones      |
-//|                                          v4.00                  |
-//+------------------------------------------------------------------+
-//
 //  THEORY
 //  ──────
 //  FVG = 3-candle pattern
@@ -53,11 +47,11 @@ double BufSellTop[];
 double BufSellBot[];
 
 //--- Inputs
-input int InpLookback = 300;            // Lookback bars
-input color InpBuyColor = C'13,186,186'; // BUY  zone color (teal)
-input color InpSellColor = C'220,50,50'; // SELL zone color (red)
-input int InpAlpha = 55;            // Fill opacity 0-255
-input int InpExtendBars = 30;             // Bars to extend a live zone right
+input int InpLookback = 300;
+input color InpBuyColor = C'13,186,186';
+input color InpSellColor = C'220,50,50';
+input int InpAlpha = 55;
+input int InpExtendBars = 30;
 
 #define PFX "IFVG4_"
 
@@ -69,12 +63,12 @@ enum ZONE_TYPE
 
 struct Zone
 {
-   int c2;        // middle bar index of original FVG
-   double top;    // upper price edge
-   double bottom; // lower price edge
-   int inv_bar;   // bar that invalidated the FVG (-1 = not yet)
-   bool alive;    // false = zone killed
-   bool drawn;    // true once chart object created
+   int c2;
+   double top;
+   double bottom;
+   int inv_bar;
+   bool alive;
+   bool drawn;
    ZONE_TYPE ztype;
 };
 
@@ -89,10 +83,15 @@ int OnInit()
    SetIndexBuffer(2, BufSellTop, INDICATOR_DATA);
    SetIndexBuffer(3, BufSellBot, INDICATOR_DATA);
 
-   ArraySetAsSeries(BufBuyTop, true);
-   ArraySetAsSeries(BufBuyBot, true);
-   ArraySetAsSeries(BufSellTop, true);
-   ArraySetAsSeries(BufSellBot, true);
+   ArraySetAsSeries(BufBuyTop, false);
+   ArraySetAsSeries(BufBuyBot, false);
+   ArraySetAsSeries(BufSellTop, false);
+   ArraySetAsSeries(BufSellBot, false);
+
+   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
    ChartClean();
    g_count = 0;
@@ -117,7 +116,8 @@ int OnCalculate(const int rates_total,
    if (rates_total < 5)
       return 0;
 
-   for (int i = 0; i < rates_total; i++)
+   int resetFrom = (prev_calculated > 1) ? prev_calculated - 1 : 0;
+   for (int i = resetFrom; i < rates_total; i++)
    {
       BufBuyTop[i] = EMPTY_VALUE;
       BufBuyBot[i] = EMPTY_VALUE;
@@ -135,15 +135,11 @@ int OnCalculate(const int rates_total,
    int from = MathMax(1, rates_total - InpLookback);
 
    // ================================================================
-   // PASS 1 – Detect new FVGs and register them
-   //   c1 = i-1 | c2 = i | c3 = i+1
-   //   Loop to rates_total-2 so c3 is always a valid index
+   // PASS 1 – Detect new FVGs
    // ================================================================
    for (int i = from; i <= rates_total - 2; i++)
    {
-      int c1 = i - 1;
-      int c2 = i;
-      int c3 = i + 1;
+      int c1 = i - 1, c2 = i, c3 = i + 1;
 
       //--- Bearish FVG → future BULLISH IFVG
       //    Condition: gap between c1 low and c3 high
@@ -220,13 +216,12 @@ int OnCalculate(const int rates_total,
    }
 
    // ================================================================
-   // PASS 3 – Draw newly alive zones starting at time[inv_bar]
+   // PASS 3 – Draw newly alive zones
    // ================================================================
    for (int k = 0; k < g_count; k++)
    {
       if (!g_zones[k].alive || g_zones[k].drawn)
          continue;
-
       int inv = g_zones[k].inv_bar;
       if (inv < 0 || inv >= rates_total)
          continue;
@@ -288,7 +283,7 @@ int OnCalculate(const int rates_total,
    }
 
    // ================================================================
-   // PASS 5 – Extend alive zones to current bar + InpExtendBars
+   // PASS 5 – Fill buffers cho alive zones
    // ================================================================
    datetime t_right = time[rates_total - 1] + (datetime)(PeriodSeconds() * InpExtendBars);
 
@@ -296,13 +291,9 @@ int OnCalculate(const int rates_total,
    {
       if (!g_zones[k].alive || !g_zones[k].drawn)
          continue;
-
       int inv = g_zones[k].inv_bar;
       if (inv < 0)
          continue;
-
-      for (int bar = 0; bar <= inv; bar++)
-         continue; // ignore history before inv
 
       // Fill from inv_bar to current bar
       for (int bar = inv; bar < rates_total; bar++)
@@ -326,12 +317,21 @@ int OnCalculate(const int rates_total,
          ObjectSetInteger(0, rn, OBJPROP_TIME, 1, t_right);
    }
 
+   int filledBuy = 0, filledSell = 0;
+   for (int i = 0; i < rates_total; i++)
+   {
+      if (BufBuyTop[i] != EMPTY_VALUE)
+         filledBuy++;
+      if (BufSellTop[i] != EMPTY_VALUE)
+         filledSell++;
+   }
+   PrintFormat("[IFVG] rates=%d prev=%d zones=%d filledBuy=%d filledSell=%d",
+               rates_total, prev_calculated, g_count, filledBuy, filledSell);
+
    ChartRedraw(0);
    return rates_total;
 }
 
-//+------------------------------------------------------------------+
-//  HELPERS
 //+------------------------------------------------------------------+
 int ZoneByC2(int c2, ZONE_TYPE zt)
 {
@@ -357,11 +357,9 @@ void TrimZone(int k, datetime t_kill)
 {
    string rn = ZoneRectName(k);
    if (ObjectFind(0, rn) >= 0)
-      ObjectSetInteger(0, rn, OBJPROP_TIME, 1,
-                       (long)t_kill + PeriodSeconds());
+      ObjectSetInteger(0, rn, OBJPROP_TIME, 1, (long)t_kill + PeriodSeconds());
 }
 
-//+------------------------------------------------------------------+
 void ZoneDraw(int k, datetime t_start, double top, double bot, color zc)
 {
    string rn = ZoneRectName(k);
@@ -393,29 +391,22 @@ void ZoneDraw(int k, datetime t_start, double top, double bot, color zc)
    ObjectSetInteger(0, tn, OBJPROP_HIDDEN, true);
 }
 
-//+------------------------------------------------------------------+
 color ColorBlend(color clr, int alpha)
 {
    color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
-
    int fg_r = (int)((clr >> 16) & 0xFF);
    int fg_g = (int)((clr >> 8) & 0xFF);
    int fg_b = (int)(clr & 0xFF);
-
    int bg_r = (int)((bg >> 16) & 0xFF);
    int bg_g = (int)((bg >> 8) & 0xFF);
    int bg_b = (int)(bg & 0xFF);
-
    int a = MathMax(0, MathMin(255, alpha));
-
    int r = fg_r * a / 255 + bg_r * (255 - a) / 255;
    int g = fg_g * a / 255 + bg_g * (255 - a) / 255;
    int b = fg_b * a / 255 + bg_b * (255 - a) / 255;
-
    return (color)(MathMin(r, 255) << 16 | MathMin(g, 255) << 8 | MathMin(b, 255));
 }
 
-//+------------------------------------------------------------------+
 void ChartClean()
 {
    for (int i = ObjectsTotal(0, 0, -1) - 1; i >= 0; i--)
