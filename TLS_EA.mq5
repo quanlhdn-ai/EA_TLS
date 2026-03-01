@@ -49,7 +49,6 @@ input color IFVGBuyColor = C'13,186,186';
 input color IFVGSellColor = C'220,50,50';
 input int IFVGAlpha = 55;
 input int IFVGExtendBars = 30;
-input int scanBarsOnSignalCheck = 5;
 
 // Display
 input bool IsShowChartComment = true;
@@ -238,6 +237,34 @@ void UpdateZoneActivation()
 {
    datetime now = TimeCurrent();
 
+   if (buyZoneActivated)
+   {
+      double pip = PipSize();
+      double threshold = ZoneActivationPips * pip;
+      double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if (MathAbs(currentPrice - lastBuyZoneHitPrice) > threshold)
+      {
+         buyZoneActivated = false;
+         lastBuyZoneHitPrice = 0.0;
+         buyZoneActivatedTime = 0;
+         PrintFormat("[ZONE][BUY] DEACTIVATED: price left zone");
+      }
+   }
+
+   if (sellZoneActivated)
+   {
+      double pip = PipSize();
+      double threshold = ZoneActivationPips * pip;
+      double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if (MathAbs(currentPrice - lastSellZoneHitPrice) > threshold)
+      {
+         sellZoneActivated = false;
+         lastSellZoneHitPrice = 0.0;
+         sellZoneActivatedTime = 0;
+         PrintFormat("[ZONE][SELL] DEACTIVATED: price left zone");
+      }
+   }
+
    // BUY zone
    if (!buyZoneActivated)
    {
@@ -248,7 +275,7 @@ void UpdateZoneActivation()
          buyZoneActivated = true;
          lastBuyZoneHitPrice = zonePrice;
          lastBuyZoneHitTime = now;
-         buyZoneActivatedTime = now;
+         buyZoneActivatedTime = iTime(_Symbol, _Period, 0);
          PrintFormat("[ZONE][BUY] ACTIVATED | Zone=%.*f Idx=%d",
                      _Digits, zonePrice, zoneIdx);
       }
@@ -264,7 +291,7 @@ void UpdateZoneActivation()
          sellZoneActivated = true;
          lastSellZoneHitPrice = zonePrice;
          lastSellZoneHitTime = now;
-         sellZoneActivatedTime = now;
+         sellZoneActivatedTime = iTime(_Symbol, _Period, 0);
          PrintFormat("[ZONE][SELL] ACTIVATED | Zone=%.*f Idx=%d",
                      _Digits, zonePrice, zoneIdx);
       }
@@ -400,28 +427,6 @@ void LoadPriceZones()
 }
 
 //=========================== ZONE HELPERS ===========================
-// Returns index of zone whose range [center-half, center+half] contains price
-// Returns -1 if none found or already used
-int FindZoneForPrice(bool isBuy, double price)
-{
-   double pip = PipSize();
-   double halfWidth = ZoneActivationPips * pip;
-   int total = isBuy ? totalBuyZones : totalSellZones;
-
-   for (int i = 0; i < total; i++)
-   {
-      if (isBuy && buyZonesUsed[i])
-         continue;
-      if (!isBuy && sellZonesUsed[i])
-         continue;
-
-      double center = isBuy ? buyZones[i] : sellZones[i];
-      if (price >= center - halfWidth && price <= center + halfWidth)
-         return i;
-   }
-   return -1;
-}
-
 double GetZoneBottom(bool isBuy, int idx)
 {
    double pip = PipSize();
@@ -728,9 +733,6 @@ void CheckIFVGSignals()
       int zoneIdx = -1;
       for (int z = 0; z < totalBuyZones; z++)
       {
-         PrintFormat("[IFVG][BUY] checking zone[%d]=%.*f used=%s | diff=%.*f threshold=0.1",
-                     z, _Digits, buyZones[z], buyZonesUsed[z] ? "YES" : "NO",
-                     _Digits, MathAbs(buyZones[z] - lastBuyZoneHitPrice));
          if (!buyZonesUsed[z] && MathAbs(buyZones[z] - lastBuyZoneHitPrice) < 0.1)
          {
             zoneIdx = z;
@@ -752,12 +754,8 @@ void CheckIFVGSignals()
             if (MathIsValidNumber(buyTop[i]) && buyTop[i] > 0 && buyTop[i] < 1e10)
             {
                validCount++;
-               PrintFormat("[IFVG][BUY][VALID] bar=%d time=%s Top=%.*f Bot=%.*f",
-                           i + 1, TimeToString(iTime(_Symbol, _Period, i + 1), TIME_DATE | TIME_MINUTES),
-                           _Digits, buyTop[i], _Digits, buyBot[i]);
             }
          }
-         PrintFormat("[IFVG][BUY] Valid signals in buffer: %d / %d bars", validCount, scanBars);
 
          bool foundSignal = false;
          for (int i = 0; i < scanBars; i++)
@@ -807,9 +805,6 @@ void CheckIFVGSignals()
       int zoneIdx = -1;
       for (int z = 0; z < totalSellZones; z++)
       {
-         PrintFormat("[IFVG][SELL] checking zone[%d]=%.*f used=%s | diff=%.*f threshold=0.1",
-                     z, _Digits, sellZones[z], sellZonesUsed[z] ? "YES" : "NO",
-                     _Digits, MathAbs(sellZones[z] - lastSellZoneHitPrice));
          if (!sellZonesUsed[z] && MathAbs(sellZones[z] - lastSellZoneHitPrice) < 0.1)
          {
             zoneIdx = z;
@@ -1107,6 +1102,8 @@ int OnInit()
    sellZoneActivated = false;
    lastBuyZoneHitPrice = 0.0;
    lastSellZoneHitPrice = 0.0;
+   buyZoneActivatedTime = 0;
+   sellZoneActivatedTime = 0;
 
    return INIT_SUCCEEDED;
 }
