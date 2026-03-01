@@ -26,7 +26,7 @@
 #property strict
 #property indicator_chart_window
 
-#property indicator_buffers 4
+#property indicator_buffers 5
 #property indicator_plots 4
 
 #property indicator_label1 "BuyTop"
@@ -45,6 +45,7 @@ double BufBuyTop[];
 double BufBuyBot[];
 double BufSellTop[];
 double BufSellBot[];
+double BufInvTime[];
 
 //--- Inputs
 input int InpLookback = 300;
@@ -92,6 +93,9 @@ int OnInit()
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
+   SetIndexBuffer(4, BufInvTime, INDICATOR_CALCULATIONS);
+   ArraySetAsSeries(BufInvTime, false);
 
    ChartClean();
    g_count = 0;
@@ -311,6 +315,7 @@ int OnCalculate(const int rates_total,
             BufSellTop[bar] = g_zones[k].top;
             BufSellBot[bar] = g_zones[k].bottom;
          }
+         BufInvTime[bar] = (bar == inv) ? (double)time[inv] : 0.0;
       }
       string rn = ZoneRectName(k);
       if (ObjectFind(0, rn) >= 0)

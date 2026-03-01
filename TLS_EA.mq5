@@ -700,7 +700,7 @@ void CheckIFVGSignals()
    if (scanBars <= 0)
       return;
 
-   double buyTop[], buyBot[], sellTop[], sellBot[];
+   double buyTop[], buyBot[], sellTop[], sellBot[], invTime[];
    if (CopyBuffer(ifvgHandle, 0, 1, scanBars, buyTop) != scanBars)
    {
       PrintFormat("[IFVG][WARN] CopyBuffer buf0 failed");
@@ -719,6 +719,11 @@ void CheckIFVGSignals()
    if (CopyBuffer(ifvgHandle, 3, 1, scanBars, sellBot) != scanBars)
    {
       PrintFormat("[IFVG][WARN] CopyBuffer buf3 failed");
+      return;
+   }
+   if (CopyBuffer(ifvgHandle, 4, 1, scanBars, invTime) != scanBars)
+   {
+      PrintFormat("[IFVG][WARN] CopyBuffer buf4 failed");
       return;
    }
 
@@ -747,23 +752,18 @@ void CheckIFVGSignals()
       }
       else
       {
-         PrintFormat("[IFVG][BUY] zoneIdx=%d | scanning %d bars for IFVG signal", zoneIdx, scanBars);
-         int validCount = 0;
-         for (int i = 0; i < scanBars; i++)
-         {
-            if (MathIsValidNumber(buyTop[i]) && buyTop[i] > 0 && buyTop[i] < 1e10)
-            {
-               validCount++;
-            }
-         }
-
+         PrintFormat("[IFVG][BUY] zoneIdx=%d | scanning %d bars", zoneIdx, scanBars);
          bool foundSignal = false;
+
          for (int i = 0; i < scanBars; i++)
          {
-            datetime barTime = iTime(_Symbol, _Period, i + 1);
-
             if (!MathIsValidNumber(buyTop[i]) || buyTop[i] <= 0 || buyTop[i] >= 1e10)
                continue;
+
+            datetime invBarTime = (datetime)invTime[i];
+            if (invBarTime <= 0)
+               continue;
+            datetime barTime = iTime(_Symbol, _Period, i + 1);
 
             if (barTime == lastBuySignalTime)
             {
@@ -772,17 +772,17 @@ void CheckIFVGSignals()
                continue;
             }
 
-            if (barTime < buyZoneActivatedTime)
+            if (invBarTime < buyZoneActivatedTime)
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP: IFVG too old | barTime=%s activatedTime=%s",
+               PrintFormat("[IFVG][BUY] bar=%d SKIP: inv_bar before activation | invTime=%s activatedTime=%s",
                            i + 1,
-                           TimeToString(barTime, TIME_DATE | TIME_MINUTES),
+                           TimeToString(invBarTime, TIME_DATE | TIME_MINUTES),
                            TimeToString(buyZoneActivatedTime, TIME_DATE | TIME_MINUTES));
                continue;
             }
 
-            PrintFormat("[IFVG][BUY] bar=%d PASS → ExecuteEntry | barTime=%s Top=%.*f Bot=%.*f",
-                        i + 1, TimeToString(barTime, TIME_DATE | TIME_MINUTES),
+            PrintFormat("[IFVG][BUY] bar=%d PASS | invTime=%s Top=%.*f Bot=%.*f",
+                        i + 1, TimeToString(invBarTime, TIME_DATE | TIME_MINUTES),
                         _Digits, buyTop[i], _Digits, buyBot[i]);
             lastBuySignalTime = barTime;
             ExecuteEntry(true, zoneIdx);
@@ -819,14 +819,19 @@ void CheckIFVGSignals()
       }
       else
       {
-         PrintFormat("[IFVG][SELL] zoneIdx=%d | scanning %d bars for IFVG signal", zoneIdx, scanBars);
+         PrintFormat("[IFVG][SELL] zoneIdx=%d | scanning %d bars", zoneIdx, scanBars);
          bool foundSignal = false;
+
          for (int i = 0; i < scanBars; i++)
          {
-            datetime barTime = iTime(_Symbol, _Period, i + 1);
-
             if (!MathIsValidNumber(sellTop[i]) || sellTop[i] <= 0 || sellTop[i] >= 1e10)
                continue;
+
+            datetime invBarTime = (datetime)invTime[i];
+            if (invBarTime <= 0)
+               continue;   
+
+            datetime barTime = iTime(_Symbol, _Period, i + 1);
 
             if (barTime == lastSellSignalTime)
             {
@@ -835,17 +840,17 @@ void CheckIFVGSignals()
                continue;
             }
 
-            if (barTime < sellZoneActivatedTime)
+            if (invBarTime < sellZoneActivatedTime)
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP: IFVG too old | barTime=%s activatedTime=%s",
+               PrintFormat("[IFVG][SELL] bar=%d SKIP: inv_bar before activation | invTime=%s activatedTime=%s",
                            i + 1,
-                           TimeToString(barTime, TIME_DATE | TIME_MINUTES),
+                           TimeToString(invBarTime, TIME_DATE | TIME_MINUTES),
                            TimeToString(sellZoneActivatedTime, TIME_DATE | TIME_MINUTES));
                continue;
             }
 
-            PrintFormat("[IFVG][SELL] bar=%d PASS → ExecuteEntry | barTime=%s Top=%.*f Bot=%.*f",
-                        i + 1, TimeToString(barTime, TIME_DATE | TIME_MINUTES),
+            PrintFormat("[IFVG][SELL] bar=%d PASS | invTime=%s Top=%.*f Bot=%.*f",
+                        i + 1, TimeToString(invBarTime, TIME_DATE | TIME_MINUTES),
                         _Digits, sellTop[i], _Digits, sellBot[i]);
             lastSellSignalTime = barTime;
             ExecuteEntry(false, zoneIdx);
@@ -857,7 +862,6 @@ void CheckIFVGSignals()
       }
    }
 }
-
 //=========================== CHART COMMENT ==========================
 void UpdateChartComment()
 {
