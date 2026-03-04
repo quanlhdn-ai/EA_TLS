@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                                   TLS_IFVG.mq5  |
-//|                    IFVG Zone Entry EA  v2.00                     |
+//|                    IFVG Zone Entry EA  v2.02                     |
 //|                                                                  |
 //|  STRATEGY:                                                       |
 //|  - Read IFVG buffers from IFVG indicator                        |
@@ -8,14 +8,19 @@
 //|    -> BUY NOW at market                                          |
 //|  - If new IFVG SELL appears AND midpoint inside a SELL zone     |
 //|    -> SELL NOW at market                                         |
-//|  - SL (BUY)  = zone_bottom - ZoneSLBufferPips                   |
-//|  - SL (SELL) = zone_top    + ZoneSLBufferPips                   |
+//|  - SL (BUY)  = entry - ZoneSLBufferPips                         |
+//|  - SL (SELL) = entry + ZoneSLBufferPips                         |
 //|  - TP = RiskReward * Risk distance                              |
 //|  - Each price zone fires only once (MarkZoneUsed)               |
 //|  - BE: move SL to entry when profit >= R - BufferPips           |
+//|                                                                  |
+//|  ZONE FLOW:                                                      |
+//|  1. Price enters zone  -> zone activated                         |
+//|  2. Price leaves zone  -> zone STAYS active (waiting for IFVG)  |
+//|  3. Price hits another zone -> old zone marked used, new active |
 //+------------------------------------------------------------------+
 #property copyright "TLS_IFVG EA"
-#property version "1.00"
+#property version "2.02"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -105,8 +110,10 @@ bool buyZoneActivated = false;
 bool sellZoneActivated = false;
 datetime lastBuyZoneHitTime = 0;
 double lastBuyZoneHitPrice = 0.0;
+int lastBuyZoneHitIdx = -1;
 datetime lastSellZoneHitTime = 0;
 double lastSellZoneHitPrice = 0.0;
+int lastSellZoneHitIdx = -1;
 
 datetime buyZoneActivatedTime = 0;
 datetime sellZoneActivatedTime = 0;
@@ -190,114 +197,6 @@ bool IsNewBar()
 string SideText(bool isBuy) { return isBuy ? "BUY" : "SELL"; }
 
 //=========================== ZONE USED FILE =========================
-bool FindNearestZoneHit(bool isBuy, double &zoneOut, int &zoneIndexOut)
-{
-   zoneOut = 0.0;
-   zoneIndexOut = -1;
-
-   double currentPrice = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_BID)
-                               : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-
-   int total = isBuy ? totalBuyZones : totalSellZones;
-   double pip = PipSize();
-   double threshold = ZoneActivationPips * pip;
-
-   double minDistance = DBL_MAX;
-   int nearestIdx = -1;
-   double nearestZone = 0.0;
-
-   for (int i = 0; i < total; i++)
-   {
-      if (isBuy && buyZonesUsed[i])
-         continue;
-      if (!isBuy && sellZonesUsed[i])
-         continue;
-
-      double zonePrice = isBuy ? buyZones[i] : sellZones[i];
-      double distance = MathAbs(currentPrice - zonePrice);
-
-      if (distance <= threshold && distance < minDistance)
-      {
-         minDistance = distance;
-         nearestZone = zonePrice;
-         nearestIdx = i;
-      }
-   }
-
-   if (nearestIdx >= 0)
-   {
-      zoneOut = nearestZone;
-      zoneIndexOut = nearestIdx;
-      return true;
-   }
-   return false;
-}
-
-void UpdateZoneActivation()
-{
-   datetime now = TimeCurrent();
-
-   if (buyZoneActivated)
-   {
-      double pip = PipSize();
-      double threshold = ZoneActivationPips * pip;
-      double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      if (MathAbs(currentPrice - lastBuyZoneHitPrice) > threshold)
-      {
-         buyZoneActivated = false;
-         lastBuyZoneHitPrice = 0.0;
-         buyZoneActivatedTime = 0;
-         PrintFormat("[ZONE][BUY] DEACTIVATED: price left zone");
-      }
-   }
-
-   if (sellZoneActivated)
-   {
-      double pip = PipSize();
-      double threshold = ZoneActivationPips * pip;
-      double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      if (MathAbs(currentPrice - lastSellZoneHitPrice) > threshold)
-      {
-         sellZoneActivated = false;
-         lastSellZoneHitPrice = 0.0;
-         sellZoneActivatedTime = 0;
-         PrintFormat("[ZONE][SELL] DEACTIVATED: price left zone");
-      }
-   }
-
-   // BUY zone
-   if (!buyZoneActivated)
-   {
-      double zonePrice = 0.0;
-      int zoneIdx = -1;
-      if (FindNearestZoneHit(true, zonePrice, zoneIdx))
-      {
-         buyZoneActivated = true;
-         lastBuyZoneHitPrice = zonePrice;
-         lastBuyZoneHitTime = now;
-         buyZoneActivatedTime = iTime(_Symbol, _Period, 0);
-         PrintFormat("[ZONE][BUY] ACTIVATED | Zone=%.*f Idx=%d",
-                     _Digits, zonePrice, zoneIdx);
-      }
-   }
-
-   // SELL zone
-   if (!sellZoneActivated)
-   {
-      double zonePrice = 0.0;
-      int zoneIdx = -1;
-      if (FindNearestZoneHit(false, zonePrice, zoneIdx))
-      {
-         sellZoneActivated = true;
-         lastSellZoneHitPrice = zonePrice;
-         lastSellZoneHitTime = now;
-         sellZoneActivatedTime = iTime(_Symbol, _Period, 0);
-         PrintFormat("[ZONE][SELL] ACTIVATED | Zone=%.*f Idx=%d",
-                     _Digits, zonePrice, zoneIdx);
-      }
-   }
-}
-
 void LoadZoneUsedFromFile()
 {
    ArrayResize(usedZones, 0);
@@ -352,9 +251,30 @@ void MarkZoneUsed(bool isBuy, double zonePrice)
          continue;
 
       if (isBuy)
+      {
          buyZonesUsed[i] = true;
+         // Reset active state if this was the active zone
+         if (lastBuyZoneHitIdx == i)
+         {
+            buyZoneActivated = false;
+            lastBuyZoneHitPrice = 0.0;
+            lastBuyZoneHitIdx = -1;
+            buyZoneActivatedTime = 0;
+            PrintFormat("[ZONE] BUY activation reset → waiting for next zone");
+         }
+      }
       else
+      {
          sellZonesUsed[i] = true;
+         if (lastSellZoneHitIdx == i)
+         {
+            sellZoneActivated = false;
+            lastSellZoneHitPrice = 0.0;
+            lastSellZoneHitIdx = -1;
+            sellZoneActivatedTime = 0;
+            PrintFormat("[ZONE] SELL activation reset → waiting for next zone");
+         }
+      }
 
       ZoneUsedRecord rec;
       rec.isBuy = isBuy;
@@ -365,22 +285,6 @@ void MarkZoneUsed(bool isBuy, double zonePrice)
       SaveZoneUsedToFile();
 
       PrintFormat("[ZONE] %s zone MARKED USED: %.*f", SideText(isBuy), _Digits, zonePrice);
-
-      if (isBuy)
-      {
-         buyZoneActivated = false;
-         lastBuyZoneHitPrice = 0.0;
-         buyZoneActivatedTime = 0;
-         PrintFormat("[ZONE] BUY activation reset → waiting for next zone");
-      }
-      else
-      {
-         sellZoneActivated = false;
-         lastSellZoneHitPrice = 0.0;
-         sellZoneActivatedTime = 0;
-         PrintFormat("[ZONE] SELL activation reset → waiting for next zone");
-      }
-
       break;
    }
 }
@@ -426,19 +330,129 @@ void LoadPriceZones()
    PrintFormat("[ZONE] Loaded %d BUY zones, %d SELL zones", totalBuyZones, totalSellZones);
 }
 
-//=========================== ZONE HELPERS ===========================
-double GetZoneBottom(bool isBuy, int idx)
+//+------------------------------------------------------------------+
+//| UpdateZoneActivation                                             |
+//|  - Zone stays active even after price leaves it                  |
+//|  - If price enters a DIFFERENT zone while one is already active: |
+//|    -> Mark ONLY the previously active zone as used, activate new zone                                      |
+//|  - If price enters the SAME zone again: no change               |
+//+------------------------------------------------------------------+
+void UpdateZoneActivation()
 {
+   datetime now = TimeCurrent();
    double pip = PipSize();
-   double center = isBuy ? buyZones[idx] : sellZones[idx];
-   return center - ZoneActivationPips * pip;
-}
+   double threshold = ZoneActivationPips * pip;
 
-double GetZoneTop(bool isBuy, int idx)
-{
-   double pip = PipSize();
-   double center = isBuy ? buyZones[idx] : sellZones[idx];
-   return center + ZoneActivationPips * pip;
+   // ===== BUY =====
+   {
+      double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+      // Check if price is inside any unused buy zone
+      double nearestZone = 0.0;
+      int nearestIdx = -1;
+      double minDistance = DBL_MAX;
+
+      for (int i = 0; i < totalBuyZones; i++)
+      {
+         if (buyZonesUsed[i])
+            continue;
+         double distance = MathAbs(currentPrice - buyZones[i]);
+         if (distance <= threshold && distance < minDistance)
+         {
+            minDistance = distance;
+            nearestZone = buyZones[i];
+            nearestIdx = i;
+         }
+      }
+
+      if (nearestIdx >= 0)
+      {
+         // Price is inside a zone
+         if (!buyZoneActivated)
+         {
+            // Fresh activation
+            buyZoneActivated = true;
+            lastBuyZoneHitPrice = nearestZone;
+            lastBuyZoneHitIdx = nearestIdx;
+            lastBuyZoneHitTime = now;
+            buyZoneActivatedTime = iTime(_Symbol, _Period, 0);
+            PrintFormat("[ZONE][BUY] ACTIVATED | Zone=%.*f Idx=%d",
+                        _Digits, nearestZone, nearestIdx);
+         }
+         else if (nearestIdx != lastBuyZoneHitIdx)
+         {
+            // Price moved into a DIFFERENT zone
+            // → Mark ONLY the previously active zone as used
+            PrintFormat("[ZONE][BUY] NEW ZONE HIT | Marking prev zone idx=%d used → activating zone idx=%d",
+                        lastBuyZoneHitIdx, nearestIdx);
+
+            MarkZoneUsed(true, buyZones[lastBuyZoneHitIdx]);
+
+            // Activate new zone
+            buyZoneActivated = true;
+            lastBuyZoneHitPrice = nearestZone;
+            lastBuyZoneHitIdx = nearestIdx;
+            lastBuyZoneHitTime = now;
+            buyZoneActivatedTime = iTime(_Symbol, _Period, 0);
+            PrintFormat("[ZONE][BUY] ACTIVATED (new) | Zone=%.*f Idx=%d",
+                        _Digits, nearestZone, nearestIdx);
+         }
+      }
+   }
+
+   // ===== SELL =====
+   {
+      double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+      double nearestZone = 0.0;
+      int nearestIdx = -1;
+      double minDistance = DBL_MAX;
+
+      for (int i = 0; i < totalSellZones; i++)
+      {
+         if (sellZonesUsed[i])
+            continue;
+         double distance = MathAbs(currentPrice - sellZones[i]);
+         if (distance <= threshold && distance < minDistance)
+         {
+            minDistance = distance;
+            nearestZone = sellZones[i];
+            nearestIdx = i;
+         }
+      }
+
+      if (nearestIdx >= 0)
+      {
+         if (!sellZoneActivated)
+         {
+            sellZoneActivated = true;
+            lastSellZoneHitPrice = nearestZone;
+            lastSellZoneHitIdx = nearestIdx;
+            lastSellZoneHitTime = now;
+            sellZoneActivatedTime = iTime(_Symbol, _Period, 0);
+            PrintFormat("[ZONE][SELL] ACTIVATED | Zone=%.*f Idx=%d",
+                        _Digits, nearestZone, nearestIdx);
+         }
+         else if (nearestIdx != lastSellZoneHitIdx)
+         {
+            // Price moved into a DIFFERENT zone
+            // → Mark ONLY the previously active zone as used
+            PrintFormat("[ZONE][SELL] NEW ZONE HIT | Marking prev zone idx=%d used → activating zone idx=%d",
+                        lastSellZoneHitIdx, nearestIdx);
+
+            MarkZoneUsed(false, sellZones[lastSellZoneHitIdx]);
+
+            // Activate new zone
+            sellZoneActivated = true;
+            lastSellZoneHitPrice = nearestZone;
+            lastSellZoneHitIdx = nearestIdx;
+            lastSellZoneHitTime = now;
+            sellZoneActivatedTime = iTime(_Symbol, _Period, 0);
+            PrintFormat("[ZONE][SELL] ACTIVATED (new) | Zone=%.*f Idx=%d",
+                        _Digits, nearestZone, nearestIdx);
+         }
+      }
+   }
 }
 
 //=========================== DD / PROFIT ============================
@@ -477,7 +491,6 @@ bool GetCurrentSymbolSessionWindow(datetime now, datetime &sOut, datetime &eOut)
       if (e0 <= s0)
          e0 += 24 * 60 * 60;
 
-      // overnight session adjustment
       if (now < s0 && (e0 - s0) > 6 * 60 * 60)
       {
          s0 -= 24 * 60 * 60;
@@ -558,8 +571,6 @@ void UpdateSessionDDGate()
 }
 
 //=========================== BREAK EVEN ============================
-// BUY:  when bid - entry >= R - BufferPips  → move SL to entry
-// SELL: when entry - ask >= R - BufferPips  → move SL to entry
 void ManageBreakEven()
 {
    if (!IsAllowBE)
@@ -626,16 +637,15 @@ bool ExecuteEntry(bool isBuy, int zoneIdx)
 
    double pip = PipSize();
 
-   // SL = zone edge + buffer
-   double sl;
-   if (isBuy)
-      sl = NormalizePrice(GetZoneBottom(true, zoneIdx) - ZoneSLBufferPips * pip);
-   else
-      sl = NormalizePrice(GetZoneTop(false, zoneIdx) + ZoneSLBufferPips * pip);
-
    double entry = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                         : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    entry = NormalizePrice(entry);
+
+   double sl;
+   if (isBuy)
+      sl = NormalizePrice(entry - ZoneSLBufferPips * pip);
+   else
+      sl = NormalizePrice(entry + ZoneSLBufferPips * pip);
 
    if (isBuy && sl >= entry)
    {
@@ -672,8 +682,8 @@ bool ExecuteEntry(bool isBuy, int zoneIdx)
    if (ok)
    {
       double filled = trade.ResultPrice();
-      PrintFormat("[ORDER][%s] MARKET | Entry=%.*f Lots=%.2f SL=%.*f TP=%.*f",
-                  SideText(isBuy), _Digits, filled, lots, _Digits, sl, _Digits, tp);
+      PrintFormat("[ORDER][%s] MARKET | Entry=%.*f Lots=%.2f SL=%.*f TP=%.*f (SL=%d pips from entry)",
+                  SideText(isBuy), _Digits, filled, lots, _Digits, sl, _Digits, tp, ZoneSLBufferPips);
 
       double zoneCenter = isBuy ? buyZones[zoneIdx] : sellZones[zoneIdx];
       MarkZoneUsed(isBuy, zoneCenter);
@@ -689,7 +699,7 @@ bool ExecuteEntry(bool isBuy, int zoneIdx)
 
 //=========================== IFVG SIGNAL CHECK ======================
 // Called on new bar. Reads IFVG buffers at bar 1 (just closed).
-// Buffer 0 = BuyTop, 1 = BuyBot, 2 = SellTop, 3 = SellBot
+// Buffer 0 = BuyTop, 1 = BuyBot, 2 = SellTop, 3 = SellBot, 4 = invTime
 
 void CheckIFVGSignals()
 {
@@ -735,20 +745,11 @@ void CheckIFVGSignals()
 
    if (buyZoneActivated)
    {
-      int zoneIdx = -1;
-      for (int z = 0; z < totalBuyZones; z++)
-      {
-         if (!buyZonesUsed[z] && MathAbs(buyZones[z] - lastBuyZoneHitPrice) < 0.1)
-         {
-            zoneIdx = z;
-            break;
-         }
-      }
+      int zoneIdx = lastBuyZoneHitIdx;
 
-      if (zoneIdx < 0)
+      if (zoneIdx < 0 || zoneIdx >= totalBuyZones || buyZonesUsed[zoneIdx])
       {
-         PrintFormat("[IFVG][BUY] SKIP: zoneIdx not found | lastBuyZoneHitPrice=%.*f",
-                     _Digits, lastBuyZoneHitPrice);
+         PrintFormat("[IFVG][BUY] SKIP: zoneIdx invalid or used | zoneIdx=%d", zoneIdx);
       }
       else
       {
@@ -802,20 +803,11 @@ void CheckIFVGSignals()
 
    if (sellZoneActivated)
    {
-      int zoneIdx = -1;
-      for (int z = 0; z < totalSellZones; z++)
-      {
-         if (!sellZonesUsed[z] && MathAbs(sellZones[z] - lastSellZoneHitPrice) < 0.1)
-         {
-            zoneIdx = z;
-            break;
-         }
-      }
+      int zoneIdx = lastSellZoneHitIdx;
 
-      if (zoneIdx < 0)
+      if (zoneIdx < 0 || zoneIdx >= totalSellZones || sellZonesUsed[zoneIdx])
       {
-         PrintFormat("[IFVG][SELL] SKIP: zoneIdx not found | lastSellZoneHitPrice=%.*f",
-                     _Digits, lastSellZoneHitPrice);
+         PrintFormat("[IFVG][SELL] SKIP: zoneIdx invalid or used | zoneIdx=%d", zoneIdx);
       }
       else
       {
@@ -829,7 +821,7 @@ void CheckIFVGSignals()
 
             datetime invBarTime = (datetime)invTime[i];
             if (invBarTime <= 0)
-               continue;   
+               continue;
 
             datetime barTime = iTime(_Symbol, _Period, i + 1);
 
@@ -862,6 +854,7 @@ void CheckIFVGSignals()
       }
    }
 }
+
 //=========================== CHART COMMENT ==========================
 void UpdateChartComment()
 {
@@ -878,28 +871,25 @@ void UpdateChartComment()
    txt += "DD Limit     : -" + DoubleToString(sessionLossLimit, 2) + "\n";
    txt += "-----------------------------------------\n";
 
-   // Zone activation state
    txt += "BuyZoneActive : " + (buyZoneActivated ? "YES" : "NO") + "\n";
    if (buyZoneActivated && lastBuyZoneHitPrice > 0)
       txt += "  └─ Zone: " + DoubleToString(lastBuyZoneHitPrice, _Digits) +
+             " (idx=" + IntegerToString(lastBuyZoneHitIdx) + ")" +
              " @ " + TimeToString(lastBuyZoneHitTime, TIME_MINUTES) + "\n";
 
    txt += "SellZoneActive: " + (sellZoneActivated ? "YES" : "NO") + "\n";
    if (sellZoneActivated && lastSellZoneHitPrice > 0)
       txt += "  └─ Zone: " + DoubleToString(lastSellZoneHitPrice, _Digits) +
+             " (idx=" + IntegerToString(lastSellZoneHitIdx) + ")" +
              " @ " + TimeToString(lastSellZoneHitTime, TIME_MINUTES) + "\n";
 
    txt += "-----------------------------------------\n";
 
-   // Zone list
    double pip = PipSize();
    for (int i = 0; i < totalBuyZones; i++)
    {
       string usedStr = buyZonesUsed[i] ? " [USED]" : "";
-      string activeStr = (buyZoneActivated &&
-                          MathAbs(buyZones[i] - lastBuyZoneHitPrice) < _Point)
-                             ? " <<"
-                             : "";
+      string activeStr = (buyZoneActivated && lastBuyZoneHitIdx == i) ? " <<" : "";
       double zFrom = buyZones[i] - ZoneActivationPips * pip;
       double zTo = buyZones[i] + ZoneActivationPips * pip;
 
@@ -913,10 +903,7 @@ void UpdateChartComment()
    for (int i = 0; i < totalSellZones; i++)
    {
       string usedStr = sellZonesUsed[i] ? " [USED]" : "";
-      string activeStr = (sellZoneActivated &&
-                          MathAbs(sellZones[i] - lastSellZoneHitPrice) < _Point)
-                             ? " <<"
-                             : "";
+      string activeStr = (sellZoneActivated && lastSellZoneHitIdx == i) ? " <<" : "";
       double zFrom = sellZones[i] - ZoneActivationPips * pip;
       double zTo = sellZones[i] + ZoneActivationPips * pip;
 
@@ -1105,7 +1092,9 @@ int OnInit()
    buyZoneActivated = false;
    sellZoneActivated = false;
    lastBuyZoneHitPrice = 0.0;
+   lastBuyZoneHitIdx = -1;
    lastSellZoneHitPrice = 0.0;
+   lastSellZoneHitIdx = -1;
    buyZoneActivatedTime = 0;
    sellZoneActivatedTime = 0;
 
