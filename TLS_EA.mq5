@@ -1,9 +1,12 @@
 //+------------------------------------------------------------------+
 //|                                                   TLS_IFVG.mq5  |
-//|                    IFVG Zone Entry EA  v2.02                     |
+//|                    IFVG Zone Entry EA  v3.00                     |
 //|                                                                  |
 //|  STRATEGY:                                                       |
-//|  - Read IFVG buffers from IFVG indicator                        |
+//|  - Zones are AUTO-CALCULATED from session open price            |
+//|  - BUY zones  = open + spacing*1, open + spacing*2, ...         |
+//|  - SELL zones = open - spacing*1, open - spacing*2, ...         |
+//|  - Zones reset on each new session open                          |
 //|  - If new IFVG BUY appears AND midpoint inside a BUY price zone |
 //|    -> BUY NOW at market                                          |
 //|  - If new IFVG SELL appears AND midpoint inside a SELL zone     |
@@ -20,7 +23,7 @@
 //|  3. Price hits another zone -> old zone marked used, new active |
 //+------------------------------------------------------------------+
 #property copyright "TLS_IFVG EA"
-#property version "2.02"
+#property version "3.00"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -76,29 +79,9 @@ input int BufferPips = 5;
 input int ZoneActivationPips = 100;
 input int ZoneSLBufferPips = 300;
 
-// BUY Zones (center price)
-input double BuyZone1 = 0.0;
-input double BuyZone2 = 0.0;
-input double BuyZone3 = 0.0;
-input double BuyZone4 = 0.0;
-input double BuyZone5 = 0.0;
-input double BuyZone6 = 0.0;
-input double BuyZone7 = 0.0;
-input double BuyZone8 = 0.0;
-input double BuyZone9 = 0.0;
-input double BuyZone10 = 0.0;
-
-// SELL Zones (center price)
-input double SellZone1 = 0.0;
-input double SellZone2 = 0.0;
-input double SellZone3 = 0.0;
-input double SellZone4 = 0.0;
-input double SellZone5 = 0.0;
-input double SellZone6 = 0.0;
-input double SellZone7 = 0.0;
-input double SellZone8 = 0.0;
-input double SellZone9 = 0.0;
-input double SellZone10 = 0.0;
+// Auto Zone Settings
+input double ZoneSpacingPips = 50.0;  // Distance between each zone line (in pips)
+input int ZoneCount = 10;             // Number of BUY zones above open AND SELL zones below open
 
 //=========================== GLOBALS ================================
 datetime sessionStartTime = 0;
@@ -134,6 +117,10 @@ datetime lastBarTime = 0;
 // Prevent re-firing on same bar
 datetime lastBuySignalTime = 0;
 datetime lastSellSignalTime = 0;
+
+// Auto zone tracking
+double currentSessionOpen = 0.0;
+datetime currentSessionOpenTime = 0;
 
 //=========================== UTILS ==================================
 double PipSize()
@@ -223,6 +210,147 @@ void ForceReinitIndicators()
    lastReinitTime = now;
    PrintFormat("[REINIT] Done | IFVG=%d", ifvgHandle);
 }
+
+//=========================== AUTO ZONE CALCULATION ==================
+// Get the session open price for the current trading session
+double GetSessionOpenPrice()
+{
+   datetime now = TimeCurrent();
+   datetime sStart = 0, sEnd = 0;
+
+   if (!GetCurrentSymbolSessionWindow(now, sStart, sEnd))
+   {
+      PrintFormat("[ZONE_AUTO] Could not determine session window, using daily open");
+      // Fallback: use today's daily open bar
+      MqlDateTime t;
+      TimeToStruct(now, t);
+      t.hour = 0; t.min = 0; t.sec = 0;
+      datetime dayStart = StructToTime(t);
+      int idx = iBarShift(_Symbol, PERIOD_D1, dayStart, false);
+      if (idx >= 0)
+         return iOpen(_Symbol, PERIOD_D1, idx);
+      return 0.0;
+   }
+
+   // Find the bar that opened at session start (or closest bar after)
+   int barIdx = iBarShift(_Symbol, _Period, sStart, false);
+   if (barIdx < 0)
+   {
+      PrintFormat("[ZONE_AUTO] iBarShift failed for session start %s", TimeToString(sStart));
+      return 0.0;
+   }
+
+   double openPrice = iOpen(_Symbol, _Period, barIdx);
+   PrintFormat("[ZONE_AUTO] Session start=%s | barIdx=%d | Open=%.*f",
+               TimeToString(sStart, TIME_DATE | TIME_MINUTES),
+               barIdx, _Digits, openPrice);
+   return openPrice;
+}
+
+// Build BUY and SELL zone arrays from session open price
+void BuildZonesFromOpen(double openPrice)
+{
+   if (openPrice <= 0.0)
+   {
+      PrintFormat("[ZONE_AUTO] Invalid open price, cannot build zones");
+      return;
+   }
+
+   double pip = PipSize();
+   double spacing = ZoneSpacingPips * pip;
+   int count = MathMax(1, ZoneCount);
+
+   // Reset zone arrays
+   ArrayResize(buyZones, count);
+   ArrayResize(sellZones, count);
+   ArrayResize(buyZonesUsed, count);
+   ArrayResize(sellZonesUsed, count);
+   ArrayFill(buyZonesUsed, 0, count, false);
+   ArrayFill(sellZonesUsed, 0, count, false);
+
+   totalBuyZones = count;
+   totalSellZones = count;
+
+   for (int i = 0; i < count; i++)
+   {
+      buyZones[i]  = NormalizePrice(openPrice + spacing * (i + 1));  // above open
+      sellZones[i] = NormalizePrice(openPrice - spacing * (i + 1));  // below open
+   }
+
+   // Mark zones that were already used (from persistent file)
+   for (int i = 0; i < totalBuyZones; i++)
+      if (IsZoneUsedFromFile(true, buyZones[i]))
+         buyZonesUsed[i] = true;
+   for (int i = 0; i < totalSellZones; i++)
+      if (IsZoneUsedFromFile(false, sellZones[i]))
+         sellZonesUsed[i] = true;
+
+   // Reset zone activation state for new session
+   buyZoneActivated = false;
+   sellZoneActivated = false;
+   lastBuyZoneHitPrice = 0.0;
+   lastBuyZoneHitIdx = -1;
+   lastSellZoneHitPrice = 0.0;
+   lastSellZoneHitIdx = -1;
+   buyZoneActivatedTime = 0;
+   sellZoneActivatedTime = 0;
+
+   PrintFormat("[ZONE_AUTO] Built %d BUY zones + %d SELL zones from Open=%.*f (spacing=%.1f pips)",
+               totalBuyZones, totalSellZones, _Digits, openPrice, ZoneSpacingPips);
+
+   for (int i = 0; i < totalBuyZones; i++)
+      PrintFormat("[ZONE_AUTO]  BUY[%d] = %.*f%s", i + 1, _Digits, buyZones[i],
+                  buyZonesUsed[i] ? " [USED]" : "");
+   for (int i = 0; i < totalSellZones; i++)
+      PrintFormat("[ZONE_AUTO] SELL[%d] = %.*f%s", i + 1, _Digits, sellZones[i],
+                  sellZonesUsed[i] ? " [USED]" : "");
+}
+
+// Check if session changed and rebuild zones if needed
+void CheckAndUpdateSessionZones()
+{
+   datetime now = TimeCurrent();
+   datetime sStart = 0, sEnd = 0;
+
+   if (!GetCurrentSymbolSessionWindow(now, sStart, sEnd))
+      return;
+
+   // New session detected
+   if (sStart != currentSessionOpenTime)
+   {
+      PrintFormat("[ZONE_AUTO] NEW SESSION detected | prev=%s new=%s",
+                  TimeToString(currentSessionOpenTime, TIME_DATE | TIME_MINUTES),
+                  TimeToString(sStart, TIME_DATE | TIME_MINUTES));
+
+      currentSessionOpenTime = sStart;
+
+      double openPrice = GetSessionOpenPrice();
+      if (openPrice > 0.0)
+      {
+         currentSessionOpen = openPrice;
+         // Clear used zones file for new session (fresh start each day)
+         ClearUsedZonesForNewSession();
+         BuildZonesFromOpen(openPrice);
+      }
+      else
+      {
+         PrintFormat("[ZONE_AUTO] WARN: Could not get session open price!");
+      }
+   }
+}
+
+// Clear persisted used zones on new session
+void ClearUsedZonesForNewSession()
+{
+   ArrayResize(usedZones, 0);
+   totalUsedZones = 0;
+   // Overwrite file with empty data
+   int h = FileOpen(ZONE_USED_FILE, FILE_WRITE | FILE_BIN);
+   if (h != INVALID_HANDLE)
+      FileClose(h);
+   PrintFormat("[ZONE_AUTO] Cleared used zones for new session");
+}
+
 //=========================== ZONE USED FILE =========================
 void LoadZoneUsedFromFile()
 {
@@ -314,47 +442,6 @@ void MarkZoneUsed(bool isBuy, double zonePrice)
       PrintFormat("[ZONE] %s zone MARKED USED: %.*f", SideText(isBuy), _Digits, zonePrice);
       break;
    }
-}
-
-//=========================== LOAD ZONES =============================
-void LoadPriceZones()
-{
-   ArrayResize(buyZones, 0);
-   totalBuyZones = 0;
-   ArrayResize(sellZones, 0);
-   totalSellZones = 0;
-
-   double tempBuy[10] = {BuyZone1, BuyZone2, BuyZone3, BuyZone4, BuyZone5,
-                         BuyZone6, BuyZone7, BuyZone8, BuyZone9, BuyZone10};
-   double tempSell[10] = {SellZone1, SellZone2, SellZone3, SellZone4, SellZone5,
-                          SellZone6, SellZone7, SellZone8, SellZone9, SellZone10};
-
-   for (int i = 0; i < 10; i++)
-      if (tempBuy[i] > 0.0)
-      {
-         ArrayResize(buyZones, totalBuyZones + 1);
-         buyZones[totalBuyZones++] = NormalizePrice(tempBuy[i]);
-      }
-   for (int i = 0; i < 10; i++)
-      if (tempSell[i] > 0.0)
-      {
-         ArrayResize(sellZones, totalSellZones + 1);
-         sellZones[totalSellZones++] = NormalizePrice(tempSell[i]);
-      }
-
-   ArrayResize(buyZonesUsed, totalBuyZones);
-   ArrayResize(sellZonesUsed, totalSellZones);
-   ArrayFill(buyZonesUsed, 0, totalBuyZones, false);
-   ArrayFill(sellZonesUsed, 0, totalSellZones, false);
-
-   for (int i = 0; i < totalBuyZones; i++)
-      if (IsZoneUsedFromFile(true, buyZones[i]))
-         buyZonesUsed[i] = true;
-   for (int i = 0; i < totalSellZones; i++)
-      if (IsZoneUsedFromFile(false, sellZones[i]))
-         sellZonesUsed[i] = true;
-
-   PrintFormat("[ZONE] Loaded %d BUY zones, %d SELL zones", totalBuyZones, totalSellZones);
 }
 
 //+------------------------------------------------------------------+
@@ -897,6 +984,11 @@ void UpdateChartComment()
    txt += "PnL (session): " + DoubleToString(lastSessionRealizedPnL, 2) + "\n";
    txt += "DD Limit     : -" + DoubleToString(sessionLossLimit, 2) + "\n";
    txt += "-----------------------------------------\n";
+   txt += "Session Open : " + DoubleToString(currentSessionOpen, _Digits) +
+          " @ " + TimeToString(currentSessionOpenTime, TIME_DATE | TIME_MINUTES) + "\n";
+   txt += "Zone Spacing : " + DoubleToString(ZoneSpacingPips, 1) + " pips\n";
+   txt += "Zone Count   : " + IntegerToString(ZoneCount) + " each side\n";
+   txt += "-----------------------------------------\n";
 
    txt += "BuyZoneActive : " + (buyZoneActivated ? "YES" : "NO") + "\n";
    if (buyZoneActivated && lastBuyZoneHitPrice > 0)
@@ -1110,11 +1202,12 @@ int OnInit()
    trade.SetExpertMagicNumber(MagicNumber);
 
    LoadZoneUsedFromFile();
-   LoadPriceZones();
-   ResetSessionDDIfNeeded();
 
-   lastBuySignalTime = iTime(_Symbol, _Period, 1);
-   lastSellSignalTime = iTime(_Symbol, _Period, 1);
+   // Initialize session detection (no zones yet — will be built on first session check)
+   currentSessionOpen = 0.0;
+   currentSessionOpenTime = 0;
+   totalBuyZones = 0;
+   totalSellZones = 0;
 
    buyZoneActivated = false;
    sellZoneActivated = false;
@@ -1124,6 +1217,14 @@ int OnInit()
    lastSellZoneHitIdx = -1;
    buyZoneActivatedTime = 0;
    sellZoneActivatedTime = 0;
+
+   ResetSessionDDIfNeeded();
+
+   // Build zones immediately on init
+   CheckAndUpdateSessionZones();
+
+   lastBuySignalTime = iTime(_Symbol, _Period, 1);
+   lastSellSignalTime = iTime(_Symbol, _Period, 1);
 
    return INIT_SUCCEEDED;
 }
@@ -1139,6 +1240,9 @@ void OnDeinit(const int reason)
 //=========================== TICK ===================================
 void OnTick()
 {
+   // Check for new session → rebuild zones if needed
+   CheckAndUpdateSessionZones();
+
    ForceReinitIndicators();
    ManageBreakEven();
    UpdateZoneActivation();
