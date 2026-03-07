@@ -330,8 +330,6 @@ int OnCalculate(const int rates_total,
       if (BufSellTop[i] != EMPTY_VALUE)
          filledSell++;
    }
-   PrintFormat("[IFVG] rates=%d prev=%d zones=%d filledBuy=%d filledSell=%d",
-               rates_total, prev_calculated, g_count, filledBuy, filledSell);
 
    ChartRedraw(0);
    return rates_total;

@@ -54,6 +54,7 @@ input color IFVGBuyColor = C'13,186,186';
 input color IFVGSellColor = C'220,50,50';
 input int IFVGAlpha = 55;
 input int IFVGExtendBars = 30;
+input int ForceReinitMinutes = 60;
 
 // Display
 input bool IsShowChartComment = true;
@@ -117,6 +118,7 @@ int lastSellZoneHitIdx = -1;
 
 datetime buyZoneActivatedTime = 0;
 datetime sellZoneActivatedTime = 0;
+datetime lastReinitTime = 0;
 
 int ifvgHandle = INVALID_HANDLE;
 
@@ -196,6 +198,31 @@ bool IsNewBar()
 
 string SideText(bool isBuy) { return isBuy ? "BUY" : "SELL"; }
 
+void ForceReinitIndicators()
+{
+   datetime now = TimeCurrent();
+   if(ForceReinitMinutes <= 0) return;
+   if((now - lastReinitTime) < ForceReinitMinutes * 60) return;
+
+   PrintFormat("[REINIT] Force recreating IFVG handle after %d minutes", ForceReinitMinutes);
+
+   if(ifvgHandle != INVALID_HANDLE) { IndicatorRelease(ifvgHandle); ifvgHandle = INVALID_HANDLE; }
+
+   Sleep(200);
+
+   ifvgHandle = iCustom(_Symbol, _Period, IFVGIndicatorName,
+                        IFVGLookback, IFVGBuyColor, IFVGSellColor,
+                        IFVGAlpha, IFVGExtendBars);
+
+   if(ifvgHandle == INVALID_HANDLE)
+   {
+      PrintFormat("[REINIT] FAILED to recreate IFVG handle!");
+      return;
+   }
+
+   lastReinitTime = now;
+   PrintFormat("[REINIT] Done | IFVG=%d", ifvgHandle);
+}
 //=========================== ZONE USED FILE =========================
 void LoadZoneUsedFromFile()
 {
@@ -1112,6 +1139,7 @@ void OnDeinit(const int reason)
 //=========================== TICK ===================================
 void OnTick()
 {
+   ForceReinitIndicators();
    ManageBreakEven();
    UpdateZoneActivation();
    if (!IsNewBar())
