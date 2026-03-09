@@ -4,8 +4,8 @@
 //|                                                                  |
 //|  STRATEGY:                                                       |
 //|  - Zones are AUTO-CALCULATED from session open price            |
-//|  - BUY zones  = open + spacing*1, open + spacing*2, ...         |
-//|  - SELL zones = open - spacing*1, open - spacing*2, ...         |
+//|  - BUY zones  = open - spacing*1, open - spacing*2, ...         |
+//|  - SELL zones = open + spacing*1, open + spacing*2, ...         |
 //|  - Zones reset on each new session open                          |
 //|  - If new IFVG BUY appears AND midpoint inside a BUY price zone |
 //|    -> BUY NOW at market                                          |
@@ -273,8 +273,8 @@ void BuildZonesFromOpen(double openPrice)
 
    for (int i = 0; i < count; i++)
    {
-      buyZones[i]  = NormalizePrice(openPrice + spacing * (i + 1));  // above open
-      sellZones[i] = NormalizePrice(openPrice - spacing * (i + 1));  // below open
+      buyZones[i]  = NormalizePrice(openPrice - spacing * (i + 1));  // below open
+      sellZones[i] = NormalizePrice(openPrice + spacing * (i + 1));  // above open
    }
 
    // Mark zones that were already used (from persistent file)
@@ -851,6 +851,13 @@ void CheckIFVGSignals()
       return;
    }
 
+    MqlRates rates[];
+   if (CopyRates(_Symbol, _Period, 1, scanBars, rates) != scanBars)
+   {
+      PrintFormat("[IFVG][WARN] CopyRates failed");
+      return;
+   }
+
    // ===== BUY =====
    PrintFormat("[IFVG][BUY] ZoneActive=%s | lastBuyZoneHitPrice=%.*f | lastBuySignalTime=%s",
                buyZoneActivated ? "YES" : "NO",
@@ -896,9 +903,18 @@ void CheckIFVGSignals()
                continue;
             }
 
-            PrintFormat("[IFVG][BUY] bar=%d PASS | invTime=%s Top=%.*f Bot=%.*f",
-                        i + 1, TimeToString(invBarTime, TIME_DATE | TIME_MINUTES),
-                        _Digits, buyTop[i], _Digits, buyBot[i]);
+            double confirmClose = rates[i].close;
+            if (confirmClose <= buyTop[i])
+            {
+               PrintFormat("[IFVG][BUY] bar=%d SKIP: close=%.*f NOT above top=%.*f",
+                           i + 1, _Digits, confirmClose, _Digits, buyTop[i]);
+               continue;
+            }
+
+            PrintFormat("[IFVG][BUY] bar=%d PASS | close=%.*f > top=%.*f | invTime=%s",
+                        i + 1, _Digits, confirmClose, _Digits, buyTop[i],
+                        TimeToString(invBarTime, TIME_DATE | TIME_MINUTES));
+
             lastBuySignalTime = barTime;
             ExecuteEntry(true, zoneIdx);
             foundSignal = true;
@@ -955,9 +971,18 @@ void CheckIFVGSignals()
                continue;
             }
 
-            PrintFormat("[IFVG][SELL] bar=%d PASS | invTime=%s Top=%.*f Bot=%.*f",
-                        i + 1, TimeToString(invBarTime, TIME_DATE | TIME_MINUTES),
-                        _Digits, sellTop[i], _Digits, sellBot[i]);
+            double confirmClose = rates[i].close;
+            if (confirmClose >= sellBot[i])
+            {
+               PrintFormat("[IFVG][SELL] bar=%d SKIP: close=%.*f NOT below bot=%.*f",
+                           i + 1, _Digits, confirmClose, _Digits, sellBot[i]);
+               continue;
+            }
+
+            PrintFormat("[IFVG][SELL] bar=%d PASS | close=%.*f < bot=%.*f | invTime=%s",
+                        i + 1, _Digits, confirmClose, _Digits, sellBot[i],
+                        TimeToString(invBarTime, TIME_DATE | TIME_MINUTES));
+                        
             lastSellSignalTime = barTime;
             ExecuteEntry(false, zoneIdx);
             foundSignal = true;
