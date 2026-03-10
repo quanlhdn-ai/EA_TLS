@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                                   TLS_IFVG.mq5  |
-//|                    IFVG Zone Entry EA  v4.10                     |
+//|                    IFVG Zone Entry EA  v4.11                     |
 //|                                                                  |
 //|  STRATEGY:                                                       |
 //|  - Zones AUTO-CALCULATED from session open price                 |
@@ -15,9 +15,9 @@
 //|  - Fixed lot size, NO SL / NO TP on individual orders            |
 //|                                                                  |
 //|  GROUP TP (checked every tick):                                  |
-//|  - avgEntry = weighted average of all open positions             |
-//|  - TP price = avgEntry ± TpPips                                  |
-//|  - When price reaches TP price → close ALL positions             |
+//|  - TpUSD = FixedLotSize × pip_value_per_lot × TpPips            |
+//|  - When total floating PnL >= TpUSD → close ALL positions        |
+//|  - Example XAUUSD: 0.05lot × $10/pip × 100pip = $50             |
 //|                                                                  |
 //|  GROUP SL (checked every tick):                                  |
 //|  - Total floating loss >= SlPercent% of account balance          |
@@ -27,7 +27,7 @@
 //|  - Zones remain valid; price re-enters zone + IFVG → re-enter   |
 //+------------------------------------------------------------------+
 #property copyright "TLS_IFVG EA"
-#property version   "4.10"
+#property version   "4.11"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -56,7 +56,7 @@ input bool IsShowChartComment = true;
 input double FixedLotSize   = 0.01;
 
 // Group TP
-input double TpPips = 100.0;          // TP in pips from weighted average entry
+input double TpPips = 100.0;          // TP tính theo pip × FixedLotSize → ra USD cố định
 
 // Group SL
 input double SlPercent = 20.0;        // Close ALL when total floating loss >= X% of balance
@@ -89,7 +89,7 @@ int ifvgHandle = INVALID_HANDLE;
 
 double buyZones[];
 double sellZones[];
-bool   buyZoneHasPosition[];   // true = lệnh đang mở thuộc zone này, chưa được vào lại
+bool   buyZoneHasPosition[];
 bool   sellZoneHasPosition[];
 int    totalBuyZones  = 0;
 int    totalSellZones = 0;
@@ -134,6 +134,18 @@ bool IsNewBar()
 
 string SideText(bool isBuy) { return isBuy ? "BUY" : "SELL"; }
 
+// Tính TP theo USD cố định dựa trên FixedLotSize và TpPips
+// TpUSD = FixedLotSize × (tick_value / tick_size × pip_size) × TpPips
+// Ví dụ XAUUSD: 0.05lot × $10/pip × 100pip = $50
+double CalcTpUSD()
+{
+   double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if (tickSize <= 0.0) return 0.0;
+   double pipVal = tickVal / tickSize * PipSize();
+   return FixedLotSize * pipVal * TpPips;
+}
+
 void ForceReinitIndicators()
 {
    datetime now = TimeCurrent();
@@ -169,8 +181,6 @@ int CountOpenPositions(bool isBuy)
    return count;
 }
 
-// Weighted average entry of all open positions for direction
-// Returns 0 if none open
 double GetAverageEntry(bool isBuy)
 {
    double weighted = 0.0, totalLots = 0.0;
@@ -190,7 +200,6 @@ double GetAverageEntry(bool isBuy)
    return (totalLots > 0.0) ? (weighted / totalLots) : 0.0;
 }
 
-// Total floating PnL for direction (profit positive, loss negative)
 double GetFloatingPnL(bool isBuy)
 {
    double pnl = 0.0;
@@ -209,7 +218,6 @@ double GetFloatingPnL(bool isBuy)
    return pnl;
 }
 
-// Close all open positions for direction
 void CloseAllPositions(bool isBuy, const string reason)
 {
    PrintFormat("[CLOSE_ALL][%s] Reason: %s", SideText(isBuy), reason);
@@ -232,14 +240,8 @@ void CloseAllPositions(bool isBuy, const string reason)
 }
 
 //=========================== ZONE POSITION SYNC =====================
-// Mỗi tick: reset flag nếu không còn lệnh nào open thuộc direction đó.
-// Vì mỗi zone chỉ có tối đa 1 lệnh, ta dùng comment lệnh để biết zone nào.
-// Cách đơn giản nhất: nếu không còn lệnh BUY nào mở → reset tất cả buyZoneHasPosition
-// Tương tự SELL. (Chiến lược 1 lệnh/zone, không mix nhiều zone cùng lúc.)
-// Nếu muốn hỗ trợ nhiều zone đồng thời active, dùng GlobalVariable lưu zoneIdx theo ticket.
 void SyncZonePositionFlags()
 {
-   // BUY: nếu không còn lệnh buy nào mở → mở lại tất cả zone
    if (CountOpenPositions(true) == 0)
    {
       bool anyWasLocked = false;
@@ -249,7 +251,6 @@ void SyncZonePositionFlags()
          PrintFormat("[ZONE_SYNC][BUY] Tất cả lệnh BUY đã đóng → reset zone locks");
    }
 
-   // SELL: nếu không còn lệnh sell nào mở → mở lại tất cả zone
    if (CountOpenPositions(false) == 0)
    {
       bool anyWasLocked = false;
@@ -261,30 +262,27 @@ void SyncZonePositionFlags()
 }
 
 //=========================== GROUP TP / SL MONITOR ==================
-// Called every tick — checks both TP and SL conditions for each direction
 void CheckGroupExits()
 {
-   // Sync zone locks trước — nếu lệnh đã đóng bên ngoài (manual/SL broker) thì unlock zone
    SyncZonePositionFlags();
 
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double slLimit = balance * (SlPercent / 100.0); // loss threshold in USD
-   double pip     = PipSize();
+   double slLimit = balance * (SlPercent / 100.0);
+   double tpUSD   = CalcTpUSD();
 
    // ----- BUY group -----
    if (CountOpenPositions(true) > 0)
    {
-      double avgEntry = GetAverageEntry(true);
-      double tpPrice  = NormalizePrice(avgEntry + TpPips * pip);
-      double bid      = SymbolInfoDouble(_Symbol, SYMBOL_BID);
       double floatPnL = GetFloatingPnL(true);
+      double avgEntry = GetAverageEntry(true);
+      double bid      = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-      // TP hit
-      if (bid >= tpPrice)
+      // TP hit — tổng PnL đạt target USD
+      if (floatPnL >= tpUSD)
       {
-         PrintFormat("[GROUP_TP][BUY] bid=%.*f >= tpPrice=%.*f (avgEntry=%.*f + %.1fpips) | PnL=%.2f",
-                     _Digits, bid, _Digits, tpPrice, _Digits, avgEntry, TpPips, floatPnL);
-         TG_SendGroupClose(true, "TP", avgEntry, tpPrice, floatPnL);
+         PrintFormat("[GROUP_TP][BUY] PnL=%.2f >= TpUSD=%.2f (%.2flot × %.1fpip) | AvgEntry=%.*f",
+                     floatPnL, tpUSD, FixedLotSize, TpPips, _Digits, avgEntry);
+         TG_SendGroupClose(true, "TP", avgEntry, bid, floatPnL);
          CloseAllPositions(true, "GROUP TP");
          return;
       }
@@ -303,17 +301,16 @@ void CheckGroupExits()
    // ----- SELL group -----
    if (CountOpenPositions(false) > 0)
    {
-      double avgEntry = GetAverageEntry(false);
-      double tpPrice  = NormalizePrice(avgEntry - TpPips * pip);
-      double ask      = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double floatPnL = GetFloatingPnL(false);
+      double avgEntry = GetAverageEntry(false);
+      double ask      = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
-      // TP hit
-      if (ask <= tpPrice)
+      // TP hit — tổng PnL đạt target USD
+      if (floatPnL >= tpUSD)
       {
-         PrintFormat("[GROUP_TP][SELL] ask=%.*f <= tpPrice=%.*f (avgEntry=%.*f - %.1fpips) | PnL=%.2f",
-                     _Digits, ask, _Digits, tpPrice, _Digits, avgEntry, TpPips, floatPnL);
-         TG_SendGroupClose(false, "TP", avgEntry, tpPrice, floatPnL);
+         PrintFormat("[GROUP_TP][SELL] PnL=%.2f >= TpUSD=%.2f (%.2flot × %.1fpip) | AvgEntry=%.*f",
+                     floatPnL, tpUSD, FixedLotSize, TpPips, _Digits, avgEntry);
+         TG_SendGroupClose(false, "TP", avgEntry, ask, floatPnL);
          CloseAllPositions(false, "GROUP TP");
          return;
       }
@@ -486,7 +483,6 @@ bool ExecuteEntry(bool isBuy)
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
 
-   // Open order WITHOUT SL and TP (0.0 = no SL/TP)
    bool ok = isBuy ? trade.Buy(lots,  _Symbol, 0.0, 0.0, 0.0, "IFVG BUY")
                    : trade.Sell(lots, _Symbol, 0.0, 0.0, 0.0, "IFVG SELL");
 
@@ -494,7 +490,6 @@ bool ExecuteEntry(bool isBuy)
    {
       double filled = trade.ResultPrice();
 
-      // Compute new average entry for display
       double weighted = filled * lots, totalL = lots;
       for (int i = PositionsTotal() - 1; i >= 0; i--)
       {
@@ -505,22 +500,20 @@ bool ExecuteEntry(bool isBuy)
          ENUM_POSITION_TYPE pt = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
          if (isBuy  && pt != POSITION_TYPE_BUY)  continue;
          if (!isBuy && pt != POSITION_TYPE_SELL) continue;
-         if (PositionGetDouble(POSITION_PRICE_OPEN) == filled && PositionGetDouble(POSITION_VOLUME) == lots) continue; // skip just-opened
+         if (PositionGetDouble(POSITION_PRICE_OPEN) == filled && PositionGetDouble(POSITION_VOLUME) == lots) continue;
          double pl = PositionGetDouble(POSITION_VOLUME);
          weighted += PositionGetDouble(POSITION_PRICE_OPEN) * pl;
          totalL   += pl;
       }
       double avgEntry = weighted / totalL;
-      double pip      = PipSize();
-      double tpPrice  = isBuy ? NormalizePrice(avgEntry + TpPips * pip)
-                              : NormalizePrice(avgEntry - TpPips * pip);
+      double tpUSD    = CalcTpUSD();
 
-      PrintFormat("[ORDER][%s] Filled=%.*f Lots=%.2f | AvgEntry=%.*f | GroupTP=%.*f (%.1f pip) | Positions=%d",
+      PrintFormat("[ORDER][%s] Filled=%.*f Lots=%.2f | AvgEntry=%.*f | GroupTP=$%.2f (%.2flot×%.1fpip) | Positions=%d",
                   SideText(isBuy), _Digits, filled, lots,
-                  _Digits, avgEntry, _Digits, tpPrice, TpPips,
+                  _Digits, avgEntry, tpUSD, FixedLotSize, TpPips,
                   CountOpenPositions(isBuy));
 
-      TG_SendOpenMarket(isBuy, filled, avgEntry, tpPrice, (long)trade.ResultDeal());
+      TG_SendOpenMarket(isBuy, filled, avgEntry, tpUSD, (long)trade.ResultDeal());
    }
    else
    {
@@ -555,7 +548,6 @@ void CheckIFVGSignals()
 
    if (buyZoneActivated && lastBuyZoneHitIdx >= 0 && lastBuyZoneHitIdx < totalBuyZones)
    {
-      // Skip nếu zone đang có lệnh mở
       if (buyZoneHasPosition[lastBuyZoneHitIdx])
       {
          PrintFormat("[IFVG][BUY] SKIP: zone idx=%d đang có lệnh mở, chờ đóng mới vào lại",
@@ -593,7 +585,6 @@ void CheckIFVGSignals()
 
    if (sellZoneActivated && lastSellZoneHitIdx >= 0 && lastSellZoneHitIdx < totalSellZones)
    {
-      // Skip nếu zone đang có lệnh mở
       if (sellZoneHasPosition[lastSellZoneHitIdx])
       {
          PrintFormat("[IFVG][SELL] SKIP: zone idx=%d đang có lệnh mở, chờ đóng mới vào lại",
@@ -631,18 +622,20 @@ void UpdateChartComment()
 
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    double slLimit = balance * (SlPercent / 100.0);
-   double pip     = PipSize();
+   double tpUSD   = CalcTpUSD();
 
    string txt = "";
    txt += "IFVG Handle  : " + (ifvgHandle != INVALID_HANDLE ? "OK" : "FAIL") + "\n";
    txt += "Balance      : " + DoubleToString(balance, 2) + "\n";
    txt += "SL Limit     : -" + DoubleToString(slLimit, 2) +
           " (" + DoubleToString(SlPercent, 1) + "% of balance)\n";
+   txt += "TP Target    : $" + DoubleToString(tpUSD, 2) +
+          " (" + DoubleToString(FixedLotSize, 2) + "lot × " +
+          DoubleToString(TpPips, 1) + "pip)\n";
    txt += "--------------------------------------------\n";
    txt += "Session Open : " + DoubleToString(currentSessionOpen, _Digits) +
           " @ " + TimeToString(currentSessionOpenTime, TIME_DATE|TIME_MINUTES) + "\n";
    txt += "Lot Size     : " + DoubleToString(FixedLotSize, 2) + " (fixed, no SL/TP on orders)\n";
-   txt += "TP Pips      : " + DoubleToString(TpPips, 1) + " pip from avg entry\n";
    txt += "--------------------------------------------\n";
 
    // BUY group
@@ -650,13 +643,13 @@ void UpdateChartComment()
    txt += "Open BUY     : " + IntegerToString(buyCount) + " positions\n";
    if (buyCount > 0)
    {
-      double avg    = GetAverageEntry(true);
-      double tpP    = NormalizePrice(avg + TpPips * pip);
-      double fPnL   = GetFloatingPnL(true);
-      double bid    = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double avg   = GetAverageEntry(true);
+      double fPnL  = GetFloatingPnL(true);
+      double need  = tpUSD - fPnL;
       txt += "  AvgEntry  : " + DoubleToString(avg, _Digits) + "\n";
-      txt += "  GroupTP   : " + DoubleToString(tpP, _Digits) +
-             " (" + DoubleToString((tpP - bid) / pip, 1) + " pip away)\n";
+      txt += "  GroupTP   : $" + DoubleToString(tpUSD, 2) +
+             " (PnL=" + DoubleToString(fPnL, 2) +
+             " / need $" + DoubleToString(need, 2) + " more)\n";
       txt += "  FloatPnL  : " + DoubleToString(fPnL, 2) + "\n";
    }
 
@@ -666,12 +659,12 @@ void UpdateChartComment()
    if (sellCount > 0)
    {
       double avg   = GetAverageEntry(false);
-      double tpP   = NormalizePrice(avg - TpPips * pip);
       double fPnL  = GetFloatingPnL(false);
-      double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double need  = tpUSD - fPnL;
       txt += "  AvgEntry  : " + DoubleToString(avg, _Digits) + "\n";
-      txt += "  GroupTP   : " + DoubleToString(tpP, _Digits) +
-             " (" + DoubleToString((ask - tpP) / pip, 1) + " pip away)\n";
+      txt += "  GroupTP   : $" + DoubleToString(tpUSD, 2) +
+             " (PnL=" + DoubleToString(fPnL, 2) +
+             " / need $" + DoubleToString(need, 2) + " more)\n";
       txt += "  FloatPnL  : " + DoubleToString(fPnL, 2) + "\n";
    }
 
@@ -757,7 +750,6 @@ void TG_SendOpenMarket(bool isBuy, double filled, double avgEntry, double groupT
    TG_Mark("OPEN", uid);
 }
 
-// Unique key for group close uses timestamp so it can fire multiple times
 void TG_SendGroupClose(bool isBuy, const string reason,
                        double avgEntry, double closePrice, double pnl)
 {
@@ -781,7 +773,6 @@ void OnTradeTransaction(const MqlTradeTransaction &t,
    if (HistoryDealGetString(t.deal, DEAL_SYMBOL) != _Symbol) return;
    long magic = (long)HistoryDealGetInteger(t.deal, DEAL_MAGIC);
    if (!TG_IncludeManual && magic != MagicNumber) return;
-   // Group close notifications handled in CheckGroupExits() before closing
 }
 
 //=========================== INIT / DEINIT ==========================
@@ -795,8 +786,10 @@ int OnInit()
       PrintFormat("[INIT] FAILED to load '%s' err=%d", IFVGIndicatorName, GetLastError());
       return INIT_FAILED;
    }
-   PrintFormat("[INIT] handle=%d | Lot=%.2f | TpPips=%.1f | SlPercent=%.1f%%",
-               ifvgHandle, FixedLotSize, TpPips, SlPercent);
+
+   double tpUSD = CalcTpUSD();
+   PrintFormat("[INIT] handle=%d | Lot=%.2f | TpPips=%.1f → TpUSD=$%.2f | SlPercent=%.1f%%",
+               ifvgHandle, FixedLotSize, TpPips, tpUSD, SlPercent);
 
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
@@ -828,7 +821,7 @@ void OnTick()
    CheckAndUpdateSessionZones();
    ForceReinitIndicators();
    UpdateZoneActivation();
-   CheckGroupExits();      // <-- every tick: monitor group TP and group SL
+   CheckGroupExits();
 
    if (!IsNewBar()) return;
    UpdateChartComment();
