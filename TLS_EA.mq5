@@ -1,13 +1,20 @@
 //+------------------------------------------------------------------+
 //|                                                   TLS_IFVG.mq5  |
-//|                    IFVG Zone Entry EA  v4.11                     |
+//|                    IFVG Zone Entry EA  v4.12                     |
 //|                                                                  |
 //|  STRATEGY:                                                       |
 //|  - Zones AUTO-CALCULATED from session open price                 |
 //|  - BUY zones  = open - spacing*1, open - spacing*2, ...         |
 //|  - SELL zones = open + spacing*1, open + spacing*2, ...         |
 //|  - Zones reset on each new session open                          |
-//|  - Zones NEVER marked used → can trigger multiple times          |
+//|                                                                  |
+//|  REBUILD OPPOSITE ZONES (new in v4.12):                         |
+//|  - Chạm BUY zone idx>=1 (zone 2+) & ExecuteEntry BUY success:  |
+//|    SELL[j] = triggerBuyPrice + spacing*2 + spacing*j            |
+//|  - Chạm SELL zone idx>=1 (zone 2+) & ExecuteEntry SELL success:|
+//|    BUY[j] = triggerSellPrice - spacing*2 - spacing*j            |
+//|  - Chạm zone 1 (idx=0): không rebuild gì                        |
+//|  - Rebuild liên tục mỗi lần vào lệnh thành công                 |
 //|                                                                  |
 //|  ENTRY:                                                          |
 //|  - Zone activates when price enters within ZoneActivationPips    |
@@ -17,7 +24,6 @@
 //|  GROUP TP (checked every tick):                                  |
 //|  - TpUSD = FixedLotSize × pip_value_per_lot × TpPips            |
 //|  - When total floating PnL >= TpUSD → close ALL positions        |
-//|  - Example XAUUSD: 0.05lot × $10/pip × 100pip = $50             |
 //|                                                                  |
 //|  GROUP SL (checked every tick):                                  |
 //|  - Total floating loss >= SlPercent% of account balance          |
@@ -27,7 +33,7 @@
 //|  - Zones remain valid; price re-enters zone + IFVG → re-enter   |
 //+------------------------------------------------------------------+
 #property copyright "TLS_IFVG EA"
-#property version   "4.11"
+#property version   "4.12"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -59,7 +65,7 @@ input double FixedLotSize   = 0.01;
 input double TpPips = 100.0;          // TP tính theo pip × FixedLotSize → ra USD cố định
 
 // Group SL
-input double SlPercent = 20.0;        // Close ALL when total floating loss >= X% of balance
+input double SlPercent = 100.0;        // Close ALL when total floating loss >= X% of balance
 
 // Execution
 input int  SlippagePoints = 30;
@@ -101,6 +107,10 @@ datetime lastSellSignalTime = 0;
 double   currentSessionOpen     = 0.0;
 datetime currentSessionOpenTime = 0;
 
+// Zone 1 gốc — lưu khi BuildZonesFromOpen, dùng để log reference
+double originalBuyZone1  = 0.0;
+double originalSellZone1 = 0.0;
+
 //=========================== UTILS ==================================
 double PipSize()
 {
@@ -134,9 +144,6 @@ bool IsNewBar()
 
 string SideText(bool isBuy) { return isBuy ? "BUY" : "SELL"; }
 
-// Tính TP theo USD cố định dựa trên FixedLotSize và TpPips
-// TpUSD = FixedLotSize × (tick_value / tick_size × pip_size) × TpPips
-// Ví dụ XAUUSD: 0.05lot × $10/pip × 100pip = $50
 double CalcTpUSD()
 {
    double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -277,7 +284,6 @@ void CheckGroupExits()
       double avgEntry = GetAverageEntry(true);
       double bid      = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-      // TP hit — tổng PnL đạt target USD
       if (floatPnL >= tpUSD)
       {
          PrintFormat("[GROUP_TP][BUY] PnL=%.2f >= TpUSD=%.2f (%.2flot × %.1fpip) | AvgEntry=%.*f",
@@ -287,7 +293,6 @@ void CheckGroupExits()
          return;
       }
 
-      // SL hit — floating loss >= SlPercent% of balance
       if (floatPnL < 0.0 && (-floatPnL) >= slLimit)
       {
          PrintFormat("[GROUP_SL][BUY] floatLoss=%.2f >= slLimit=%.2f (%.1f%% of balance=%.2f)",
@@ -305,7 +310,6 @@ void CheckGroupExits()
       double avgEntry = GetAverageEntry(false);
       double ask      = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
-      // TP hit — tổng PnL đạt target USD
       if (floatPnL >= tpUSD)
       {
          PrintFormat("[GROUP_TP][SELL] PnL=%.2f >= TpUSD=%.2f (%.2flot × %.1fpip) | AvgEntry=%.*f",
@@ -315,7 +319,6 @@ void CheckGroupExits()
          return;
       }
 
-      // SL hit
       if (floatPnL < 0.0 && (-floatPnL) >= slLimit)
       {
          PrintFormat("[GROUP_SL][SELL] floatLoss=%.2f >= slLimit=%.2f (%.1f%% of balance=%.2f)",
@@ -382,17 +385,103 @@ void BuildZonesFromOpen(double openPrice)
       buyZones[i]  = NormalizePrice(openPrice - spacing * (i + 1));
       sellZones[i] = NormalizePrice(openPrice + spacing * (i + 1));
    }
+
+   // Lưu zone 1 gốc để reference
+   originalBuyZone1  = buyZones[0];
+   originalSellZone1 = sellZones[0];
+
    buyZoneActivated  = false; sellZoneActivated  = false;
    lastBuyZoneHitPrice  = 0.0; lastBuyZoneHitIdx  = -1;
    lastSellZoneHitPrice = 0.0; lastSellZoneHitIdx = -1;
    buyZoneActivatedTime = 0;   sellZoneActivatedTime = 0;
+
    PrintFormat("[ZONE_AUTO] Built %d BUY + %d SELL from Open=%.*f (spacing=%.1f pip)",
                count, count, _Digits, openPrice, ZoneSpacingPips);
+   PrintFormat("[ZONE_AUTO] originalBuyZone1=%.*f originalSellZone1=%.*f",
+               _Digits, originalBuyZone1, _Digits, originalSellZone1);
    for (int i = 0; i < count; i++)
       PrintFormat("[ZONE_AUTO]  BUY[%d]=%.*f  SELL[%d]=%.*f",
                   i+1, _Digits, buyZones[i], i+1, _Digits, sellZones[i]);
 }
 
+//=========================== REBUILD OPPOSITE ZONES =================
+// Công thức:
+//   Chạm BUY idx>=1: SELL[j] = triggerBuyPrice + spacing*2 + spacing*j
+//   Chạm SELL idx>=1: BUY[j]  = triggerSellPrice - spacing*2 - spacing*j
+//
+// Ví dụ (Open=5139, spacing=25):
+//   BUY2(5089,idx=1) → anchor=5089+50=5139 → SELL:[5139,5164,5189,5214,5239] ✓
+//   BUY3(5064,idx=2) → anchor=5064+50=5114 → SELL:[5114,5139,5164,5189,5214] ✓
+//   SELL2(5189,idx=1)→ anchor=5189-50=5139 → BUY: [5139,5114,5089,5064,5039] ✓
+//   SELL3(5214,idx=2)→ anchor=5214-50=5164 → BUY: [5164,5139,5114,5089,5064] ✓
+void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneIdx)
+{
+   // Chỉ rebuild khi chạm zone 2 trở đi (idx >= 1)
+   if (triggerZoneIdx < 1)
+   {
+      PrintFormat("[ZONE_REBUILD] idx=%d < 1 → skip rebuild", triggerZoneIdx);
+      return;
+   }
+
+   double pip     = PipSize();
+   double spacing = ZoneSpacingPips * pip;
+   int    count   = MathMax(1, ZoneCount);
+
+   if (wasBuy)
+   {
+      // anchor = triggerBuyPrice + spacing*2
+      double anchor = triggerZonePrice + spacing * 2.0;
+
+      ArrayResize(sellZones, count);
+      ArrayResize(sellZoneHasPosition, count);
+      ArrayFill(sellZoneHasPosition, 0, count, false);
+      totalSellZones = count;
+
+      for (int j = 0; j < count; j++)
+         sellZones[j] = NormalizePrice(anchor + spacing * j);
+
+      // Reset SELL activation state toàn bộ
+      sellZoneActivated     = false;
+      lastSellZoneHitPrice  = 0.0;
+      lastSellZoneHitIdx    = -1;
+      lastSellZoneHitTime   = 0;
+      sellZoneActivatedTime = 0;
+      lastSellSignalTime    = 0;
+
+      PrintFormat("[ZONE_REBUILD][SELL] BUY[%d]=%.*f → anchor=%.*f | new SELL zones:",
+                  triggerZoneIdx+1, _Digits, triggerZonePrice, _Digits, anchor);
+      for (int j = 0; j < count; j++)
+         PrintFormat("[ZONE_REBUILD][SELL]  [%d] = %.*f", j+1, _Digits, sellZones[j]);
+   }
+   else
+   {
+      // anchor = triggerSellPrice - spacing*2
+      double anchor = triggerZonePrice - spacing * 2.0;
+
+      ArrayResize(buyZones, count);
+      ArrayResize(buyZoneHasPosition, count);
+      ArrayFill(buyZoneHasPosition, 0, count, false);
+      totalBuyZones = count;
+
+      for (int j = 0; j < count; j++)
+         buyZones[j] = NormalizePrice(anchor - spacing * j);
+
+      // Reset BUY activation state toàn bộ
+      buyZoneActivated     = false;
+      lastBuyZoneHitPrice  = 0.0;
+      lastBuyZoneHitIdx    = -1;
+      lastBuyZoneHitTime   = 0;
+      buyZoneActivatedTime = 0;
+      lastBuySignalTime    = 0;
+
+      PrintFormat("[ZONE_REBUILD][BUY] SELL[%d]=%.*f → anchor=%.*f | new BUY zones:",
+                  triggerZoneIdx+1, _Digits, triggerZonePrice, _Digits, anchor);
+      for (int j = 0; j < count; j++)
+         PrintFormat("[ZONE_REBUILD][BUY]  [%d] = %.*f", j+1, _Digits, buyZones[j]);
+   }
+}
+
+//=========================== CHECK AND UPDATE SESSION ZONES =========
 void CheckAndUpdateSessionZones()
 {
    datetime now = TimeCurrent(), sStart = 0, sEnd = 0;
@@ -432,12 +521,14 @@ void UpdateZoneActivation()
             lastBuyZoneHitIdx = nearIdx; lastBuyZoneHitTime = now;
             buyZoneActivatedTime = iTime(_Symbol, _Period, 0);
             PrintFormat("[ZONE][BUY] ACTIVATED Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
+            RebuildOppositeZones(true, nearZone, nearIdx);
          }
          else if (nearIdx != lastBuyZoneHitIdx)
          {
             lastBuyZoneHitPrice = nearZone; lastBuyZoneHitIdx = nearIdx;
             lastBuyZoneHitTime = now; buyZoneActivatedTime = iTime(_Symbol, _Period, 0);
             PrintFormat("[ZONE][BUY] SWITCH → Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
+            RebuildOppositeZones(true, nearZone, nearIdx);
          }
       }
    }
@@ -459,12 +550,14 @@ void UpdateZoneActivation()
             lastSellZoneHitIdx = nearIdx; lastSellZoneHitTime = now;
             sellZoneActivatedTime = iTime(_Symbol, _Period, 0);
             PrintFormat("[ZONE][SELL] ACTIVATED Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
+            RebuildOppositeZones(false, nearZone, nearIdx);
          }
          else if (nearIdx != lastSellZoneHitIdx)
          {
             lastSellZoneHitPrice = nearZone; lastSellZoneHitIdx = nearIdx;
             lastSellZoneHitTime = now; sellZoneActivatedTime = iTime(_Symbol, _Period, 0);
             PrintFormat("[ZONE][SELL] SWITCH → Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
+            RebuildOppositeZones(false, nearZone, nearIdx);
          }
       }
    }
@@ -555,25 +648,28 @@ void CheckIFVGSignals()
       }
       else
       {
-      bool found = false;
-      for (int i = 0; i < scanBars && !found; i++)
-      {
-         if (!MathIsValidNumber(buyTop[i]) || buyTop[i] <= 0.0 || buyTop[i] >= 1e10) continue;
-         datetime invBarTime = (datetime)invTime[i];
-         if (invBarTime <= 0) continue;
-         datetime barTime = iTime(_Symbol, _Period, i + 1);
-         if (barTime == lastBuySignalTime)    { PrintFormat("[IFVG][BUY] bar=%d SKIP already fired", i+1); continue; }
-         if (invBarTime < buyZoneActivatedTime) { PrintFormat("[IFVG][BUY] bar=%d SKIP invTime before activation", i+1); continue; }
-         if (rates[i].close <= buyTop[i])     { PrintFormat("[IFVG][BUY] bar=%d SKIP close not above top", i+1); continue; }
-         PrintFormat("[IFVG][BUY] bar=%d PASS close=%.*f > top=%.*f | invTime=%s",
-                     i+1, _Digits, rates[i].close, _Digits, buyTop[i],
-                     TimeToString(invBarTime, TIME_DATE|TIME_MINUTES));
-         lastBuySignalTime = barTime;
-         if (ExecuteEntry(true))
-            buyZoneHasPosition[lastBuyZoneHitIdx] = true;
-         found = true;
-      }
-      if (!found) PrintFormat("[IFVG][BUY] No valid signal in %d bars", scanBars);
+         bool found = false;
+         for (int i = 0; i < scanBars && !found; i++)
+         {
+            if (!MathIsValidNumber(buyTop[i]) || buyTop[i] <= 0.0 || buyTop[i] >= 1e10) continue;
+            datetime invBarTime = (datetime)invTime[i];
+            if (invBarTime <= 0) continue;
+            datetime barTime = iTime(_Symbol, _Period, i + 1);
+            if (barTime == lastBuySignalTime)     { PrintFormat("[IFVG][BUY] bar=%d SKIP already fired", i+1); continue; }
+            if (invBarTime < buyZoneActivatedTime) { PrintFormat("[IFVG][BUY] bar=%d SKIP invTime before activation", i+1); continue; }
+            if (rates[i].close <= buyTop[i])      { PrintFormat("[IFVG][BUY] bar=%d SKIP close not above top", i+1); continue; }
+            PrintFormat("[IFVG][BUY] bar=%d PASS close=%.*f > top=%.*f | invTime=%s",
+                        i+1, _Digits, rates[i].close, _Digits, buyTop[i],
+                        TimeToString(invBarTime, TIME_DATE|TIME_MINUTES));
+            lastBuySignalTime = barTime;
+
+            if (ExecuteEntry(true))
+            {
+               buyZoneHasPosition[lastBuyZoneHitIdx] = true;
+            }
+            found = true;
+         }
+         if (!found) PrintFormat("[IFVG][BUY] No valid signal in %d bars", scanBars);
       }
    }
 
@@ -592,25 +688,28 @@ void CheckIFVGSignals()
       }
       else
       {
-      bool found = false;
-      for (int i = 0; i < scanBars && !found; i++)
-      {
-         if (!MathIsValidNumber(sellTop[i]) || sellTop[i] <= 0.0 || sellTop[i] >= 1e10) continue;
-         datetime invBarTime = (datetime)invTime[i];
-         if (invBarTime <= 0) continue;
-         datetime barTime = iTime(_Symbol, _Period, i + 1);
-         if (barTime == lastSellSignalTime)    { PrintFormat("[IFVG][SELL] bar=%d SKIP already fired", i+1); continue; }
-         if (invBarTime < sellZoneActivatedTime) { PrintFormat("[IFVG][SELL] bar=%d SKIP invTime before activation", i+1); continue; }
-         if (rates[i].close >= sellBot[i])     { PrintFormat("[IFVG][SELL] bar=%d SKIP close not below bot", i+1); continue; }
-         PrintFormat("[IFVG][SELL] bar=%d PASS close=%.*f < bot=%.*f | invTime=%s",
-                     i+1, _Digits, rates[i].close, _Digits, sellBot[i],
-                     TimeToString(invBarTime, TIME_DATE|TIME_MINUTES));
-         lastSellSignalTime = barTime;
-         if (ExecuteEntry(false))
-            sellZoneHasPosition[lastSellZoneHitIdx] = true;
-         found = true;
-      }
-      if (!found) PrintFormat("[IFVG][SELL] No valid signal in %d bars", scanBars);
+         bool found = false;
+         for (int i = 0; i < scanBars && !found; i++)
+         {
+            if (!MathIsValidNumber(sellTop[i]) || sellTop[i] <= 0.0 || sellTop[i] >= 1e10) continue;
+            datetime invBarTime = (datetime)invTime[i];
+            if (invBarTime <= 0) continue;
+            datetime barTime = iTime(_Symbol, _Period, i + 1);
+            if (barTime == lastSellSignalTime)     { PrintFormat("[IFVG][SELL] bar=%d SKIP already fired", i+1); continue; }
+            if (invBarTime < sellZoneActivatedTime) { PrintFormat("[IFVG][SELL] bar=%d SKIP invTime before activation", i+1); continue; }
+            if (rates[i].close >= sellBot[i])      { PrintFormat("[IFVG][SELL] bar=%d SKIP close not below bot", i+1); continue; }
+            PrintFormat("[IFVG][SELL] bar=%d PASS close=%.*f < bot=%.*f | invTime=%s",
+                        i+1, _Digits, rates[i].close, _Digits, sellBot[i],
+                        TimeToString(invBarTime, TIME_DATE|TIME_MINUTES));
+            lastSellSignalTime = barTime;
+
+            if (ExecuteEntry(false))
+            {
+               sellZoneHasPosition[lastSellZoneHitIdx] = true;
+            }
+            found = true;
+         }
+         if (!found) PrintFormat("[IFVG][SELL] No valid signal in %d bars", scanBars);
       }
    }
 }
@@ -635,6 +734,8 @@ void UpdateChartComment()
    txt += "--------------------------------------------\n";
    txt += "Session Open : " + DoubleToString(currentSessionOpen, _Digits) +
           " @ " + TimeToString(currentSessionOpenTime, TIME_DATE|TIME_MINUTES) + "\n";
+   txt += "OrigBuyZ1    : " + DoubleToString(originalBuyZone1,  _Digits) + "\n";
+   txt += "OrigSellZ1   : " + DoubleToString(originalSellZone1, _Digits) + "\n";
    txt += "Lot Size     : " + DoubleToString(FixedLotSize, 2) + " (fixed, no SL/TP on orders)\n";
    txt += "--------------------------------------------\n";
 
@@ -795,6 +896,7 @@ int OnInit()
    trade.SetExpertMagicNumber(MagicNumber);
 
    currentSessionOpen = 0.0; currentSessionOpenTime = 0;
+   originalBuyZone1   = 0.0; originalSellZone1      = 0.0;
    totalBuyZones = 0; totalSellZones = 0;
    buyZoneActivated  = false; sellZoneActivated  = false;
    lastBuyZoneHitPrice  = 0.0; lastBuyZoneHitIdx  = -1;
