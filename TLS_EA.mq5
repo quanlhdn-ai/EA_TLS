@@ -290,6 +290,8 @@ void CheckGroupExits()
                      floatPnL, tpUSD, FixedLotSize, TpPips, _Digits, avgEntry);
          TG_SendGroupClose(true, "TP", avgEntry, bid, floatPnL);
          CloseAllPositions(true, "GROUP TP");
+         lastBuySignalTime = iTime(_Symbol, _Period, 0);
+         buyZoneActivated  = false;
          return;
       }
 
@@ -299,6 +301,8 @@ void CheckGroupExits()
                      -floatPnL, slLimit, SlPercent, balance);
          TG_SendGroupClose(true, "SL", avgEntry, bid, floatPnL);
          CloseAllPositions(true, "GROUP SL");
+         lastBuySignalTime = iTime(_Symbol, _Period, 0);
+         buyZoneActivated  = false;
          return;
       }
    }
@@ -316,6 +320,8 @@ void CheckGroupExits()
                      floatPnL, tpUSD, FixedLotSize, TpPips, _Digits, avgEntry);
          TG_SendGroupClose(false, "TP", avgEntry, ask, floatPnL);
          CloseAllPositions(false, "GROUP TP");
+         lastSellSignalTime = iTime(_Symbol, _Period, 0);
+         sellZoneActivated  = false;
          return;
       }
 
@@ -325,6 +331,8 @@ void CheckGroupExits()
                      -floatPnL, slLimit, SlPercent, balance);
          TG_SendGroupClose(false, "SL", avgEntry, ask, floatPnL);
          CloseAllPositions(false, "GROUP SL");
+         lastSellSignalTime = iTime(_Symbol, _Period, 0);
+         sellZoneActivated  = false;
          return;
       }
    }
