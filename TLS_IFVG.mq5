@@ -1,28 +1,30 @@
-//  THEORY
-//  ──────
-//  FVG = 3-candle pattern
-//
-//  Bearish FVG:  low[c1] > high[c3]
-//    Zone top    = low[c1]
-//    Zone bottom = high[c3]
-//    Invalidated (wick OR close breaks above top):
-//      high[j] > top OR close[j] > top
-//    → Becomes BULLISH IFVG (support zone for long entries)
-//    Kill: price past bottom → low[j] < bottom OR close[j] < bottom
-//
-//  Bullish FVG:  high[c1] < low[c3]
-//    Zone top    = low[c3]
-//    Zone bottom = high[c1]
-//    Invalidated (wick OR close breaks below bottom):
-//      low[j] < bottom OR close[j] < bottom
-//    → Becomes BEARISH IFVG (resistance zone for short entries)
-//    Kill: price past top → high[j] > top OR close[j] > top
-//
-//  NOTE: No "fill required before kill" — zone is killed the moment
-//        price passes the kill level, regardless of prior interaction.
-//
 //+------------------------------------------------------------------+
-#property copyright "IFVG Buy & Sell Zones"
+//|                                                    TLS_iFVG.mq5 |
+//|                    IFVG Buy & Sell Zones  v2.0                   |
+//|                                                                  |
+//|  THEORY (based on Pine IFVG_Chinh logic):                       |
+//|                                                                  |
+//|  FVG = 3-candle pattern with displacement filter                 |
+//|                                                                  |
+//|  Bearish FVG:  low[c1] > high[c3]                               |
+//|    + c2 displacement: low[c2] <= low[c1] AND high[c2] >= high[c3]
+//|    + fvg_len > ATR(20) * InpDisplacement / 10                   |
+//|    Zone top    = low[c1]                                         |
+//|    Zone bottom = high[c3]                                        |
+//|    Invalidated: close[j] > top  (close only, no wick)           |
+//|    → Becomes BULLISH IFVG (support zone for long entries)        |
+//|    Kill: close[j] < bottom  (close only, no wick)               |
+//|                                                                  |
+//|  Bullish FVG:  high[c1] < low[c3]                               |
+//|    + c2 displacement: low[c2] <= low[c3] AND high[c2] >= high[c1]
+//|    + fvg_len > ATR(20) * InpDisplacement / 10                   |
+//|    Zone top    = low[c3]   → HIGHER price (cạnh trên)           |
+//|    Zone bottom = high[c1]  → LOWER price  (cạnh dưới)           |
+//|    Invalidated: close[j] < bottom = high[c1]  (close only)      |
+//|    → Becomes BEARISH IFVG (resistance zone for short entries)    |
+//|    Kill: close[j] > top = low[c3]  (close only)                 |
+//+------------------------------------------------------------------+
+#property copyright "IFVG Buy & Sell Zones v2.0"
 #property strict
 #property indicator_chart_window
 
@@ -49,10 +51,12 @@ double BufInvTime[];
 
 //--- Inputs
 input int InpLookback = 300;
-input color InpBuyColor = C'13,186,186';
-input color InpSellColor = C'220,50,50';
+input color InpBuyColor = C '13,186,186';
+input color InpSellColor = C '220,50,50';
 input int InpAlpha = 55;
 input int InpExtendBars = 30;
+input int InpDisplacement = 3; // ATR displacement filter (same as Pine disp_x)
+input int InpAtrPeriod = 20;   // ATR period for displacement check
 
 #define PFX "IFVG4_"
 
@@ -106,6 +110,30 @@ int OnInit()
 void OnDeinit(const int reason) { ChartClean(); }
 
 //+------------------------------------------------------------------+
+//| ATR-based displacement check (Pine: avg_over * disp_x / 10)     |
+//| fvg_len > sum(high[i]-low[i], 0..period) / period * disp / 10   |
+//+------------------------------------------------------------------+
+double CalcATR(const double &high[], const double &low[], int bar, int period)
+{
+   if (bar < period)
+      return 0.0;
+   double sum = 0.0;
+   for (int i = bar - period; i < bar; i++)
+      sum += high[i] - low[i];
+   return sum / period;
+}
+
+bool PassDisplacement(double fvgLen, const double &high[], const double &low[], int bar)
+{
+   if (InpDisplacement <= 0)
+      return true;
+   double atr = CalcATR(high, low, bar, InpAtrPeriod);
+   if (atr <= 0.0)
+      return true;
+   return fvgLen > atr * InpDisplacement / 10.0;
+}
+
+//+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
                 const datetime &time[],
@@ -117,7 +145,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
 {
-   if (rates_total < 5)
+   if (rates_total < InpAtrPeriod + 5)
       return 0;
 
    int resetFrom = (prev_calculated > 1) ? prev_calculated - 1 : 0;
@@ -127,6 +155,7 @@ int OnCalculate(const int rates_total,
       BufBuyBot[i] = EMPTY_VALUE;
       BufSellTop[i] = EMPTY_VALUE;
       BufSellBot[i] = EMPTY_VALUE;
+      BufInvTime[i] = 0.0;
    }
 
    if (prev_calculated == 0)
@@ -136,56 +165,69 @@ int OnCalculate(const int rates_total,
       ArrayResize(g_zones, 0);
    }
 
-   int from = MathMax(1, rates_total - InpLookback);
+   int from = MathMax(InpAtrPeriod + 2, rates_total - InpLookback);
 
    // ================================================================
-   // PASS 1 – Detect new FVGs
+   // PASS 1 – Detect new FVGs with displacement + c2 touch filter
    // ================================================================
    for (int i = from; i <= rates_total - 2; i++)
    {
       int c1 = i - 1, c2 = i, c3 = i + 1;
 
       //--- Bearish FVG → future BULLISH IFVG
-      //    Condition: gap between c1 low and c3 high
+      //    Gap: low[c1] > high[c3]
+      //    c2 touches gap: low[c2] <= low[c1] AND high[c2] >= high[c3]
+      //    (Pine: tf_l.get(1) <= tf_h.get(2) AND tf_h.get(1) >= tf_l.get(0))
       if (low[c1] > high[c3] && ZoneByC2(c2, ZONE_BUY) < 0)
       {
-         int k = g_count;
-         ArrayResize(g_zones, k + 1);
-         g_zones[k].c2 = c2;
-         g_zones[k].top = low[c1];
-         g_zones[k].bottom = high[c3];
-         g_zones[k].inv_bar = -1;
-         g_zones[k].alive = false;
-         g_zones[k].drawn = false;
-         g_zones[k].ztype = ZONE_BUY;
-         g_count++;
+         double fvgLen = low[c1] - high[c3];
+         bool c2touch = (low[c2] <= low[c1]) && (high[c2] >= high[c3]);
+         if (c2touch && PassDisplacement(fvgLen, high, low, c2))
+         {
+            int k = g_count;
+            ArrayResize(g_zones, k + 1);
+            g_zones[k].c2 = c2;
+            g_zones[k].top = low[c1];
+            g_zones[k].bottom = high[c3];
+            g_zones[k].inv_bar = -1;
+            g_zones[k].alive = false;
+            g_zones[k].drawn = false;
+            g_zones[k].ztype = ZONE_BUY;
+            g_count++;
+         }
       }
 
       //--- Bullish FVG → future BEARISH IFVG
-      //    Condition: gap between c1 high and c3 low
+      //    Gap: high[c1] < low[c3]
+      //    c2 touches gap: low[c2] <= low[c3] AND high[c2] >= high[c1]
+      //    Zone top    = low[c3]  → HIGHER price (cạnh trên thực sự)
+      //    Zone bottom = high[c1] → LOWER price  (cạnh dưới thực sự)
+      //    Invalidated: close < bottom (close < high[c1])
       if (high[c1] < low[c3] && ZoneByC2(c2, ZONE_SELL) < 0)
       {
-         int k = g_count;
-         ArrayResize(g_zones, k + 1);
-         g_zones[k].c2 = c2;
-         g_zones[k].top = low[c3];
-         g_zones[k].bottom = high[c1];
-         g_zones[k].inv_bar = -1;
-         g_zones[k].alive = false;
-         g_zones[k].drawn = false;
-         g_zones[k].ztype = ZONE_SELL;
-         g_count++;
+         double fvgLen = low[c3] - high[c1];
+         bool c2touch = (low[c2] <= low[c3]) && (high[c2] >= high[c1]);
+         if (c2touch && PassDisplacement(fvgLen, high, low, c2))
+         {
+            int k = g_count;
+            ArrayResize(g_zones, k + 1);
+            g_zones[k].c2 = c2;
+            g_zones[k].top = low[c3];     // higher price = cạnh trên
+            g_zones[k].bottom = high[c1]; // lower price  = cạnh dưới
+            g_zones[k].inv_bar = -1;
+            g_zones[k].alive = false;
+            g_zones[k].drawn = false;
+            g_zones[k].ztype = ZONE_SELL;
+            g_count++;
+         }
       }
    }
 
    // ================================================================
-   // PASS 2 – Find inv_bar for unresolved zones
+   // PASS 2 – Find inv_bar (CLOSE only, no wick — Pine logic)
    //
-   //   BULLISH IFVG: Bearish FVG broken when wick or close > top
-   //     high[j] > top OR close[j] > top
-   //
-   //   BEARISH IFVG: Bullish FVG broken when wick or close < bottom
-   //     low[j] < bottom OR close[j] < bottom
+   //   BULLISH IFVG: Bearish FVG broken when close > top
+   //   BEARISH IFVG: Bullish FVG broken when close < bottom
    // ================================================================
    for (int k = 0; k < g_count; k++)
    {
@@ -200,7 +242,8 @@ int OnCalculate(const int rates_total,
       {
          if (g_zones[k].ztype == ZONE_BUY)
          {
-            if (high[j] > zt || close[j] > zt)
+            // Bearish FVG invalidated: close breaks above top (close only)
+            if (close[j] > zt)
             {
                g_zones[k].inv_bar = j;
                g_zones[k].alive = true;
@@ -209,7 +252,9 @@ int OnCalculate(const int rates_total,
          }
          else
          {
-            if (low[j] < zb || close[j] < zb)
+            // Bullish FVG invalidated: close breaks below bottom = high[c1] (close only)
+            // bottom = high[c1] = lower edge of the gap
+            if (close[j] < zb)
             {
                g_zones[k].inv_bar = j;
                g_zones[k].alive = true;
@@ -236,18 +281,12 @@ int OnCalculate(const int rates_total,
    }
 
    // ================================================================
-   // PASS 4 – Kill zone if price passes the kill level
+   // PASS 4 – Kill zone (CLOSE only — Pine logic)
    //
-   //   BULLISH IFVG killed when price falls past bottom:
-   //     low[j] < bottom OR close[j] < bottom
+   //   BULLISH IFVG killed: close < bottom
+   //   BEARISH IFVG killed: close > top
    //
-   //   BEARISH IFVG killed when price rises past top:
-   //     high[j] > top OR close[j] > top
-   //
-   //   No "fill required" — zone is killed the moment price
-   //   crosses the kill level, regardless of prior interaction.
-   //   Scan starts at inv_bar+1 — the inv_bar itself is the bar
-   //   that broke the FVG, not a valid kill candidate.
+   //   Scan starts at inv_bar+1
    // ================================================================
    for (int k = 0; k < g_count; k++)
    {
@@ -265,8 +304,8 @@ int OnCalculate(const int rates_total,
       {
          if (g_zones[k].ztype == ZONE_BUY)
          {
-            // Bullish IFVG killed: price falls past bottom (wick or close)
-            if (low[j] < zb || close[j] < zb)
+            // Bullish IFVG killed: close falls past bottom (close only)
+            if (close[j] < zb)
             {
                g_zones[k].alive = false;
                TrimZone(k, time[j]);
@@ -275,8 +314,8 @@ int OnCalculate(const int rates_total,
          }
          else
          {
-            // Bearish IFVG killed: price rises past top (wick or close)
-            if (high[j] > zt || close[j] > zt)
+            // Bearish IFVG killed: close rises past top (close only)
+            if (close[j] > zt)
             {
                g_zones[k].alive = false;
                TrimZone(k, time[j]);
@@ -287,7 +326,7 @@ int OnCalculate(const int rates_total,
    }
 
    // ================================================================
-   // PASS 5 – Fill buffers cho alive zones
+   // PASS 5 – Fill buffers for alive zones
    // ================================================================
    datetime t_right = time[rates_total - 1] + (datetime)(PeriodSeconds() * InpExtendBars);
 
@@ -299,7 +338,6 @@ int OnCalculate(const int rates_total,
       if (inv < 0)
          continue;
 
-      // Fill from inv_bar to current bar
       for (int bar = inv; bar < rates_total; bar++)
       {
          if (!g_zones[k].alive)
@@ -317,18 +355,10 @@ int OnCalculate(const int rates_total,
          }
          BufInvTime[bar] = (bar == inv) ? (double)time[inv] : 0.0;
       }
+
       string rn = ZoneRectName(k);
       if (ObjectFind(0, rn) >= 0)
          ObjectSetInteger(0, rn, OBJPROP_TIME, 1, t_right);
-   }
-
-   int filledBuy = 0, filledSell = 0;
-   for (int i = 0; i < rates_total; i++)
-   {
-      if (BufBuyTop[i] != EMPTY_VALUE)
-         filledBuy++;
-      if (BufSellTop[i] != EMPTY_VALUE)
-         filledSell++;
    }
 
    ChartRedraw(0);

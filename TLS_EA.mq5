@@ -54,6 +54,8 @@ input color  IFVGSellColor      = C'220,50,50';
 input int    IFVGAlpha          = 55;
 input int    IFVGExtendBars     = 30;
 input int    ForceReinitMinutes = 60;
+input int IFVGDisplacement  = 3;
+input int IFVGAtrPeriod     = 20;
 
 // Display
 input bool IsShowChartComment = true;
@@ -162,8 +164,9 @@ void ForceReinitIndicators()
    if (ifvgHandle != INVALID_HANDLE) { IndicatorRelease(ifvgHandle); ifvgHandle = INVALID_HANDLE; }
    Sleep(200);
    ifvgHandle = iCustom(_Symbol, _Period, IFVGIndicatorName,
-                        IFVGLookback, IFVGBuyColor, IFVGSellColor,
-                        IFVGAlpha, IFVGExtendBars);
+                     IFVGLookback, IFVGBuyColor, IFVGSellColor,
+                     IFVGAlpha, IFVGExtendBars,
+                     IFVGDisplacement, IFVGAtrPeriod);
    if (ifvgHandle == INVALID_HANDLE)
       PrintFormat("[REINIT] FAILED!");
    else
@@ -699,14 +702,14 @@ void CheckIFVGSignals()
          bool found = false;
          for (int i = 0; i < scanBars && !found; i++)
          {
-            if (!MathIsValidNumber(sellTop[i]) || sellTop[i] <= 0.0 || sellTop[i] >= 1e10) continue;
+            if (!MathIsValidNumber(sellBot[i]) || sellBot[i] <= 0.0 || sellBot[i] >= 1e10) continue;
             datetime invBarTime = (datetime)invTime[i];
             if (invBarTime <= 0) continue;
             datetime barTime = iTime(_Symbol, _Period, i + 1);
             if (barTime == lastSellSignalTime)     { PrintFormat("[IFVG][SELL] bar=%d SKIP already fired", i+1); continue; }
             if (invBarTime < sellZoneActivatedTime) { PrintFormat("[IFVG][SELL] bar=%d SKIP invTime before activation", i+1); continue; }
-            if (rates[i].close >= sellBot[i])      { PrintFormat("[IFVG][SELL] bar=%d SKIP close not below bot", i+1); continue; }
-            PrintFormat("[IFVG][SELL] bar=%d PASS close=%.*f < bot=%.*f | invTime=%s",
+            if (rates[i].close >= sellBot[i])      { PrintFormat("[IFVG][SELL] bar=%d SKIP close not below bottom", i+1); continue; }
+            PrintFormat("[IFVG][SELL] bar=%d PASS close=%.*f < bottom=%.*f | invTime=%s",
                         i+1, _Digits, rates[i].close, _Digits, sellBot[i],
                         TimeToString(invBarTime, TIME_DATE|TIME_MINUTES));
             lastSellSignalTime = barTime;
