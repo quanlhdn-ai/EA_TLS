@@ -170,7 +170,7 @@ int OnCalculate(const int rates_total,
    // ================================================================
    // PASS 1 – Detect new FVGs with displacement + c2 touch filter
    // ================================================================
-   for (int i = from; i <= rates_total - 2; i++)
+   for (int i = from; i <= rates_total - 3; i++)
    {
       int c1 = i - 1, c2 = i, c3 = i + 1;
 
@@ -238,7 +238,7 @@ int OnCalculate(const int rates_total,
       double zt = g_zones[k].top;
       double zb = g_zones[k].bottom;
 
-      for (int j = c3start + 1; j < rates_total; j++)
+      for (int j = c3start + 1; j < rates_total - 1; j++)
       {
          if (g_zones[k].ztype == ZONE_BUY)
          {
@@ -300,7 +300,7 @@ int OnCalculate(const int rates_total,
       if (jstart >= rates_total)
          continue;
 
-      for (int j = jstart; j < rates_total; j++)
+      for (int j = jstart; j < rates_total - 1; j++)
       {
          if (g_zones[k].ztype == ZONE_BUY)
          {
