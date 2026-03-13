@@ -891,8 +891,9 @@ void OnTradeTransaction(const MqlTradeTransaction &t,
 int OnInit()
 {
    ifvgHandle = iCustom(_Symbol, _Period, IFVGIndicatorName,
-                        IFVGLookback, IFVGBuyColor, IFVGSellColor,
-                        IFVGAlpha, IFVGExtendBars);
+                     IFVGLookback, IFVGBuyColor, IFVGSellColor,
+                     IFVGAlpha, IFVGExtendBars,
+                     IFVGDisplacement, IFVGAtrPeriod);
    if (ifvgHandle == INVALID_HANDLE)
    {
       PrintFormat("[INIT] FAILED to load '%s' err=%d", IFVGIndicatorName, GetLastError());
