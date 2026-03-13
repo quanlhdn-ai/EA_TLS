@@ -58,6 +58,8 @@ input color IFVGSellColor = C'220,50,50';
 input int IFVGAlpha = 55;
 input int IFVGExtendBars = 30;
 input int ForceReinitMinutes = 60;
+input int IFVGDisplacement  = 3;
+input int IFVGAtrPeriod     = 20;
 
 // Display
 input bool IsShowChartComment = true;
@@ -198,8 +200,9 @@ void ForceReinitIndicators()
    Sleep(200);
 
    ifvgHandle = iCustom(_Symbol, _Period, IFVGIndicatorName,
-                        IFVGLookback, IFVGBuyColor, IFVGSellColor,
-                        IFVGAlpha, IFVGExtendBars);
+                     IFVGLookback, IFVGBuyColor, IFVGSellColor,
+                     IFVGAlpha, IFVGExtendBars,
+                     IFVGDisplacement, IFVGAtrPeriod);
 
    if(ifvgHandle == INVALID_HANDLE)
    {
@@ -1214,8 +1217,9 @@ void OnTradeTransaction(const MqlTradeTransaction &t,
 int OnInit()
 {
    ifvgHandle = iCustom(_Symbol, _Period, IFVGIndicatorName,
-                        IFVGLookback, IFVGBuyColor, IFVGSellColor,
-                        IFVGAlpha, IFVGExtendBars);
+                     IFVGLookback, IFVGBuyColor, IFVGSellColor,
+                     IFVGAlpha, IFVGExtendBars,
+                     IFVGDisplacement, IFVGAtrPeriod);
    if (ifvgHandle == INVALID_HANDLE)
    {
       PrintFormat("[INIT] FAILED to load IFVG indicator '%s' err=%d", IFVGIndicatorName, GetLastError());
