@@ -428,9 +428,9 @@ void BuildZonesFromOpen(double openPrice)
 void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneIdx)
 {
    // Chỉ rebuild khi chạm zone 2 trở đi (idx >= 1)
-   if (triggerZoneIdx < 1)
+   if (triggerZoneIdx < 0)
    {
-      PrintFormat("[ZONE_REBUILD] idx=%d < 1 → skip rebuild", triggerZoneIdx);
+      PrintFormat("[ZONE_REBUILD] idx=%d < 0 → skip rebuild", triggerZoneIdx);
       return;
    }
 
@@ -441,7 +441,7 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
    if (wasBuy)
    {
       // anchor = triggerBuyPrice + spacing*2
-      double anchor = triggerZonePrice + spacing * 2.0;
+      double anchor = triggerZonePrice + spacing;
 
       ArrayResize(sellZones, count);
       ArrayResize(sellZoneHasPosition, count);
@@ -467,7 +467,7 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
    else
    {
       // anchor = triggerSellPrice - spacing*2
-      double anchor = triggerZonePrice - spacing * 2.0;
+      double anchor = triggerZonePrice - spacing;
 
       ArrayResize(buyZones, count);
       ArrayResize(buyZoneHasPosition, count);
