@@ -121,6 +121,7 @@ int lastSellZoneHitIdx = -1;
 datetime buyZoneActivatedTime = 0;
 datetime sellZoneActivatedTime = 0;
 datetime lastReinitTime = 0;
+datetime lastResetDate = 0;
 
 int ifvgHandle = INVALID_HANDLE;
 
@@ -227,6 +228,44 @@ void ForceReinitIndicators()
    PrintFormat("[REINIT] Done | IFVG=%d", ifvgHandle);
 }
 //=========================== ZONE USED FILE =========================
+void CheckDailyReset()
+{
+   MqlDateTime now;
+   TimeToStruct(TimeCurrent(), now);
+   datetime todayMidnight = StringToTime(StringFormat("%04d.%02d.%02d 00:00", now.year, now.mon, now.day));
+
+   if (lastResetDate == todayMidnight)
+      return;
+
+   lastResetDate = todayMidnight;
+   PrintFormat("[RESET] New day → clearing all zones");
+
+   // Xóa file used zones
+   FileDelete(ZONE_USED_FILE);
+   ArrayResize(usedZones, 0);
+   totalUsedZones = 0;
+
+   // Clear working arrays → EA không có zone nào
+   ArrayResize(buyZones, 0);
+   ArrayResize(sellZones, 0);
+   ArrayResize(buyZonesUsed, 0);
+   ArrayResize(sellZonesUsed, 0);
+   totalBuyZones = 0;
+   totalSellZones = 0;
+
+   // Reset activation state
+   buyZoneActivated = false;
+   sellZoneActivated = false;
+   lastBuyZoneHitPrice = 0.0;
+   lastBuyZoneHitIdx = -1;
+   lastSellZoneHitPrice = 0.0;
+   lastSellZoneHitIdx = -1;
+   buyZoneActivatedTime = 0;
+   sellZoneActivatedTime = 0;
+   lastBuySignalTime = 0;
+   lastSellSignalTime = 0;
+}
+
 void LoadZoneUsedFromFile()
 {
    ArrayResize(usedZones, 0);
@@ -1152,6 +1191,11 @@ int OnInit()
    buyZoneActivatedTime = 0;
    sellZoneActivatedTime = 0;
 
+   MqlDateTime now;
+   TimeToStruct(TimeCurrent(), now);
+   lastResetDate = StringToTime(StringFormat("%04d.%02d.%02d 00:00", now.year, now.mon, now.day));
+   PrintFormat("[INIT] lastResetDate set to %s", TimeToString(lastResetDate, TIME_DATE));
+
    return INIT_SUCCEEDED;
 }
 
@@ -1166,6 +1210,7 @@ void OnDeinit(const int reason)
 //=========================== TICK ===================================
 void OnTick()
 {
+   CheckDailyReset();
    ForceReinitIndicators();
    ManageBreakEven();
    UpdateZoneActivation();
