@@ -50,6 +50,8 @@ double lastSellZoneHitPrice = 0.0;
 int lastSellZoneHitIdx = -1;
 datetime buyZoneActivatedTime = 0;
 datetime sellZoneActivatedTime = 0;
+datetime lastSellZoneActivatedTime = 0;
+datetime lastBuyZoneActivatedTime = 0;
 
 int ifvgHandle = INVALID_HANDLE;
 
@@ -542,6 +544,7 @@ void UpdateZoneActivation()
             lastBuyZoneHitIdx = nearIdx;
             lastBuyZoneHitTime = now;
             buyZoneActivatedTime = now;
+            lastBuyZoneActivatedTime = now;
             PrintFormat("[ZONE][BUY] ACTIVATED Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
             RebuildOppositeZones(true, nearZone, nearIdx);
          }
@@ -551,6 +554,7 @@ void UpdateZoneActivation()
             lastBuyZoneHitIdx = nearIdx;
             lastBuyZoneHitTime = now;
             buyZoneActivatedTime = now;
+            lastBuyZoneActivatedTime = now;
             PrintFormat("[ZONE][BUY] SWITCH → Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
             RebuildOppositeZones(true, nearZone, nearIdx);
          }
@@ -582,6 +586,7 @@ void UpdateZoneActivation()
             lastSellZoneHitIdx = nearIdx;
             lastSellZoneHitTime = now;
             sellZoneActivatedTime = now;
+            lastSellZoneActivatedTime = now;
             PrintFormat("[ZONE][SELL] ACTIVATED Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
             RebuildOppositeZones(false, nearZone, nearIdx);
          }
@@ -591,6 +596,7 @@ void UpdateZoneActivation()
             lastSellZoneHitIdx = nearIdx;
             lastSellZoneHitTime = now;
             sellZoneActivatedTime = now;
+            lastSellZoneActivatedTime = now;
             PrintFormat("[ZONE][SELL] SWITCH → Zone=%.*f Idx=%d", _Digits, nearZone, nearIdx);
             RebuildOppositeZones(false, nearZone, nearIdx);
          }
@@ -710,7 +716,13 @@ void CheckIFVGSignals()
 
    if (buyZoneActivated && lastBuyZoneHitIdx >= 0 && lastBuyZoneHitIdx < totalBuyZones)
    {
-      if (buyZoneHasPosition[lastBuyZoneHitIdx])
+      if (lastSellZoneActivatedTime > lastBuyZoneActivatedTime)
+      {
+         PrintFormat("[IFVG][BUY] SKIP: SELL zone hit lúc %s sau BUY zone %s → chờ BUY zone hit lại",
+                     TimeToString(lastSellZoneActivatedTime, TIME_DATE | TIME_MINUTES),
+                     TimeToString(lastBuyZoneActivatedTime, TIME_DATE | TIME_MINUTES));
+      }
+      else if (buyZoneHasPosition[lastBuyZoneHitIdx])
       {
          PrintFormat("[IFVG][BUY] SKIP: zone idx=%d đang có lệnh mở, chờ đóng mới vào lại",
                      lastBuyZoneHitIdx);
@@ -765,7 +777,13 @@ void CheckIFVGSignals()
 
    if (sellZoneActivated && lastSellZoneHitIdx >= 0 && lastSellZoneHitIdx < totalSellZones)
    {
-      if (sellZoneHasPosition[lastSellZoneHitIdx])
+      if (lastBuyZoneActivatedTime > lastSellZoneActivatedTime)
+      {
+         PrintFormat("[IFVG][SELL] SKIP: BUY zone hit lúc %s sau SELL zone %s → chờ SELL zone hit lại",
+                     TimeToString(lastBuyZoneActivatedTime, TIME_DATE | TIME_MINUTES),
+                     TimeToString(lastSellZoneActivatedTime, TIME_DATE | TIME_MINUTES));
+      }
+      else if (sellZoneHasPosition[lastSellZoneHitIdx])
       {
          PrintFormat("[IFVG][SELL] SKIP: zone idx=%d đang có lệnh mở, chờ đóng mới vào lại",
                      lastSellZoneHitIdx);
