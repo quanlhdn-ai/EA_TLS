@@ -880,7 +880,7 @@ void CheckIFVGSignals()
          PrintFormat("[IFVG][BUY] zoneIdx=%d | scanning %d bars", zoneIdx, scanBars);
          bool foundSignal = false;
 
-         for (int i = 0; i < scanBars; i++)
+         for (int i = 0; i < 1; i++)
          {
             if (!MathIsValidNumber(buyTop[i]) || buyTop[i] <= 0 || buyTop[i] >= 1e10)
                continue;
@@ -947,7 +947,7 @@ void CheckIFVGSignals()
          PrintFormat("[IFVG][SELL] zoneIdx=%d | scanning %d bars", zoneIdx, scanBars);
          bool foundSignal = false;
 
-         for (int i = 0; i < scanBars; i++)
+         for (int i = 0; i < 1; i++)
          {
             if (!MathIsValidNumber(sellTop[i]) || sellTop[i] <= 0 || sellTop[i] >= 1e10)
                continue;
