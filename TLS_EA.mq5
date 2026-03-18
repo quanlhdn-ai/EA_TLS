@@ -8,7 +8,7 @@ CTrade trade;
 //=========================== INPUTS =================================
 // IFVG Indicator
 input string IFVGIndicatorName = "TLS_iFVG";
-input int IFVGLookback = 300;
+input int IFVGLookback = 50;
 input color IFVGBuyColor = C'13,186,186';
 input color IFVGSellColor = C'220,50,50';
 input int IFVGAlpha = 55;
@@ -455,7 +455,6 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       lastSellZoneHitIdx = -1;
       lastSellZoneHitTime = 0;
       sellZoneActivatedTime = 0;
-      lastSellSignalTime = 0;
 
       PrintFormat("[ZONE_REBUILD][SELL] BUY[%d]=%.*f → anchor=%.*f | new SELL zones:",
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
@@ -481,7 +480,6 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       lastBuyZoneHitIdx = -1;
       lastBuyZoneHitTime = 0;
       buyZoneActivatedTime = 0;
-      lastBuySignalTime = 0;
 
       PrintFormat("[ZONE_REBUILD][BUY] SELL[%d]=%.*f → anchor=%.*f | new BUY zones:",
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
