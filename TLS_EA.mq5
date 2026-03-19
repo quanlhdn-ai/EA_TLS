@@ -49,8 +49,8 @@ input bool TG_IncludeManual = false;
 // IFVG Indicator
 input string IFVGIndicatorName = "TLS_iFVG";
 input int IFVGLookback = 300;
-input color IFVGBuyColor = C '13,186,186';
-input color IFVGSellColor = C '220,50,50';
+input color IFVGBuyColor = C'13,186,186';
+input color IFVGSellColor = C'220,50,50';
 input int IFVGAlpha = 55;
 input int IFVGExtendBars = 30;
 input int ForceReinitMinutes = 60;
@@ -527,8 +527,13 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       ArrayFill(sellZoneHasPosition, 0, count, false);
       totalSellZones = count;
 
+      // Rebuild SELL zones
       for (int j = 0; j < count; j++)
          sellZones[j] = NormalizePrice(anchor + spacing * j);
+
+      // Rebuild BUY zones — trigger trở thành buy[0]
+      for (int j = 0; j < count; j++)
+         buyZones[j] = NormalizePrice(triggerZonePrice - spacing * j);
 
       // Reset SELL activation state toàn bộ
       sellZoneActivated = false;
@@ -553,8 +558,13 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       ArrayFill(buyZoneHasPosition, 0, count, false);
       totalBuyZones = count;
 
+      // Rebuild BUY zones
       for (int j = 0; j < count; j++)
          buyZones[j] = NormalizePrice(anchor - spacing * j);
+
+      // Rebuild SELL zones — trigger trở thành sell[0]
+      for (int j = 0; j < count; j++)
+         sellZones[j] = NormalizePrice(triggerZonePrice + spacing * j);
 
       // Reset BUY activation state toàn bộ
       buyZoneActivated = false;
