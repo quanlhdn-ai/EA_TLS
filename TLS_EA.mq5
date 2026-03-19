@@ -15,6 +15,7 @@ input int IFVGAlpha = 55;
 input int IFVGExtendBars = 30;
 input int IFVGDisplacement = 3;
 input int IFVGAtrPeriod = 20;
+input double IFVGMaxDistancePips = 20.0;
 
 // Display
 input bool IsShowChartComment = true;
@@ -761,6 +762,14 @@ void CheckIFVGSignals()
                continue;
             }
 
+            double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            if (currentBid > buyTop[i] + IFVGMaxDistancePips * PipSize())
+            {
+               PrintFormat("[IFVG][BUY] bar=%d SKIP IFVG too far top=%.%df bid=%.%df",
+                           i + 1, _Digits, buyTop[i], _Digits, currentBid);
+               continue;
+            }
+
             if (rates[i].close <= buyTop[i])
             {
                PrintFormat("[IFVG][BUY] bar=%d SKIP close not above top", i + 1);
@@ -832,6 +841,14 @@ void CheckIFVGSignals()
             if (NormalizeDouble(sellBot[i], _Digits) == NormalizeDouble(lastSellIFVGBottom, _Digits))
             {
                PrintFormat("[IFVG][SELL] bar=%d SKIP same IFVG bottom=%.%df already used", i + 1, _Digits, sellBot[i]);
+               continue;
+            }
+
+            double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            if (currentAsk < sellBot[i] - IFVGMaxDistancePips * PipSize())
+            {
+               PrintFormat("[IFVG][SELL] bar=%d SKIP IFVG too far bottom=%.%df ask=%.%df",
+                           i + 1, _Digits, sellBot[i], _Digits, currentAsk);
                continue;
             }
 
@@ -979,6 +996,8 @@ int OnInit()
    sellZoneActivatedTime = 0;
    lastSellIFVGBottom = 0.0;
    lastBuyIFVGTop = 0.0;
+   lastSellZoneActivatedTime = 0;
+   lastBuyZoneActivatedTime = 0;
    CheckAndUpdateSessionZones();
 
    lastBuySignalTime = iTime(_Symbol, _Period, 1);
