@@ -770,21 +770,23 @@ void CheckIFVGSignals()
 
             if (NormalizeDouble(buyTop[i], _Digits) == NormalizeDouble(lastBuyIFVGTop, _Digits))
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP same IFVG top=%.%df already used", i + 1, _Digits, buyTop[i]);
+               PrintFormat("[IFVG][BUY] bar=%d SKIP same IFVG top=%.*f already used", i + 1, _Digits, buyTop[i]);
                continue;
             }
 
             double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
             if (currentBid > buyTop[i] + IFVGMaxDistancePips * PipSize())
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP IFVG too far top=%.%df bid=%.%df",
+               PrintFormat("[IFVG][BUY] bar=%d SKIP IFVG too far top=%.*f bid=%.*f",
                            i + 1, _Digits, buyTop[i], _Digits, currentBid);
+               lastBuyIFVGTop = buyTop[i];
                continue;
             }
 
             if (rates[i].close <= buyTop[i])
             {
                PrintFormat("[IFVG][BUY] bar=%d SKIP close not above top", i + 1);
+               lastBuyIFVGTop = buyTop[i];
                continue;
             }
             PrintFormat("[IFVG][BUY] bar=%d PASS close=%.*f > top=%.*f | invTime=%s",
@@ -852,21 +854,23 @@ void CheckIFVGSignals()
             // Sau filter threshold:
             if (NormalizeDouble(sellBot[i], _Digits) == NormalizeDouble(lastSellIFVGBottom, _Digits))
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP same IFVG bottom=%.%df already used", i + 1, _Digits, sellBot[i]);
+               PrintFormat("[IFVG][SELL] bar=%d SKIP same IFVG bottom=%.*f already used", i + 1, _Digits, sellBot[i]);
                continue;
             }
 
             double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
             if (currentAsk < sellBot[i] - IFVGMaxDistancePips * PipSize())
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP IFVG too far bottom=%.%df ask=%.%df",
+               PrintFormat("[IFVG][SELL] bar=%d SKIP IFVG too far bottom=%.*f ask=%.*f",
                            i + 1, _Digits, sellBot[i], _Digits, currentAsk);
+               lastSellIFVGBottom = sellBot[i];
                continue;
             }
 
             if (rates[i].close >= sellBot[i])
             {
                PrintFormat("[IFVG][SELL] bar=%d SKIP close not below bottom", i + 1);
+               lastSellIFVGBottom = sellBot[i];
                continue;
             }
             PrintFormat("[IFVG][SELL] bar=%d PASS close=%.*f < bottom=%.*f | invTime=%s",
