@@ -464,6 +464,7 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       lastSellZoneHitTime = 0;
       sellZoneActivatedTime = 0;
       lastSellIFVGBottom = 0.0;
+      lastBuyIFVGTop = 0.0;
 
       PrintFormat("[ZONE_REBUILD][SELL] BUY[%d]=%.*f → anchor=%.*f | new SELL zones:",
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
@@ -495,6 +496,7 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       lastBuyZoneHitTime = 0;
       buyZoneActivatedTime = 0;
       lastBuyIFVGTop = 0.0;
+      lastSellIFVGBottom = 0.0;
 
       PrintFormat("[ZONE_REBUILD][BUY] SELL[%d]=%.*f → anchor=%.*f | new BUY zones:",
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
