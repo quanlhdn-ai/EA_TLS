@@ -757,6 +757,16 @@ void CheckIFVGSignals()
             if (invTime[i] <= 0)
                continue;
             datetime ifvgBuyTime = (datetime)invTime[i];
+
+            if (lastSellZoneActivatedTime > 0 &&
+                ifvgBuyTime > lastSellZoneActivatedTime &&
+                ifvgBuyTime < buyZoneActivatedTime)
+            {
+               PrintFormat("[IFVG][BUY] bar=%d SKIP IFVG formed during SELL zone context", i + 1);
+               lastBuyIFVGTop = buyTop[i];
+               continue;
+            }
+            
             datetime barTime = iTime(_Symbol, _Period, i + 1);
             if (barTime == lastBuySignalTime)
             {
@@ -841,6 +851,16 @@ void CheckIFVGSignals()
             if (invTime[i] <= 0)
                continue;
             datetime ifvgSellTime = (datetime)invTime[i];
+
+            if (lastBuyZoneActivatedTime > 0 &&
+                ifvgSellTime > lastBuyZoneActivatedTime &&
+                ifvgSellTime < sellZoneActivatedTime)
+            {
+               PrintFormat("[IFVG][SELL] bar=%d SKIP IFVG formed during BUY zone context", i + 1);
+               lastSellIFVGBottom = sellBot[i];
+               continue;
+            }
+
             datetime barTime = iTime(_Symbol, _Period, i + 1);
             if (barTime == lastSellSignalTime)
             {
