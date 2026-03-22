@@ -755,13 +755,6 @@ void CheckIFVGSignals()
       return;
    }
 
-   MqlRates rates[];
-   if (CopyRates(_Symbol, _Period, 1, scanBars, rates) != scanBars)
-   {
-      PrintFormat("[IFVG][WARN] rates");
-      return;
-   }
-
    // ----- BUY -----
    PrintFormat("[IFVG][BUY] ZoneActive=%s activatedTime=%s lastSignal=%s",
                buyZoneActivated ? "YES" : "NO",
@@ -790,7 +783,18 @@ void CheckIFVGSignals()
                continue;
             if (invTime[i] <= 0)
                continue;
+
             datetime ifvgBuyTime = (datetime)invTime[i];
+
+            datetime lastClosedBarTime = iTime(_Symbol, _Period, 1);
+            if (ifvgBuyTime != lastClosedBarTime)
+            {
+               PrintFormat("[IFVG][BUY] bar=%d SKIP repaint invTime=%s != lastBar=%s",
+                           i + 1,
+                           TimeToString(ifvgBuyTime, TIME_DATE | TIME_MINUTES),
+                           TimeToString(lastClosedBarTime, TIME_DATE | TIME_MINUTES));
+               continue;
+            }
 
             if (lastSellZoneActivatedTime > 0 &&
                 ifvgBuyTime > lastSellZoneActivatedTime &&
@@ -800,7 +804,7 @@ void CheckIFVGSignals()
                lastBuyIFVGTop = buyTop[i];
                continue;
             }
-            
+
             datetime barTime = iTime(_Symbol, _Period, i + 1);
             if (barTime == lastBuySignalTime)
             {
@@ -840,14 +844,14 @@ void CheckIFVGSignals()
                continue;
             }
 
-            if (rates[i].close <= buyTop[i])
+            if (currentBid <= buyTop[i])
             {
                PrintFormat("[IFVG][BUY] bar=%d SKIP close not above top", i + 1);
                lastBuyIFVGTop = buyTop[i];
                continue;
             }
             PrintFormat("[IFVG][BUY] bar=%d PASS close=%.*f > top=%.*f | invTime=%s",
-                        i + 1, _Digits, rates[i].close, _Digits, buyTop[i],
+                        i + 1, _Digits, currentBid, _Digits, buyTop[i],
                         TimeToString(ifvgBuyTime, TIME_DATE | TIME_MINUTES));
 
             lastBuySignalTime = barTime;
@@ -892,7 +896,18 @@ void CheckIFVGSignals()
                continue;
             if (invTime[i] <= 0)
                continue;
+               
             datetime ifvgSellTime = (datetime)invTime[i];
+
+            datetime lastClosedBarTime = iTime(_Symbol, _Period, 1);
+            if (ifvgSellTime != lastClosedBarTime)
+            {
+               PrintFormat("[IFVG][SELL] bar=%d SKIP repaint invTime=%s != lastBar=%s",
+                           i + 1,
+                           TimeToString(ifvgSellTime, TIME_DATE | TIME_MINUTES),
+                           TimeToString(lastClosedBarTime, TIME_DATE | TIME_MINUTES));
+               continue;
+            }
 
             if (lastBuyZoneActivatedTime > 0 &&
                 ifvgSellTime > lastBuyZoneActivatedTime &&
@@ -942,14 +957,14 @@ void CheckIFVGSignals()
                continue;
             }
 
-            if (rates[i].close >= sellBot[i])
+            if (currentAsk >= sellBot[i])
             {
                PrintFormat("[IFVG][SELL] bar=%d SKIP close not below bottom", i + 1);
                lastSellIFVGBottom = sellBot[i];
                continue;
             }
             PrintFormat("[IFVG][SELL] bar=%d PASS close=%.*f < bottom=%.*f | invTime=%s",
-                        i + 1, _Digits, rates[i].close, _Digits, sellBot[i],
+                        i + 1, _Digits, currentAsk, _Digits, sellBot[i],
                         TimeToString(ifvgSellTime, TIME_DATE | TIME_MINUTES));
 
             lastSellSignalTime = barTime;
