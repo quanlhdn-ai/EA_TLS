@@ -55,6 +55,10 @@ datetime lastSellZoneActivatedTime = 0;
 datetime lastBuyZoneActivatedTime = 0;
 double lastSellIFVGBottom = 0.0;
 double lastBuyIFVGTop = 0.0;
+double sellIFVGTooFarList[];
+int sellIFVGTooFarCount = 0;
+double buyIFVGTooFarList[];
+int buyIFVGTooFarCount = 0;
 
 int ifvgHandle = INVALID_HANDLE;
 
@@ -416,6 +420,10 @@ void BuildZonesFromOpen(double openPrice)
    lastSellZoneHitIdx = -1;
    buyZoneActivatedTime = 0;
    sellZoneActivatedTime = 0;
+   ArrayFree(sellIFVGTooFarList);
+   sellIFVGTooFarCount = 0;
+   ArrayFree(buyIFVGTooFarList);
+   buyIFVGTooFarCount = 0;
 
    PrintFormat("[ZONE_AUTO] Built %d BUY + %d SELL from Open=%.*f (spacing=%.1f pip)",
                count, count, _Digits, openPrice, ZoneSpacingPips);
@@ -467,6 +475,11 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       {
          lastSellIFVGBottom = 0.0;
          lastBuyIFVGTop = 0.0;
+
+         ArrayFree(sellIFVGTooFarList);
+         sellIFVGTooFarCount = 0;
+         ArrayFree(buyIFVGTooFarList);
+         buyIFVGTooFarCount = 0;
       }
 
       PrintFormat("[ZONE_REBUILD][SELL] BUY[%d]=%.*f → anchor=%.*f | new SELL zones:",
@@ -502,6 +515,10 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       {
          lastBuyIFVGTop = 0.0;
          lastSellIFVGBottom = 0.0;
+         ArrayFree(sellIFVGTooFarList);
+         sellIFVGTooFarCount = 0;
+         ArrayFree(buyIFVGTooFarList);
+         buyIFVGTooFarCount = 0;
       }
       PrintFormat("[ZONE_REBUILD][BUY] SELL[%d]=%.*f → anchor=%.*f | new BUY zones:",
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
@@ -686,6 +703,23 @@ bool ExecuteEntry(bool isBuy)
 }
 
 //=========================== IFVG SIGNAL CHECK ======================
+bool IsInTooFarList(double &list[], int count, double price)
+{
+   for (int k = 0; k < count; k++)
+      if (NormalizeDouble(list[k], _Digits) == NormalizeDouble(price, _Digits))
+         return true;
+   return false;
+}
+
+void AddToTooFarList(double &list[], int &count, double price)
+{
+   if (IsInTooFarList(list, count, price))
+      return;
+   ArrayResize(list, count + 1);
+   list[count] = price;
+   count++;
+}
+
 void CheckIFVGSignals()
 {
    if (ifvgHandle == INVALID_HANDLE)
@@ -789,11 +823,19 @@ void CheckIFVGSignals()
                continue;
             }
 
+            // Blacklist check — từng bị too far
+            if (IsInTooFarList(buyIFVGTooFarList, buyIFVGTooFarCount, buyTop[i]))
+            {
+               PrintFormat("[IFVG][BUY] bar=%d SKIP was too far before top=%.*f", i + 1, _Digits, buyTop[i]);
+               continue;
+            }
+
             double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
             if (currentBid > buyTop[i] + IFVGMaxDistancePips * PipSize())
             {
                PrintFormat("[IFVG][BUY] bar=%d SKIP IFVG too far top=%.*f bid=%.*f",
                            i + 1, _Digits, buyTop[i], _Digits, currentBid);
+               AddToTooFarList(buyIFVGTooFarList, buyIFVGTooFarCount, buyTop[i]);
                lastBuyIFVGTop = buyTop[i];
                continue;
             }
@@ -883,11 +925,19 @@ void CheckIFVGSignals()
                continue;
             }
 
+            // Blacklist check — từng bị too far
+            if (IsInTooFarList(sellIFVGTooFarList, sellIFVGTooFarCount, sellBot[i]))
+            {
+               PrintFormat("[IFVG][SELL] bar=%d SKIP was too far before bottom=%.*f", i + 1, _Digits, sellBot[i]);
+               continue;
+            }
+
             double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
             if (currentAsk < sellBot[i] - IFVGMaxDistancePips * PipSize())
             {
                PrintFormat("[IFVG][SELL] bar=%d SKIP IFVG too far bottom=%.*f ask=%.*f",
                            i + 1, _Digits, sellBot[i], _Digits, currentAsk);
+               AddToTooFarList(sellIFVGTooFarList, sellIFVGTooFarCount, sellBot[i]);
                lastSellIFVGBottom = sellBot[i];
                continue;
             }
@@ -1039,6 +1089,10 @@ int OnInit()
    lastBuyIFVGTop = 0.0;
    lastSellZoneActivatedTime = 0;
    lastBuyZoneActivatedTime = 0;
+   ArrayFree(sellIFVGTooFarList);
+   sellIFVGTooFarCount = 0; // NEW
+   ArrayFree(buyIFVGTooFarList);
+   buyIFVGTooFarCount = 0;
    CheckAndUpdateSessionZones();
 
    lastBuySignalTime = iTime(_Symbol, _Period, 1);
