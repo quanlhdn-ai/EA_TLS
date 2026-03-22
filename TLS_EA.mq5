@@ -24,10 +24,11 @@ input bool IsShowChartComment = true;
 input double FixedLotSize = 0.01;
 
 // Group TP
-input double TpPips = 100.0; // TP tính theo pip × FixedLotSize → ra USD cố định
+input double TpPips = 100.0; // TP tính theo pip
+input double SLPips = 0.0;   // SL tính theo pip
 
 // Group SL
-input double SlPercent = 100.0; // Close ALL when total floating loss >= X% of balance
+input double SlPercent = 10.0; // Close ALL when total floating loss >= X% of balance
 
 // Execution
 input int SlippagePoints = 30;
@@ -262,6 +263,42 @@ void SyncZonePositionFlags()
 void CheckGroupExits()
 {
    SyncZonePositionFlags();
+
+   if (SLPips > 0.0)
+   {
+      double tpUSD = CalcTpUSD();
+
+      if (CountOpenPositions(true) > 0)
+      {
+         double floatPnL = GetFloatingPnL(true);
+         double avgEntry = GetAverageEntry(true);
+         if (floatPnL >= tpUSD)
+         {
+            PrintFormat("[GROUP_TP][BUY] PnL=%.2f >= TpUSD=%.2f | AvgEntry=%.*f",
+                        floatPnL, tpUSD, _Digits, avgEntry);
+            CloseAllPositions(true, "GROUP TP");
+            lastBuySignalTime = iTime(_Symbol, _Period, 0);
+            buyZoneActivated = false;
+            return;
+         }
+      }
+
+      if (CountOpenPositions(false) > 0)
+      {
+         double floatPnL = GetFloatingPnL(false);
+         double avgEntry = GetAverageEntry(false);
+         if (floatPnL >= tpUSD)
+         {
+            PrintFormat("[GROUP_TP][SELL] PnL=%.2f >= TpUSD=%.2f | AvgEntry=%.*f",
+                        floatPnL, tpUSD, _Digits, avgEntry);
+            CloseAllPositions(false, "GROUP TP");
+            lastSellSignalTime = iTime(_Symbol, _Period, 0);
+            sellZoneActivated = false;
+            return;
+         }
+      }
+      return;
+   }
 
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    double slLimit = balance * (SlPercent / 100.0);
@@ -655,11 +692,18 @@ bool ExecuteEntry(bool isBuy)
                         : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    entry = NormalizePrice(entry);
 
+   double sl = 0.0;
+   if (SLPips > 0.0)
+   {
+      sl = isBuy ? NormalizePrice(entry - SLPips * PipSize())
+                 : NormalizePrice(entry + SLPips * PipSize());
+   }
+
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
 
-   bool ok = isBuy ? trade.Buy(lots, _Symbol, 0.0, 0.0, 0.0, "IFVG BUY")
-                   : trade.Sell(lots, _Symbol, 0.0, 0.0, 0.0, "IFVG SELL");
+   bool ok = isBuy ? trade.Buy(lots, _Symbol, 0.0, sl, 0.0, "IFVG BUY")
+                   : trade.Sell(lots, _Symbol, 0.0, sl, 0.0, "IFVG SELL");
 
    if (ok)
    {
@@ -896,7 +940,7 @@ void CheckIFVGSignals()
                continue;
             if (invTime[i] <= 0)
                continue;
-               
+
             datetime ifvgSellTime = (datetime)invTime[i];
 
             datetime lastClosedBarTime = iTime(_Symbol, _Period, 1);
