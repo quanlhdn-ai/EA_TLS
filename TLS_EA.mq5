@@ -15,7 +15,6 @@ input int IFVGAlpha = 55;
 input int IFVGExtendBars = 30;
 input int IFVGDisplacement = 3;
 input int IFVGAtrPeriod = 20;
-input double IFVGMaxDistancePips = 20.0;
 
 // Display
 input bool IsShowChartComment = true;
@@ -24,8 +23,8 @@ input bool IsShowChartComment = true;
 input double FixedLotSize = 0.01;
 
 // Group TP
-input double TpPips = 100.0; // TP tính theo pip
-input double SLPips = 0.0;   // SL tính theo pip
+input double TpPips = 5.0;  // TP tính theo pip
+input double SLPips = 50.0; // SL tính theo pip
 
 // Group SL
 input double SlPercent = 10.0; // Close ALL when total floating loss >= X% of balance
@@ -38,8 +37,8 @@ input long MagicNumber = 8386272000;
 input int ZoneActivationPips = 100;
 
 // Auto Zone
-input double ZoneSpacingPips = 50.0;
-input int ZoneCount = 10;
+input double ZoneSpacingPips = 250.0;
+input int ZoneCount = 5;
 
 //=========================== GLOBALS ================================
 bool buyZoneActivated = false;
@@ -56,10 +55,6 @@ datetime lastSellZoneActivatedTime = 0;
 datetime lastBuyZoneActivatedTime = 0;
 double lastSellIFVGBottom = 0.0;
 double lastBuyIFVGTop = 0.0;
-double sellIFVGTooFarList[];
-int sellIFVGTooFarCount = 0;
-double buyIFVGTooFarList[];
-int buyIFVGTooFarCount = 0;
 
 int ifvgHandle = INVALID_HANDLE;
 
@@ -76,10 +71,6 @@ datetime lastSellSignalTime = 0;
 
 double currentSessionOpen = 0.0;
 datetime currentSessionOpenTime = 0;
-
-// Zone 1 gốc — lưu khi BuildZonesFromOpen, dùng để log reference
-double originalBuyZone1 = 0.0;
-double originalSellZone1 = 0.0;
 
 //=========================== UTILS ==================================
 double PipSize()
@@ -445,10 +436,6 @@ void BuildZonesFromOpen(double openPrice)
       sellZones[i] = NormalizePrice(openPrice + spacing * (i + 1));
    }
 
-   // Lưu zone 1 gốc để reference
-   originalBuyZone1 = buyZones[0];
-   originalSellZone1 = sellZones[0];
-
    buyZoneActivated = false;
    sellZoneActivated = false;
    lastBuyZoneHitPrice = 0.0;
@@ -457,15 +444,9 @@ void BuildZonesFromOpen(double openPrice)
    lastSellZoneHitIdx = -1;
    buyZoneActivatedTime = 0;
    sellZoneActivatedTime = 0;
-   ArrayFree(sellIFVGTooFarList);
-   sellIFVGTooFarCount = 0;
-   ArrayFree(buyIFVGTooFarList);
-   buyIFVGTooFarCount = 0;
 
    PrintFormat("[ZONE_AUTO] Built %d BUY + %d SELL from Open=%.*f (spacing=%.1f pip)",
                count, count, _Digits, openPrice, ZoneSpacingPips);
-   PrintFormat("[ZONE_AUTO] originalBuyZone1=%.*f originalSellZone1=%.*f",
-               _Digits, originalBuyZone1, _Digits, originalSellZone1);
    for (int i = 0; i < count; i++)
       PrintFormat("[ZONE_AUTO]  BUY[%d]=%.*f  SELL[%d]=%.*f",
                   i + 1, _Digits, buyZones[i], i + 1, _Digits, sellZones[i]);
@@ -512,11 +493,6 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       {
          lastSellIFVGBottom = 0.0;
          lastBuyIFVGTop = 0.0;
-
-         ArrayFree(sellIFVGTooFarList);
-         sellIFVGTooFarCount = 0;
-         ArrayFree(buyIFVGTooFarList);
-         buyIFVGTooFarCount = 0;
       }
 
       PrintFormat("[ZONE_REBUILD][SELL] BUY[%d]=%.*f → anchor=%.*f | new SELL zones:",
@@ -552,10 +528,6 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
       {
          lastBuyIFVGTop = 0.0;
          lastSellIFVGBottom = 0.0;
-         ArrayFree(sellIFVGTooFarList);
-         sellIFVGTooFarCount = 0;
-         ArrayFree(buyIFVGTooFarList);
-         buyIFVGTooFarCount = 0;
       }
       PrintFormat("[ZONE_REBUILD][BUY] SELL[%d]=%.*f → anchor=%.*f | new BUY zones:",
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
@@ -747,58 +719,37 @@ bool ExecuteEntry(bool isBuy)
 }
 
 //=========================== IFVG SIGNAL CHECK ======================
-bool IsInTooFarList(double &list[], int count, double price)
-{
-   for (int k = 0; k < count; k++)
-      if (NormalizeDouble(list[k], _Digits) == NormalizeDouble(price, _Digits))
-         return true;
-   return false;
-}
-
-void AddToTooFarList(double &list[], int &count, double price)
-{
-   if (IsInTooFarList(list, count, price))
-      return;
-   ArrayResize(list, count + 1);
-   list[count] = price;
-   count++;
-}
-
 void CheckIFVGSignals()
 {
    if (ifvgHandle == INVALID_HANDLE)
       return;
-   int scanBars = MathMin(IFVGLookback, Bars(_Symbol, _Period) - 1);
-   if (scanBars <= 0)
-      return;
 
-   double buyTop[], buyBot[], sellTop[], sellBot[], invTime[];
-   if (CopyBuffer(ifvgHandle, 0, 1, scanBars, buyTop) != scanBars)
+   double buyTop[1], buyBot[1], sellTop[1], sellBot[1], invTime[1];
+   if (CopyBuffer(ifvgHandle, 0, 1, 1, buyTop) != 1)
    {
       PrintFormat("[IFVG][WARN] buf0");
       return;
    }
-   if (CopyBuffer(ifvgHandle, 1, 1, scanBars, buyBot) != scanBars)
+   if (CopyBuffer(ifvgHandle, 1, 1, 1, buyBot) != 1)
    {
       PrintFormat("[IFVG][WARN] buf1");
       return;
    }
-   if (CopyBuffer(ifvgHandle, 2, 1, scanBars, sellTop) != scanBars)
+   if (CopyBuffer(ifvgHandle, 2, 1, 1, sellTop) != 1)
    {
       PrintFormat("[IFVG][WARN] buf2");
       return;
    }
-   if (CopyBuffer(ifvgHandle, 3, 1, scanBars, sellBot) != scanBars)
+   if (CopyBuffer(ifvgHandle, 3, 1, 1, sellBot) != 1)
    {
       PrintFormat("[IFVG][WARN] buf3");
       return;
    }
-   if (CopyBuffer(ifvgHandle, 4, 1, scanBars, invTime) != scanBars)
+   if (CopyBuffer(ifvgHandle, 4, 1, 1, invTime) != 1)
    {
       PrintFormat("[IFVG][WARN] buf4");
       return;
    }
-
    // ----- BUY -----
    PrintFormat("[IFVG][BUY] ZoneActive=%s activatedTime=%s lastSignal=%s",
                buyZoneActivated ? "YES" : "NO",
@@ -820,95 +771,70 @@ void CheckIFVGSignals()
       }
       else
       {
-         bool found = false;
-         for (int i = 0; i < scanBars && !found; i++)
+         if (MathIsValidNumber(buyTop[0]) && buyTop[0] > 0.0 && buyTop[0] < 1e10 && invTime[0] > 0)
          {
-            if (!MathIsValidNumber(buyTop[i]) || buyTop[i] <= 0.0 || buyTop[i] >= 1e10)
-               continue;
-            if (invTime[i] <= 0)
-               continue;
-
-            datetime ifvgBuyTime = (datetime)invTime[i];
-
+            datetime ifvgBuyTime = (datetime)invTime[0];
             datetime lastClosedBarTime = iTime(_Symbol, _Period, 1);
+
             if (ifvgBuyTime != lastClosedBarTime)
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP repaint invTime=%s != lastBar=%s",
-                           i + 1,
+               PrintFormat("[IFVG][BUY] SKIP bar=1 repaint invTime=%s != lastBar=%s",
                            TimeToString(ifvgBuyTime, TIME_DATE | TIME_MINUTES),
                            TimeToString(lastClosedBarTime, TIME_DATE | TIME_MINUTES));
-               continue;
             }
-
-            if (lastSellZoneActivatedTime > 0 &&
-                ifvgBuyTime > lastSellZoneActivatedTime &&
-                ifvgBuyTime < buyZoneActivatedTime)
+            else if (lastSellZoneActivatedTime > 0 &&
+                     ifvgBuyTime > lastSellZoneActivatedTime &&
+                     ifvgBuyTime < buyZoneActivatedTime)
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP IFVG formed during SELL zone context", i + 1);
-               lastBuyIFVGTop = buyTop[i];
-               continue;
+               PrintFormat("[IFVG][BUY] SKIP IFVG formed during SELL zone context");
             }
-
-            datetime barTime = iTime(_Symbol, _Period, i + 1);
-            if (barTime == lastBuySignalTime)
+            else if (lastClosedBarTime == lastBuySignalTime)
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP already fired", i + 1);
-               continue;
+               PrintFormat("[IFVG][BUY] SKIP already fired");
             }
-            datetime buyThreshold = MathMax(buyZoneActivatedTime, lastSellZoneActivatedTime);
-            if (ifvgBuyTime <= buyThreshold)
+            else if (ifvgBuyTime <= MathMax(buyZoneActivatedTime, lastSellZoneActivatedTime))
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP ifvgBuyTime=%s <= threshold=%s",
-                           i + 1,
+               PrintFormat("[IFVG][BUY] SKIP ifvgBuyTime=%s <= threshold=%s",
                            TimeToString(ifvgBuyTime, TIME_DATE | TIME_MINUTES),
-                           TimeToString(buyThreshold, TIME_DATE | TIME_MINUTES));
-               continue;
+                           TimeToString(MathMax(buyZoneActivatedTime, lastSellZoneActivatedTime), TIME_DATE | TIME_MINUTES));
             }
-
-            if (NormalizeDouble(buyTop[i], _Digits) == NormalizeDouble(lastBuyIFVGTop, _Digits))
+            else if (NormalizeDouble(buyTop[0], _Digits) == NormalizeDouble(lastBuyIFVGTop, _Digits))
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP same IFVG top=%.*f already used", i + 1, _Digits, buyTop[i]);
-               continue;
+               PrintFormat("[IFVG][BUY] SKIP same IFVG top=%.*f already used", _Digits, buyTop[0]);
             }
-
-            // Blacklist check — từng bị too far
-            if (IsInTooFarList(buyIFVGTooFarList, buyIFVGTooFarCount, buyTop[i]))
+            else
             {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP was too far before top=%.*f", i + 1, _Digits, buyTop[i]);
-               continue;
-            }
+               double lastClose = iClose(_Symbol, _Period, 1);
+               double prevClose = iClose(_Symbol, _Period, 2);
 
-            double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-            if (currentBid > buyTop[i] + IFVGMaxDistancePips * PipSize())
-            {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP IFVG too far top=%.*f bid=%.*f",
-                           i + 1, _Digits, buyTop[i], _Digits, currentBid);
-               AddToTooFarList(buyIFVGTooFarList, buyIFVGTooFarCount, buyTop[i]);
-               lastBuyIFVGTop = buyTop[i];
-               continue;
+               if (prevClose > buyTop[0])
+               {
+                  PrintFormat("[IFVG][BUY] SKIP not first close above top prevClose=%.*f top=%.*f",
+                              _Digits, prevClose, _Digits, buyTop[0]);
+                  lastBuyIFVGTop = buyTop[0];
+               }
+               else if (lastClose <= buyTop[0])
+               {
+                  PrintFormat("[IFVG][BUY] SKIP close not above top lastClose=%.*f top=%.*f",
+                              _Digits, lastClose, _Digits, buyTop[0]);
+                  lastBuyIFVGTop = buyTop[0];
+               }
+               else
+               {
+                  PrintFormat("[IFVG][BUY] PASS lastClose=%.*f > top=%.*f | invTime=%s",
+                              _Digits, lastClose, _Digits, buyTop[0],
+                              TimeToString(ifvgBuyTime, TIME_DATE | TIME_MINUTES));
+                  lastBuySignalTime = lastClosedBarTime;
+                  lastBuyIFVGTop = buyTop[0];
+                  if (ExecuteEntry(true))
+                     buyZoneHasPosition[lastBuyZoneHitIdx] = true;
+               }
             }
-
-            if (currentBid <= buyTop[i])
-            {
-               PrintFormat("[IFVG][BUY] bar=%d SKIP close not above top", i + 1);
-               lastBuyIFVGTop = buyTop[i];
-               continue;
-            }
-            PrintFormat("[IFVG][BUY] bar=%d PASS close=%.*f > top=%.*f | invTime=%s",
-                        i + 1, _Digits, currentBid, _Digits, buyTop[i],
-                        TimeToString(ifvgBuyTime, TIME_DATE | TIME_MINUTES));
-
-            lastBuySignalTime = barTime;
-            lastBuyIFVGTop = buyTop[i];
-
-            if (ExecuteEntry(true))
-            {
-               buyZoneHasPosition[lastBuyZoneHitIdx] = true;
-            }
-            found = true;
          }
-         if (!found)
-            PrintFormat("[IFVG][BUY] No valid signal in %d bars", scanBars);
+         else
+         {
+            PrintFormat("[IFVG][BUY] No valid IFVG on last bar");
+         }
       }
    }
 
@@ -933,95 +859,72 @@ void CheckIFVGSignals()
       }
       else
       {
-         bool found = false;
-         for (int i = 0; i < scanBars && !found; i++)
+         if (MathIsValidNumber(sellBot[0]) && sellBot[0] > 0.0 && sellBot[0] < 1e10 && invTime[0] > 0)
          {
-            if (!MathIsValidNumber(sellBot[i]) || sellBot[i] <= 0.0 || sellBot[i] >= 1e10)
-               continue;
-            if (invTime[i] <= 0)
-               continue;
-
-            datetime ifvgSellTime = (datetime)invTime[i];
-
+            datetime ifvgSellTime = (datetime)invTime[0];
             datetime lastClosedBarTime = iTime(_Symbol, _Period, 1);
+
             if (ifvgSellTime != lastClosedBarTime)
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP repaint invTime=%s != lastBar=%s",
-                           i + 1,
+               PrintFormat("[IFVG][SELL] SKIP repaint invTime=%s != lastBar=%s",
                            TimeToString(ifvgSellTime, TIME_DATE | TIME_MINUTES),
                            TimeToString(lastClosedBarTime, TIME_DATE | TIME_MINUTES));
-               continue;
             }
 
-            if (lastBuyZoneActivatedTime > 0 &&
-                ifvgSellTime > lastBuyZoneActivatedTime &&
-                ifvgSellTime < sellZoneActivatedTime)
+            else if (lastBuyZoneActivatedTime > 0 &&
+                     ifvgSellTime > lastBuyZoneActivatedTime &&
+                     ifvgSellTime < sellZoneActivatedTime)
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP IFVG formed during BUY zone context", i + 1);
-               lastSellIFVGBottom = sellBot[i];
-               continue;
+               PrintFormat("[IFVG][SELL] SKIP IFVG formed during BUY zone context");
             }
-
-            datetime barTime = iTime(_Symbol, _Period, i + 1);
-            if (barTime == lastSellSignalTime)
+            else if (lastClosedBarTime == lastSellSignalTime)
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP already fired", i + 1);
-               continue;
+               PrintFormat("[IFVG][SELL] SKIP already fired");
             }
-            datetime sellThreshold = MathMax(sellZoneActivatedTime, lastBuyZoneActivatedTime);
-            if (ifvgSellTime <= sellThreshold)
+            else if (ifvgSellTime <= MathMax(sellZoneActivatedTime, lastBuyZoneActivatedTime))
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP ifvgSellTime=%s <= threshold=%s",
-                           i + 1,
+               PrintFormat("[IFVG][SELL] SKIP ifvgSellTime=%s <= threshold=%s",
                            TimeToString(ifvgSellTime, TIME_DATE | TIME_MINUTES),
-                           TimeToString(sellThreshold, TIME_DATE | TIME_MINUTES));
-               continue;
+                           TimeToString(MathMax(sellZoneActivatedTime, lastBuyZoneActivatedTime), TIME_DATE | TIME_MINUTES));
             }
-            // Sau filter threshold:
-            if (NormalizeDouble(sellBot[i], _Digits) == NormalizeDouble(lastSellIFVGBottom, _Digits))
+            else if (NormalizeDouble(sellBot[0], _Digits) == NormalizeDouble(lastSellIFVGBottom, _Digits))
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP same IFVG bottom=%.*f already used", i + 1, _Digits, sellBot[i]);
-               continue;
-            }
 
-            // Blacklist check — từng bị too far
-            if (IsInTooFarList(sellIFVGTooFarList, sellIFVGTooFarCount, sellBot[i]))
+               PrintFormat("[IFVG][SELL] SKIP same IFVG bottom=%.*f already used", _Digits, sellBot[0]);
+            }
+            else
             {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP was too far before bottom=%.*f", i + 1, _Digits, sellBot[i]);
-               continue;
-            }
+               double lastClose = iClose(_Symbol, _Period, 1);
+               double prevClose = iClose(_Symbol, _Period, 2);
 
-            double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-            if (currentAsk < sellBot[i] - IFVGMaxDistancePips * PipSize())
-            {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP IFVG too far bottom=%.*f ask=%.*f",
-                           i + 1, _Digits, sellBot[i], _Digits, currentAsk);
-               AddToTooFarList(sellIFVGTooFarList, sellIFVGTooFarCount, sellBot[i]);
-               lastSellIFVGBottom = sellBot[i];
-               continue;
+               if (prevClose < sellBot[0])
+               {
+                  PrintFormat("[IFVG][SELL] SKIP not first close below bottom prevClose=%.*f bot=%.*f",
+                              _Digits, prevClose, _Digits, sellBot[0]);
+                  lastSellIFVGBottom = sellBot[0];
+               }
+               else if (lastClose >= sellBot[0])
+               {
+                  PrintFormat("[IFVG][SELL] SKIP close not below bottom lastClose=%.*f bot=%.*f",
+                              _Digits, lastClose, _Digits, sellBot[0]);
+                  lastSellIFVGBottom = sellBot[0];
+               }
+               else
+               {
+                  PrintFormat("[IFVG][SELL] PASS lastClose=%.*f < bottom=%.*f | invTime=%s",
+                              _Digits, lastClose, _Digits, sellBot[0],
+                              TimeToString(ifvgSellTime, TIME_DATE | TIME_MINUTES));
+                  lastSellSignalTime = lastClosedBarTime;
+                  lastSellIFVGBottom = sellBot[0];
+                  if (ExecuteEntry(false))
+                     sellZoneHasPosition[lastSellZoneHitIdx] = true;
+               }
             }
-
-            if (currentAsk >= sellBot[i])
-            {
-               PrintFormat("[IFVG][SELL] bar=%d SKIP close not below bottom", i + 1);
-               lastSellIFVGBottom = sellBot[i];
-               continue;
-            }
-            PrintFormat("[IFVG][SELL] bar=%d PASS close=%.*f < bottom=%.*f | invTime=%s",
-                        i + 1, _Digits, currentAsk, _Digits, sellBot[i],
-                        TimeToString(ifvgSellTime, TIME_DATE | TIME_MINUTES));
-
-            lastSellSignalTime = barTime;
-            lastSellIFVGBottom = sellBot[i];
-
-            if (ExecuteEntry(false))
-            {
-               sellZoneHasPosition[lastSellZoneHitIdx] = true;
-            }
-            found = true;
          }
-         if (!found)
-            PrintFormat("[IFVG][SELL] No valid signal in %d bars", scanBars);
+         else
+         {
+            PrintFormat("[IFVG][SELL] No valid IFVG on last bar");
+         }
       }
    }
 }
@@ -1050,8 +953,6 @@ void UpdateChartComment()
    txt += "--------------------------------------------\n";
    txt += "Session Open : " + DoubleToString(currentSessionOpen, _Digits) +
           " @ " + TimeToString(currentSessionOpenTime, TIME_DATE | TIME_MINUTES) + "\n";
-   txt += "OrigBuyZ1    : " + DoubleToString(originalBuyZone1, _Digits) + "\n";
-   txt += "OrigSellZ1   : " + DoubleToString(originalSellZone1, _Digits) + "\n";
    txt += "Lot Size     : " + DoubleToString(FixedLotSize, 2) + " (fixed, no SL/TP on orders)\n";
    txt += "--------------------------------------------\n";
 
@@ -1132,8 +1033,6 @@ int OnInit()
 
    currentSessionOpen = 0.0;
    currentSessionOpenTime = 0;
-   originalBuyZone1 = 0.0;
-   originalSellZone1 = 0.0;
    totalBuyZones = 0;
    totalSellZones = 0;
    buyZoneActivated = false;
@@ -1148,10 +1047,6 @@ int OnInit()
    lastBuyIFVGTop = 0.0;
    lastSellZoneActivatedTime = 0;
    lastBuyZoneActivatedTime = 0;
-   ArrayFree(sellIFVGTooFarList);
-   sellIFVGTooFarCount = 0; // NEW
-   ArrayFree(buyIFVGTooFarList);
-   buyIFVGTooFarCount = 0;
    CheckAndUpdateSessionZones();
 
    lastBuySignalTime = iTime(_Symbol, _Period, 1);
