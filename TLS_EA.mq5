@@ -71,8 +71,53 @@ datetime lastSellSignalTime = 0;
 
 double currentSessionOpen = 0.0;
 datetime currentSessionOpenTime = 0;
+double originalBuyZone1 = 0.0;
+double originalSellZone1 = 0.0;
+string GV_PREFIX = "TLS_EA_"; 
 
 //=========================== UTILS ==================================
+void SaveZoneState()
+{
+   GlobalVariableSet(GV_PREFIX + "BUY[0]", buyZones[0]);
+   GlobalVariableSet(GV_PREFIX + "SELL[0]", sellZones[0]);
+}
+
+bool LoadZoneState()
+{
+   double buy1 = 0, sell1 = 0;
+   if (!GlobalVariableGet(GV_PREFIX + "BUY[0]", buy1))
+      return false;
+   if (!GlobalVariableGet(GV_PREFIX + "SELL[0]", sell1))
+      return false;
+   if (buy1 <= 0 || sell1 <= 0)
+      return false;
+
+   // Rebuild toàn bộ zones từ BUY[0]/SELL[0]
+   double pip = PipSize(), spacing = ZoneSpacingPips * pip;
+   int count = MathMax(1, ZoneCount);
+
+   ArrayResize(buyZones, count);
+   ArrayResize(sellZones, count);
+   ArrayResize(buyZoneHasPosition, count);
+   ArrayResize(sellZoneHasPosition, count);
+   ArrayFill(buyZoneHasPosition, 0, count, false);
+   ArrayFill(sellZoneHasPosition, 0, count, false);
+   totalBuyZones = count;
+   totalSellZones = count;
+
+   for (int i = 0; i < count; i++)
+   {
+      buyZones[i] = NormalizePrice(buy1 - spacing * i);
+      sellZones[i] = NormalizePrice(sell1 + spacing * i);
+   }
+
+   originalBuyZone1 = buy1;
+   originalSellZone1 = sell1;
+
+   PrintFormat("[ZONE_RESTORE] buy1=%.*f sell1=%.*f", _Digits, buy1, _Digits, sell1);
+   return true;
+}
+
 double PipSize()
 {
    if (_Digits == 3 || _Digits == 5)
@@ -450,6 +495,7 @@ void BuildZonesFromOpen(double openPrice)
    for (int i = 0; i < count; i++)
       PrintFormat("[ZONE_AUTO]  BUY[%d]=%.*f  SELL[%d]=%.*f",
                   i + 1, _Digits, buyZones[i], i + 1, _Digits, sellZones[i]);
+   SaveZoneState();
 }
 
 //=========================== REBUILD OPPOSITE ZONES =================
@@ -499,6 +545,8 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
       for (int j = 0; j < count; j++)
          PrintFormat("[ZONE_REBUILD][SELL]  [%d] = %.*f", j + 1, _Digits, sellZones[j]);
+
+      SaveZoneState();
    }
    else
    {
@@ -533,6 +581,8 @@ void RebuildOppositeZones(bool wasBuy, double triggerZonePrice, int triggerZoneI
                   triggerZoneIdx + 1, _Digits, triggerZonePrice, _Digits, anchor);
       for (int j = 0; j < count; j++)
          PrintFormat("[ZONE_REBUILD][BUY]  [%d] = %.*f", j + 1, _Digits, buyZones[j]);
+
+      SaveZoneState();
    }
 }
 
@@ -1047,7 +1097,8 @@ int OnInit()
    lastBuyIFVGTop = 0.0;
    lastSellZoneActivatedTime = 0;
    lastBuyZoneActivatedTime = 0;
-   CheckAndUpdateSessionZones();
+   if (!LoadZoneState())
+      CheckAndUpdateSessionZones();
 
    lastBuySignalTime = iTime(_Symbol, _Period, 1);
    lastSellSignalTime = iTime(_Symbol, _Period, 1);
