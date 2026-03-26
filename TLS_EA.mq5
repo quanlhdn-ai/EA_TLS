@@ -73,7 +73,7 @@ double currentSessionOpen = 0.0;
 datetime currentSessionOpenTime = 0;
 double originalBuyZone1 = 0.0;
 double originalSellZone1 = 0.0;
-string GV_PREFIX = "TLS_EA_"; 
+string GV_PREFIX = "TLS_EA_";
 
 //=========================== UTILS ==================================
 void SaveZoneState()
@@ -89,9 +89,12 @@ void SaveZoneState()
 bool LoadZoneState()
 {
    double totalBuy = 0, totalSell = 0;
-   if (!GlobalVariableGet(GV_PREFIX + "totalBuy", totalBuy)) return false;
-   if (!GlobalVariableGet(GV_PREFIX + "totalSell", totalSell)) return false;
-   if (totalBuy <= 0 || totalSell <= 0) return false;
+   if (!GlobalVariableGet(GV_PREFIX + "totalBuy", totalBuy))
+      return false;
+   if (!GlobalVariableGet(GV_PREFIX + "totalSell", totalSell))
+      return false;
+   if (totalBuy <= 0 || totalSell <= 0)
+      return false;
 
    int nBuy = (int)totalBuy;
    int nSell = (int)totalSell;
@@ -108,13 +111,15 @@ bool LoadZoneState()
    for (int i = 0; i < nBuy; i++)
    {
       double v = 0;
-      if (!GlobalVariableGet(GV_PREFIX + "buy_" + IntegerToString(i), v)) return false;
+      if (!GlobalVariableGet(GV_PREFIX + "buy_" + IntegerToString(i), v))
+         return false;
       buyZones[i] = v;
    }
    for (int i = 0; i < nSell; i++)
    {
       double v = 0;
-      if (!GlobalVariableGet(GV_PREFIX + "sell_" + IntegerToString(i), v)) return false;
+      if (!GlobalVariableGet(GV_PREFIX + "sell_" + IntegerToString(i), v))
+         return false;
       sellZones[i] = v;
    }
 
@@ -123,9 +128,9 @@ bool LoadZoneState()
 
    PrintFormat("[ZONE_RESTORE] Loaded %d BUY + %d SELL zones", nBuy, nSell);
    for (int i = 0; i < nBuy; i++)
-      PrintFormat("[ZONE_RESTORE]  BUY[%d]=%.*f", i+1, _Digits, buyZones[i]);
+      PrintFormat("[ZONE_RESTORE]  BUY[%d]=%.*f", i + 1, _Digits, buyZones[i]);
    for (int i = 0; i < nSell; i++)
-      PrintFormat("[ZONE_RESTORE]  SELL[%d]=%.*f", i+1, _Digits, sellZones[i]);
+      PrintFormat("[ZONE_RESTORE]  SELL[%d]=%.*f", i + 1, _Digits, sellZones[i]);
 
    return true;
 }
@@ -736,6 +741,10 @@ bool ExecuteEntry(bool isBuy)
 
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
+   PrintFormat("[SEND][%s] entry=%.*f sl=%.*f",
+            SideText(isBuy),
+            _Digits, entry,
+            _Digits, sl);
 
    bool ok = isBuy ? trade.Buy(lots, _Symbol, 0.0, sl, 0.0, "IFVG BUY")
                    : trade.Sell(lots, _Symbol, 0.0, sl, 0.0, "IFVG SELL");
@@ -772,7 +781,7 @@ bool ExecuteEntry(bool isBuy)
                   SideText(isBuy), _Digits, filled, lots,
                   _Digits, avgEntry, tpUSD, FixedLotSize, TpPips,
                   CountOpenPositions(isBuy));
-                  
+
       if (SLPips > 0.0)
       {
          double filled = trade.ResultPrice();
@@ -808,8 +817,53 @@ bool ExecuteEntry(bool isBuy)
    }
    else
    {
-      PrintFormat("[FAIL][%s] ret=%d %s", SideText(isBuy),
-                  trade.ResultRetcode(), trade.ResultRetcodeDescription());
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+      int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+      int stopLevel = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      int freezeLevel = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+      double spread = (ask - bid) / point;
+
+      PrintFormat("[FAIL][%s] ret=%d %s | comment=%s",
+                  SideText(isBuy),
+                  trade.ResultRetcode(),
+                  trade.ResultRetcodeDescription(),
+                  trade.ResultComment());
+
+      PrintFormat("[DEBUG][%s] ask=%.*f bid=%.*f spread=%.1f point",
+                  SideText(isBuy),
+                  digits, ask,
+                  digits, bid,
+                  spread);
+
+      PrintFormat("[DEBUG][%s] entry=%.*f sl=%.*f distance=%.5f",
+                  SideText(isBuy),
+                  digits, entry,
+                  digits, sl,
+                  MathAbs(entry - sl));
+
+      PrintFormat("[DEBUG][%s] stopLevel=%d (%.5f) freezeLevel=%d",
+                  SideText(isBuy),
+                  stopLevel,
+                  stopLevel * point,
+                  freezeLevel);
+
+      // Check riêng logic SL cho BUY/SELL
+      if (isBuy)
+      {
+         if (sl >= ask)
+            Print("[CHECK][BUY] SL >= ASK → INVALID");
+         if ((ask - sl) < stopLevel * point)
+            Print("[CHECK][BUY] SL too close to ASK");
+      }
+      else
+      {
+         if (sl <= bid)
+            Print("[CHECK][SELL] SL <= BID → INVALID");
+         if ((sl - bid) < stopLevel * point)
+            Print("[CHECK][SELL] SL too close to BID");
+      }
    }
    return ok;
 }
