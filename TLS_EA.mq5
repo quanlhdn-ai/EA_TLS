@@ -78,43 +78,55 @@ string GV_PREFIX = "TLS_EA_";
 //=========================== UTILS ==================================
 void SaveZoneState()
 {
-   GlobalVariableSet(GV_PREFIX + "BUY[0]", buyZones[0]);
-   GlobalVariableSet(GV_PREFIX + "SELL[0]", sellZones[0]);
+   GlobalVariableSet(GV_PREFIX + "totalBuy", totalBuyZones);
+   GlobalVariableSet(GV_PREFIX + "totalSell", totalSellZones);
+   for (int i = 0; i < totalBuyZones; i++)
+      GlobalVariableSet(GV_PREFIX + "buy_" + IntegerToString(i), buyZones[i]);
+   for (int i = 0; i < totalSellZones; i++)
+      GlobalVariableSet(GV_PREFIX + "sell_" + IntegerToString(i), sellZones[i]);
 }
 
 bool LoadZoneState()
 {
-   double buy1 = 0, sell1 = 0;
-   if (!GlobalVariableGet(GV_PREFIX + "BUY[0]", buy1))
-      return false;
-   if (!GlobalVariableGet(GV_PREFIX + "SELL[0]", sell1))
-      return false;
-   if (buy1 <= 0 || sell1 <= 0)
-      return false;
+   double totalBuy = 0, totalSell = 0;
+   if (!GlobalVariableGet(GV_PREFIX + "totalBuy", totalBuy)) return false;
+   if (!GlobalVariableGet(GV_PREFIX + "totalSell", totalSell)) return false;
+   if (totalBuy <= 0 || totalSell <= 0) return false;
 
-   // Rebuild toàn bộ zones từ BUY[0]/SELL[0]
-   double pip = PipSize(), spacing = ZoneSpacingPips * pip;
-   int count = MathMax(1, ZoneCount);
+   int nBuy = (int)totalBuy;
+   int nSell = (int)totalSell;
 
-   ArrayResize(buyZones, count);
-   ArrayResize(sellZones, count);
-   ArrayResize(buyZoneHasPosition, count);
-   ArrayResize(sellZoneHasPosition, count);
-   ArrayFill(buyZoneHasPosition, 0, count, false);
-   ArrayFill(sellZoneHasPosition, 0, count, false);
-   totalBuyZones = count;
-   totalSellZones = count;
+   ArrayResize(buyZones, nBuy);
+   ArrayResize(sellZones, nSell);
+   ArrayResize(buyZoneHasPosition, nBuy);
+   ArrayResize(sellZoneHasPosition, nSell);
+   ArrayFill(buyZoneHasPosition, 0, nBuy, false);
+   ArrayFill(sellZoneHasPosition, 0, nSell, false);
+   totalBuyZones = nBuy;
+   totalSellZones = nSell;
 
-   for (int i = 0; i < count; i++)
+   for (int i = 0; i < nBuy; i++)
    {
-      buyZones[i] = NormalizePrice(buy1 - spacing * i);
-      sellZones[i] = NormalizePrice(sell1 + spacing * i);
+      double v = 0;
+      if (!GlobalVariableGet(GV_PREFIX + "buy_" + IntegerToString(i), v)) return false;
+      buyZones[i] = v;
+   }
+   for (int i = 0; i < nSell; i++)
+   {
+      double v = 0;
+      if (!GlobalVariableGet(GV_PREFIX + "sell_" + IntegerToString(i), v)) return false;
+      sellZones[i] = v;
    }
 
-   originalBuyZone1 = buy1;
-   originalSellZone1 = sell1;
+   originalBuyZone1 = buyZones[0];
+   originalSellZone1 = sellZones[0];
 
-   PrintFormat("[ZONE_RESTORE] buy1=%.*f sell1=%.*f", _Digits, buy1, _Digits, sell1);
+   PrintFormat("[ZONE_RESTORE] Loaded %d BUY + %d SELL zones", nBuy, nSell);
+   for (int i = 0; i < nBuy; i++)
+      PrintFormat("[ZONE_RESTORE]  BUY[%d]=%.*f", i+1, _Digits, buyZones[i]);
+   for (int i = 0; i < nSell; i++)
+      PrintFormat("[ZONE_RESTORE]  SELL[%d]=%.*f", i+1, _Digits, sellZones[i]);
+
    return true;
 }
 
@@ -715,10 +727,11 @@ bool ExecuteEntry(bool isBuy)
    entry = NormalizePrice(entry);
 
    double sl = 0.0;
+   double SL50 = 50.0;
    if (SLPips > 0.0)
    {
-      sl = isBuy ? NormalizePrice(entry - SLPips * PipSize())
-                 : NormalizePrice(entry + SLPips * PipSize());
+      sl = isBuy ? NormalizePrice(entry - SL50 * PipSize())
+                 : NormalizePrice(entry + SL50 * PipSize());
    }
 
    trade.SetDeviationInPoints(SlippagePoints);
@@ -759,6 +772,39 @@ bool ExecuteEntry(bool isBuy)
                   SideText(isBuy), _Digits, filled, lots,
                   _Digits, avgEntry, tpUSD, FixedLotSize, TpPips,
                   CountOpenPositions(isBuy));
+                  
+      if (SLPips > 0.0)
+      {
+         double filled = trade.ResultPrice();
+         double slFinal = isBuy ? NormalizePrice(filled - SLPips * PipSize())
+                                : NormalizePrice(filled + SLPips * PipSize());
+
+         for (int i = PositionsTotal() - 1; i >= 0; i--)
+         {
+            ulong tk = PositionGetTicket(i);
+            if (!PositionSelectByTicket(tk))
+               continue;
+            if (PositionGetString(POSITION_SYMBOL) != _Symbol)
+               continue;
+            if ((long)PositionGetInteger(POSITION_MAGIC) != MagicNumber)
+               continue;
+            ENUM_POSITION_TYPE pt = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+            if (isBuy && pt != POSITION_TYPE_BUY)
+               continue;
+            if (!isBuy && pt != POSITION_TYPE_SELL)
+               continue;
+            if (PositionGetDouble(POSITION_PRICE_OPEN) != filled)
+               continue;
+
+            if (!trade.PositionModify(tk, slFinal, 0.0))
+               PrintFormat("[WARN][%s] Modify SL failed ret=%d %s",
+                           SideText(isBuy), trade.ResultRetcode(),
+                           trade.ResultRetcodeDescription());
+            else
+               PrintFormat("[ORDER][%s] SL modified to %.*f", SideText(isBuy), _Digits, slFinal);
+            break;
+         }
+      }
    }
    else
    {
