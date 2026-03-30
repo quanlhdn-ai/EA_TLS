@@ -742,9 +742,9 @@ bool ExecuteEntry(bool isBuy)
    trade.SetDeviationInPoints(SlippagePoints);
    trade.SetExpertMagicNumber(MagicNumber);
    PrintFormat("[SEND][%s] entry=%.*f sl=%.*f",
-            SideText(isBuy),
-            _Digits, entry,
-            _Digits, sl);
+               SideText(isBuy),
+               _Digits, entry,
+               _Digits, sl);
 
    bool ok = isBuy ? trade.Buy(lots, _Symbol, 0.0, sl, 0.0, "IFVG BUY")
                    : trade.Sell(lots, _Symbol, 0.0, sl, 0.0, "IFVG SELL");
@@ -1199,6 +1199,23 @@ int OnInit()
    lastBuyZoneActivatedTime = 0;
    if (!LoadZoneState())
       CheckAndUpdateSessionZones();
+   else
+   {
+      datetime now = TimeCurrent(), sStart = 0, sEnd = 0;
+      if (GetCurrentSymbolSessionWindow(now, sStart, sEnd))
+         currentSessionOpenTime = sStart;
+      else
+      {
+         MqlDateTime t;
+         TimeToStruct(now, t);
+         t.hour = 0;
+         t.min = 0;
+         t.sec = 0;
+         currentSessionOpenTime = StructToTime(t);
+      }
+      PrintFormat("[ZONE_RESTORE] currentSessionOpenTime set to %s → ZONE_AUTO blocked",
+                  TimeToString(currentSessionOpenTime, TIME_DATE | TIME_MINUTES));
+   }
 
    lastBuySignalTime = iTime(_Symbol, _Period, 1);
    lastSellSignalTime = iTime(_Symbol, _Period, 1);
