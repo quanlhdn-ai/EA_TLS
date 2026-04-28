@@ -7,7 +7,7 @@
 #property version   "46.00" 
 #property indicator_chart_window
 
-#property indicator_buffers 22
+#property indicator_buffers 26
 #property indicator_plots   18
 
 #property indicator_type1   DRAW_ARROW
@@ -88,6 +88,10 @@ double MajorProtHighBuffer[], MajorProtLowBuffer[];
 double MinorProtHighBuffer[], MinorProtLowBuffer[];
 double BuyZoneEntryBuffer[], BuyZoneSLBuffer[];
 double SellZoneSLBuffer[], SellZoneEntryBuffer[];
+double BOS_Up_Level[];    // buffer 22: giá level tại bar BOS UP
+double BOS_Dn_Level[];    // buffer 23: giá level tại bar BOS DOWN
+double CHOCH_Up_Level[];  // buffer 24: giá level tại bar CHOCH UP
+double CHOCH_Dn_Level[];  // buffer 25: giá level tại bar CHOCH DOWN
 
 int ma_handle;
 int lookBackMajor, lookBackMinor;
@@ -195,7 +199,10 @@ int OnInit()
    SetIndexBuffer(19, BuyZoneSLBuffer, INDICATOR_DATA);     PlotIndexSetString(15, PLOT_LABEL, "Buy Zone SL");
    SetIndexBuffer(20, SellZoneSLBuffer, INDICATOR_DATA);    PlotIndexSetString(16, PLOT_LABEL, "Sell Zone SL");
    SetIndexBuffer(21, SellZoneEntryBuffer, INDICATOR_DATA); PlotIndexSetString(17, PLOT_LABEL, "Sell Zone Entry");
-
+    SetIndexBuffer(22, BOS_Up_Level,   INDICATOR_DATA);
+    SetIndexBuffer(23, BOS_Dn_Level,   INDICATOR_DATA);
+    SetIndexBuffer(24, CHOCH_Up_Level, INDICATOR_DATA);
+    SetIndexBuffer(25, CHOCH_Dn_Level, INDICATOR_DATA);
    ma_handle = iMA(_Symbol, _Period, MovingAveragePeriods, 0, MODE_EMA, PRICE_CLOSE);
    return(INIT_SUCCEEDED);
 }
@@ -658,7 +665,9 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             if(ObjectFind(0, choch_name) < 0) {
                CreateBOSLine(choch_name, maj_strong_low_time, maj_strong_low, time[i], BOS_Down_Color, "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                PushBOS(BOSDnQueue, choch_name, MaxBOSLines);
-               MajorEventBuffer[i] = -2; ClearZoneQueue(BuyZonesQueue);
+               MajorEventBuffer[i] = -2;
+               CHOCH_Dn_Level[i] = maj_strong_low;
+               ClearZoneQueue(BuyZonesQueue);
 
                double actual_extreme_high = maj_extreme_high; datetime actual_extreme_time = maj_extreme_high_time; int actual_extreme_idx = maj_extreme_high_idx;
                
@@ -740,7 +749,9 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             if(ObjectFind(0, choch_name) < 0) {
                CreateBOSLine(choch_name, maj_strong_high_time, maj_strong_high, time[i], BOS_Up_Color, "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                PushBOS(BOSUpQueue, choch_name, MaxBOSLines);
-               MajorEventBuffer[i] = 2; ClearZoneQueue(SellZonesQueue);
+               MajorEventBuffer[i] = 2;
+               CHOCH_Up_Level[i] = maj_strong_high;
+               ClearZoneQueue(SellZonesQueue);
 
                double actual_extreme_low = maj_extreme_low; datetime actual_extreme_time = maj_extreme_low_time; int actual_extreme_idx = maj_extreme_low_idx;
                
@@ -823,6 +834,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                    CreateBOSLine(bos_name, ActiveHigh.time, ActiveHigh.price, time[i], BOS_Up_Color, "BOS", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                    PushBOS(BOSUpQueue, bos_name, MaxBOSLines);
                    MajorEventBuffer[i] = 1; 
+                   BOS_Up_Level[i] = ActiveHigh.price;
                    last_break_dir = 1; last_break_type = 1; 
                    latest_break_up_time = time[i]; latest_break_up_idx = i; latest_break_up_level = ActiveHigh.price;
 
@@ -845,6 +857,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                    CreateBOSLine(bos_name, ActiveLow.time, ActiveLow.price, time[i], BOS_Down_Color, "BOS", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                    PushBOS(BOSDnQueue, bos_name, MaxBOSLines);
                    MajorEventBuffer[i] = -1; 
+                   BOS_Dn_Level[i] = ActiveLow.price;
                    last_break_dir = -1; last_break_type = 1; 
                    latest_break_down_time = time[i]; latest_break_down_idx = i; latest_break_down_level = ActiveLow.price;
 
