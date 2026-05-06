@@ -9,14 +9,14 @@
 #property indicator_type2 DRAW_ARROW
 #property indicator_type3 DRAW_LINE
 #property indicator_type4 DRAW_COLOR_CANDLES
-#property indicator_color1 C '80,80,80'
-#property indicator_color2 C '80,80,80'
-#property indicator_color4 C '8,153,129', C '242,54,69'
+#property indicator_color1 C'80,80,80'
+#property indicator_color2 C'80,80,80'
+#property indicator_color4 C'8,153,129', C'242,54,69'
 
 #property indicator_type5 DRAW_ARROW
 #property indicator_type6 DRAW_ARROW
-#property indicator_color5 C '0,190,190'
-#property indicator_color6 C '0,190,190'
+#property indicator_color5 C'0,190,190'
+#property indicator_color6 C'0,190,190'
 
 #property indicator_type7 DRAW_NONE
 #property indicator_type8 DRAW_NONE
@@ -31,7 +31,7 @@
 #property indicator_type17 DRAW_NONE
 #property indicator_type18 DRAW_NONE
 
-input group "--- Major Swing Settings ---" input color MajorSwingColor = C '80,80,80';
+input group "--- Major Swing Settings ---" input color MajorSwingColor = C'80,80,80';
 input int MajorSwingSize = 5;
 input int PeriodsInMajorSwing = 9;
 
@@ -40,8 +40,8 @@ input color TrackingLineColor = clrMagenta;
 
 input group "--- Strong Level Settings ---" input color StrongHighColor = clrRed;
 input color StrongLowColor = clrRed;
-input color StrongBuyZoneColor = C '255,153,0';   // Viền Cam cho Strong Buy Zone
-input color StrongSellZoneColor = C '255,51,102'; // Viền Tím Đỏ cho Strong Sell Zone
+input color StrongBuyZoneColor = C'255,153,0';   // Viền Cam cho Strong Buy Zone
+input color StrongSellZoneColor = C'255,51,102'; // Viền Tím Đỏ cho Strong Sell Zone
 
 input group "--- Structure Settings (BOS/CHOCH) ---" input int MaxBOSLines = 5;
 input color BOS_Up_Color = clrDodgerBlue;
@@ -49,21 +49,21 @@ input color BOS_Down_Color = clrRed;
 input color KeyLevel_Color = clrOrange;
 
 input group "--- SD Zone Settings ---" input int MaxZones = 1;
-input color BuyZoneColor = C '190,235,210';
-input color SellZoneColor = C '255,200,200';
+input color BuyZoneColor = C'190,235,210';
+input color SellZoneColor = C'255,200,200';
 
 input group "--- Minor Swing Settings (Trigger) ---" input bool ShowMinorStructure = true;
 input int PeriodsInMinorSwing = 5;
 input int MinorSwingSize = 1;
 input int MaxMinorBOSLines = 3;
-input color Minor_BOS_Up_Color = C '120,220,220';
-input color Minor_BOS_Down_Color = C '255,180,180';
+input color Minor_BOS_Up_Color = C'120,220,220';
+input color Minor_BOS_Down_Color = C'255,180,180';
 
 input group "--- Moving Average ---" input int MovingAveragePeriods = 21;
-input color MovingAvergeColor = C '80,80,80';
+input color MovingAvergeColor = C'80,80,80';
 
-input group "--- Heiken Ashi (TV Colors) ---" input color InpBullColor = C '8,153,129';
-input color InpBearColor = C '242,54,69';
+input group "--- Heiken Ashi (TV Colors) ---" input color InpBullColor = C'8,153,129';
+input color InpBearColor = C'242,54,69';
 
 double majorSwingHigh[], majorSwingLow[], EMA_Buffer[];
 double HAOpen[], HAHigh[], HALow[], HAClose[], HAColor[];
