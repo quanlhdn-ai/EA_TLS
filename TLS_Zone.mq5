@@ -75,16 +75,10 @@ double MajorProtHighBuffer[], MajorProtLowBuffer[];
 double MinorProtHighBuffer[], MinorProtLowBuffer[];
 double BuyZoneEntryBuffer[], BuyZoneSLBuffer[];
 double SellZoneSLBuffer[], SellZoneEntryBuffer[];
-double BOS_Up_Level[];   // buffer 22: giá level tại bar BOS UP
-double BOS_Dn_Level[];   // buffer 23: giá level tại bar BOS DOWN
-double CHOCH_Up_Level[]; // buffer 24: giá level tại bar CHOCH UP
-double CHOCH_Dn_Level[]; // buffer 25: giá level tại bar CHOCH DOWN
-
-// --- Carry-forward cho EA đọc ---
-double last_bos_up_level = EMPTY_VALUE;
-double last_bos_dn_level = EMPTY_VALUE;
-double last_choch_up_level = EMPTY_VALUE;
-double last_choch_dn_level = EMPTY_VALUE;
+double BOS_Up_Level[];   // buffer 22: carry-forward BOS UP level
+double BOS_Dn_Level[];   // buffer 23: carry-forward BOS DN level
+double CHOCH_Up_Level[]; // buffer 24: carry-forward CHOCH UP level
+double CHOCH_Dn_Level[]; // buffer 25: carry-forward CHOCH DN level
 
 int ma_handle;
 int lookBackMajor, lookBackMinor;
@@ -206,6 +200,14 @@ bool is_maj_prot_low_sweep = false;
 bool is_min_prot_high_sweep = false;
 bool is_min_prot_low_sweep = false;
 
+// =========================================================================
+// PATCH v46.01: Carry-forward internal vars — EA reads buffer moi bar
+// =========================================================================
+double last_bos_up_level = EMPTY_VALUE;
+double last_bos_dn_level = EMPTY_VALUE;
+double last_choch_up_level = EMPTY_VALUE;
+double last_choch_dn_level = EMPTY_VALUE;
+
 void CreateZone(string name, int swing_idx, int bos_idx, bool isSellZone, double broken_level, const datetime &time[], const double &h[], const double &l[], const double &ha_h[], const double &ha_l[], const double &ha_color[], int total, double &out_entry, double &out_stop);
 void CreateStrongZone(string name, int ext_idx, bool isSellZone, const datetime &time[], const double &ha_h[], const double &ha_l[], const double &ha_color[], int total);
 void CreateBOSLine(string name, datetime t1, double p1, datetime t2, color clr, string text, ENUM_LINE_STYLE style, int width, ENUM_ANCHOR_POINT anchor, int fontSize);
@@ -290,10 +292,17 @@ int OnInit()
     PlotIndexSetString(16, PLOT_LABEL, "Sell Zone SL");
     SetIndexBuffer(21, SellZoneEntryBuffer, INDICATOR_DATA);
     PlotIndexSetString(17, PLOT_LABEL, "Sell Zone Entry");
+
+    // Buffer 22-25: carry-forward — ghi lien tuc moi bar cho EA doc
     SetIndexBuffer(22, BOS_Up_Level, INDICATOR_DATA);
+    PlotIndexSetDouble(22, PLOT_EMPTY_VALUE, EMPTY_VALUE);
     SetIndexBuffer(23, BOS_Dn_Level, INDICATOR_DATA);
+    PlotIndexSetDouble(23, PLOT_EMPTY_VALUE, EMPTY_VALUE);
     SetIndexBuffer(24, CHOCH_Up_Level, INDICATOR_DATA);
+    PlotIndexSetDouble(24, PLOT_EMPTY_VALUE, EMPTY_VALUE);
     SetIndexBuffer(25, CHOCH_Dn_Level, INDICATOR_DATA);
+    PlotIndexSetDouble(25, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
     ma_handle = iMA(_Symbol, _Period, MovingAveragePeriods, 0, MODE_EMA, PRICE_CLOSE);
     return (INIT_SUCCEEDED);
 }
@@ -321,7 +330,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
     ArraySetAsSeries(HAColor, true);
     ArraySetAsSeries(minorSwingHigh, true);
     ArraySetAsSeries(minorSwingLow, true);
-
     ArraySetAsSeries(MajorTrendBuffer, true);
     ArraySetAsSeries(MinorTrendBuffer, true);
     ArraySetAsSeries(MajorEventBuffer, true);
@@ -334,6 +342,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
     ArraySetAsSeries(BuyZoneSLBuffer, true);
     ArraySetAsSeries(SellZoneSLBuffer, true);
     ArraySetAsSeries(SellZoneEntryBuffer, true);
+    ArraySetAsSeries(BOS_Up_Level, true);
+    ArraySetAsSeries(BOS_Dn_Level, true);
+    ArraySetAsSeries(CHOCH_Up_Level, true);
+    ArraySetAsSeries(CHOCH_Dn_Level, true);
 
     if (prev_calculated == 0)
     {
@@ -354,6 +366,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
         ArrayInitialize(BuyZoneSLBuffer, EMPTY_VALUE);
         ArrayInitialize(SellZoneSLBuffer, EMPTY_VALUE);
         ArrayInitialize(SellZoneEntryBuffer, EMPTY_VALUE);
+        ArrayInitialize(BOS_Up_Level, EMPTY_VALUE);
+        ArrayInitialize(BOS_Dn_Level, EMPTY_VALUE);
+        ArrayInitialize(CHOCH_Up_Level, EMPTY_VALUE);
+        ArrayInitialize(CHOCH_Dn_Level, EMPTY_VALUE);
 
         ActiveHigh.isActive = false;
         ActiveLow.isActive = false;
@@ -383,12 +399,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
         last_maj_low = EMPTY_VALUE;
         last_maj_low_time = 0;
         last_maj_low_idx = -1;
-
         maj_confirmed_extreme_high = EMPTY_VALUE;
         maj_confirmed_extreme_high_time = 0;
         maj_confirmed_extreme_low = EMPTY_VALUE;
         maj_confirmed_extreme_low_time = 0;
-
         maj_strong_high = EMPTY_VALUE;
         maj_strong_high_time = 0;
         maj_strong_high_idx = -1;
@@ -403,14 +417,12 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
         pending_weak_low_level = EMPTY_VALUE;
         processed_weak_high_time = 0;
         processed_weak_low_time = 0;
-
         pending_prot_high_update = false;
         pending_prot_low_update = false;
         processed_prot_weak_high_time = 0;
         processed_prot_weak_low_time = 0;
         prot_anchor_time = 0;
         prot_breakout_idx = -1;
-
         minor_trend = 0;
         min_prot_high = EMPTY_VALUE;
         min_prot_high_time = 0;
@@ -430,12 +442,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
         last_min_low = EMPTY_VALUE;
         last_min_low_time = 0;
         last_min_low_idx = -1;
-
         is_maj_prot_high_sweep = false;
         is_maj_prot_low_sweep = false;
         is_min_prot_high_sweep = false;
         is_min_prot_low_sweep = false;
-
         last_processed_high_time = 0;
         last_processed_low_time = 0;
         last_break_dir = 0;
@@ -446,13 +456,14 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
         latest_break_down_time = 0;
         latest_break_down_idx = -1;
         latest_break_down_level = EMPTY_VALUE;
-
         ArrayResize(BOSUpQueue, 0);
         ArrayResize(BOSDnQueue, 0);
         ArrayResize(BuyZonesQueue, 0);
         ArrayResize(SellZonesQueue, 0);
         ArrayResize(MinorBOSUpQueue, 0);
         ArrayResize(MinorBOSDnQueue, 0);
+
+        // PATCH: Reset carry-forward vars
         last_bos_up_level = EMPTY_VALUE;
         last_bos_dn_level = EMPTY_VALUE;
         last_choch_up_level = EMPTY_VALUE;
@@ -500,7 +511,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             last_min_low_idx += shift;
         if (prot_breakout_idx >= 0)
             prot_breakout_idx += shift;
-
         if (maj_strong_high_idx >= 0)
             maj_strong_high_idx += shift;
         if (maj_strong_low_idx >= 0)
@@ -628,13 +638,11 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                 last_maj_high = ActiveHigh.price;
                 last_maj_high_time = ActiveHigh.time;
                 last_maj_high_idx = swingMajor_idx;
-
                 if (major_trend == 1 && majorSwingHigh[swingMajor_idx] == maj_extreme_high)
                 {
                     maj_confirmed_extreme_high = majorSwingHigh[swingMajor_idx];
                     maj_confirmed_extreme_high_time = time[swingMajor_idx];
                 }
-
                 if (time[swingMajor_idx] > last_processed_high_time)
                 {
                     last_processed_high_time = time[swingMajor_idx];
@@ -651,7 +659,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     }
                 }
             }
-
             if (majorSwingLow[swingMajor_idx] != EMPTY_VALUE)
             {
                 ActiveLow.price = majorSwingLow[swingMajor_idx];
@@ -661,13 +668,11 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                 last_maj_low = ActiveLow.price;
                 last_maj_low_time = ActiveLow.time;
                 last_maj_low_idx = swingMajor_idx;
-
                 if (major_trend == -1 && majorSwingLow[swingMajor_idx] == maj_extreme_low)
                 {
                     maj_confirmed_extreme_low = majorSwingLow[swingMajor_idx];
                     maj_confirmed_extreme_low_time = time[swingMajor_idx];
                 }
-
                 if (time[swingMajor_idx] > last_processed_low_time)
                 {
                     last_processed_low_time = time[swingMajor_idx];
@@ -729,7 +734,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                 maj_extreme_low_idx = i;
             }
         }
-
         if (minor_trend == 1)
         {
             if (min_extreme_high == EMPTY_VALUE || high[i] > min_extreme_high)
@@ -762,7 +766,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     maj_prot_low = (last_maj_low != EMPTY_VALUE) ? last_maj_low : low[i];
                     maj_prot_low_time = (last_maj_low_time != 0) ? last_maj_low_time : time[i];
                     maj_prot_low_idx = (last_maj_low_idx != -1) ? last_maj_low_idx : i;
-
                     maj_strong_low = maj_prot_low;
                     maj_strong_low_time = maj_prot_low_time;
                     maj_strong_low_idx = maj_prot_low_idx;
@@ -778,7 +781,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     maj_prot_high = (last_maj_high != EMPTY_VALUE) ? last_maj_high : high[i];
                     maj_prot_high_time = (last_maj_high_time != 0) ? last_maj_high_time : time[i];
                     maj_prot_high_idx = (last_maj_high_idx != -1) ? last_maj_high_idx : i;
-
                     maj_strong_high = maj_prot_high;
                     maj_strong_high_time = maj_prot_high_time;
                     maj_strong_high_idx = maj_prot_high_idx;
@@ -791,11 +793,9 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                 HAClose[i] > maj_confirmed_extreme_high &&
                 processed_prot_weak_high_time != maj_confirmed_extreme_high_time)
             {
-
                 processed_prot_weak_high_time = maj_confirmed_extreme_high_time;
                 prot_anchor_time = maj_confirmed_extreme_high_time;
                 prot_breakout_idx = i;
-
                 double temp_d4_val = EMPTY_VALUE;
                 datetime temp_d4_time = 0;
                 int temp_d4_idx = -1;
@@ -808,7 +808,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         break;
                     }
                 }
-
                 if (anchor_idx != -1)
                 {
                     for (int k = i; k <= anchor_idx; k++)
@@ -822,7 +821,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         }
                     }
                 }
-
                 if (temp_d4_val != EMPTY_VALUE)
                 {
                     double temp_d5_val = EMPTY_VALUE;
@@ -859,11 +857,9 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                 HAClose[i] < maj_confirmed_extreme_low &&
                 processed_prot_weak_low_time != maj_confirmed_extreme_low_time)
             {
-
                 processed_prot_weak_low_time = maj_confirmed_extreme_low_time;
                 prot_anchor_time = maj_confirmed_extreme_low_time;
                 prot_breakout_idx = i;
-
                 double temp_d4_val = EMPTY_VALUE;
                 datetime temp_d4_time = 0;
                 int temp_d4_idx = -1;
@@ -876,7 +872,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         break;
                     }
                 }
-
                 if (anchor_idx != -1)
                 {
                     for (int k = i; k <= anchor_idx; k++)
@@ -890,7 +885,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         }
                     }
                 }
-
                 if (temp_d4_val != EMPTY_VALUE)
                 {
                     double temp_d5_val = EMPTY_VALUE;
@@ -937,7 +931,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         break;
                     }
                 }
-
                 if (anchor_idx != -1 && prot_breakout_idx <= anchor_idx)
                 {
                     for (int k = prot_breakout_idx; k <= anchor_idx; k++)
@@ -950,7 +943,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                             break;
                         }
                     }
-
                     if (d4_val != EMPTY_VALUE)
                     {
                         double d5_val = EMPTY_VALUE;
@@ -1012,7 +1004,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         break;
                     }
                 }
-
                 if (anchor_idx != -1 && prot_breakout_idx <= anchor_idx)
                 {
                     for (int k = prot_breakout_idx; k <= anchor_idx; k++)
@@ -1025,7 +1016,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                             break;
                         }
                     }
-
                     if (d4_val != EMPTY_VALUE)
                     {
                         double d5_val = EMPTY_VALUE;
@@ -1236,17 +1226,17 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     CreateBOSLine(choch_name, maj_strong_low_time, maj_strong_low, time[i], BOS_Down_Color, "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                     PushBOS(BOSDnQueue, choch_name, MaxBOSLines);
                     MajorEventBuffer[i] = -2;
-                    CHOCH_Dn_Level[i] = maj_strong_low;
-                    last_choch_dn_level = maj_strong_low;
-                    last_choch_up_level = EMPTY_VALUE; // flip side reset
-                    last_bos_up_level = EMPTY_VALUE;   // flip side reset
-                    last_bos_dn_level = EMPTY_VALUE;   // BOS cũ không còn valid sau CHOCH
-                    ClearZoneQueue(BuyZonesQueue);
 
+                    // PATCH: Carry-forward CHOCH DN — reset tat ca phia nguoc lai
+                    last_choch_dn_level = maj_strong_low;
+                    last_choch_up_level = EMPTY_VALUE;
+                    last_bos_up_level = EMPTY_VALUE;
+                    last_bos_dn_level = EMPTY_VALUE;
+
+                    ClearZoneQueue(BuyZonesQueue);
                     double actual_extreme_high = maj_extreme_high;
                     datetime actual_extreme_time = maj_extreme_high_time;
                     int actual_extreme_idx = maj_extreme_high_idx;
-
                     int strong_idx = maj_strong_low_idx;
                     if (strong_idx != -1 && strong_idx >= i)
                     {
@@ -1259,17 +1249,14 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                             actual_extreme_idx = highest_idx;
                         }
                     }
-
                     ObjectDelete(0, "IND_SMC_MAJOR_KEY_LEVEL");
                     ObjectDelete(0, "IND_SMC_MAJOR_KEY_LEVEL_lbl");
                     CreateRayLine("IND_SMC_MAJOR_KEY_LEVEL", actual_extreme_time, actual_extreme_high, KeyLevel_Color, "Major Key Level Down", true);
-
                     last_break_dir = -1;
                     last_break_type = 2;
                     latest_break_down_time = time[i];
                     latest_break_down_idx = i;
                     latest_break_down_level = maj_strong_low;
-
                     int zone_anchor_idx = actual_extreme_idx;
                     if (actual_extreme_idx != -1)
                     {
@@ -1289,7 +1276,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         CreateZone(zone_name, zone_anchor_idx, i, true, maj_strong_low, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop);
                         PushZone(SellZonesQueue, zone_name, zEntry, zStop, MaxZones);
                     }
-
                     if (ActiveLow.time == maj_strong_low_time)
                         ActiveLow.isActive = false;
                     ClearQueue(BOSUpQueue);
@@ -1297,9 +1283,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     maj_extreme_low = low[i];
                     maj_extreme_low_time = time[i];
                     maj_extreme_low_idx = i;
-
                     maj_confirmed_extreme_high = EMPTY_VALUE;
-
                     double temp_d4_val = EMPTY_VALUE;
                     datetime temp_d4_time = 0;
                     int temp_d4_idx = -1;
@@ -1316,7 +1300,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                             }
                         }
                     }
-
                     if (temp_d4_val != EMPTY_VALUE)
                     {
                         double temp_d5_val = EMPTY_VALUE;
@@ -1353,15 +1336,12 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         maj_prot_high_idx = actual_extreme_idx;
                         is_maj_prot_high_sweep = true;
                     }
-
                     pending_prot_high_update = true;
                     prot_anchor_time = actual_extreme_time;
                     prot_breakout_idx = i;
-
                     maj_prot_low = EMPTY_VALUE;
                     maj_prot_low_idx = -1;
                     pending_prot_low_update = false;
-
                     maj_strong_low = EMPTY_VALUE;
                     maj_strong_low_time = 0;
                     maj_strong_low_idx = -1;
@@ -1378,17 +1358,17 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     CreateBOSLine(choch_name, maj_strong_high_time, maj_strong_high, time[i], BOS_Up_Color, "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                     PushBOS(BOSUpQueue, choch_name, MaxBOSLines);
                     MajorEventBuffer[i] = 2;
-                    CHOCH_Up_Level[i] = maj_strong_high;
-                    last_choch_up_level = maj_strong_high;
-                    last_choch_dn_level = EMPTY_VALUE; // flip side reset
-                    last_bos_dn_level = EMPTY_VALUE;   // flip side reset
-                    last_bos_up_level = EMPTY_VALUE;   // BOS cũ không còn valid sau CHOCH
-                    ClearZoneQueue(SellZonesQueue);
 
+                    // PATCH: Carry-forward CHOCH UP — reset tat ca phia nguoc lai
+                    last_choch_up_level = maj_strong_high;
+                    last_choch_dn_level = EMPTY_VALUE;
+                    last_bos_dn_level = EMPTY_VALUE;
+                    last_bos_up_level = EMPTY_VALUE;
+
+                    ClearZoneQueue(SellZonesQueue);
                     double actual_extreme_low = maj_extreme_low;
                     datetime actual_extreme_time = maj_extreme_low_time;
                     int actual_extreme_idx = maj_extreme_low_idx;
-
                     int strong_idx = maj_strong_high_idx;
                     if (strong_idx != -1 && strong_idx >= i)
                     {
@@ -1401,17 +1381,14 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                             actual_extreme_idx = lowest_idx;
                         }
                     }
-
                     ObjectDelete(0, "IND_SMC_MAJOR_KEY_LEVEL");
                     ObjectDelete(0, "IND_SMC_MAJOR_KEY_LEVEL_lbl");
                     CreateRayLine("IND_SMC_MAJOR_KEY_LEVEL", actual_extreme_time, actual_extreme_low, KeyLevel_Color, "Major Key Level Up", false);
-
                     last_break_dir = 1;
                     last_break_type = 2;
                     latest_break_up_time = time[i];
                     latest_break_up_idx = i;
                     latest_break_up_level = maj_strong_high;
-
                     int zone_anchor_idx = actual_extreme_idx;
                     if (actual_extreme_idx != -1)
                     {
@@ -1431,7 +1408,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         CreateZone(zone_name, zone_anchor_idx, i, false, maj_strong_high, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop);
                         PushZone(BuyZonesQueue, zone_name, zEntry, zStop, MaxZones);
                     }
-
                     if (ActiveHigh.time == maj_strong_high_time)
                         ActiveHigh.isActive = false;
                     ClearQueue(BOSDnQueue);
@@ -1439,9 +1415,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     maj_extreme_high = high[i];
                     maj_extreme_high_time = time[i];
                     maj_extreme_high_idx = i;
-
                     maj_confirmed_extreme_low = EMPTY_VALUE;
-
                     double temp_d4_val = EMPTY_VALUE;
                     datetime temp_d4_time = 0;
                     int temp_d4_idx = -1;
@@ -1494,15 +1468,12 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         maj_prot_low_idx = actual_extreme_idx;
                         is_maj_prot_low_sweep = true;
                     }
-
                     pending_prot_low_update = true;
                     prot_anchor_time = actual_extreme_time;
                     prot_breakout_idx = i;
-
                     maj_prot_high = EMPTY_VALUE;
                     maj_prot_high_idx = -1;
                     pending_prot_high_update = false;
-
                     maj_strong_high = EMPTY_VALUE;
                     maj_strong_high_time = 0;
                     maj_strong_high_idx = -1;
@@ -1522,14 +1493,15 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         CreateBOSLine(bos_name, ActiveHigh.time, ActiveHigh.price, time[i], BOS_Up_Color, "BOS", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                         PushBOS(BOSUpQueue, bos_name, MaxBOSLines);
                         MajorEventBuffer[i] = 1;
-                        BOS_Up_Level[i] = ActiveHigh.price;
-                        last_bos_up_level = ActiveHigh.price;
-                        last_bos_dn_level = EMPTY_VALUE; // flip side reset
                         last_break_dir = 1;
                         last_break_type = 1;
                         latest_break_up_time = time[i];
                         latest_break_up_idx = i;
                         latest_break_up_level = ActiveHigh.price;
+
+                        // PATCH: Carry-forward BOS UP — reset phia dn
+                        last_bos_up_level = ActiveHigh.price;
+                        last_bos_dn_level = EMPTY_VALUE;
 
                         int origin_idx = last_maj_low_idx;
                         if (origin_idx != -1)
@@ -1554,14 +1526,15 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         CreateBOSLine(bos_name, ActiveLow.time, ActiveLow.price, time[i], BOS_Down_Color, "BOS", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                         PushBOS(BOSDnQueue, bos_name, MaxBOSLines);
                         MajorEventBuffer[i] = -1;
-                        BOS_Dn_Level[i] = ActiveLow.price;
-                        last_bos_dn_level = ActiveLow.price;
-                        last_bos_up_level = EMPTY_VALUE; // flip side reset
                         last_break_dir = -1;
                         last_break_type = 1;
                         latest_break_down_time = time[i];
                         latest_break_down_idx = i;
                         latest_break_down_level = ActiveLow.price;
+
+                        // PATCH: Carry-forward BOS DN — reset phia up
+                        last_bos_dn_level = ActiveLow.price;
+                        last_bos_up_level = EMPTY_VALUE;
 
                         int origin_idx = last_maj_high_idx;
                         if (origin_idx != -1)
@@ -1577,7 +1550,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             }
 
             // =========================================================================
-            // CẬP NHẬT TRẠNG THÁI STRONG LEVEL
+            // STRONG LEVEL UPDATE
             // =========================================================================
             if (major_trend == 1 && maj_strong_low != EMPTY_VALUE && HAClose[i] < maj_strong_low)
             {
@@ -1593,7 +1566,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                 maj_strong_high_idx = -1;
                 pending_strong_high_update = false;
             }
-
             if (is_major_choch_up)
             {
                 maj_strong_low = maj_prot_low;
@@ -1614,7 +1586,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                 pending_weak_low_level = EMPTY_VALUE;
                 processed_weak_low_time = 0;
             }
-
             if (major_trend == 1 && pending_strong_low_update)
             {
                 if (maj_confirmed_extreme_high != EMPTY_VALUE && maj_confirmed_extreme_high != pending_weak_high_level)
@@ -1629,7 +1600,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     pending_strong_high_update = false;
                 }
             }
-
             if (major_trend == 1 && pending_strong_low_update)
             {
                 double min_swing_val = EMPTY_VALUE;
@@ -1686,7 +1656,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     pending_strong_low_update = false;
                 }
             }
-
             if (major_trend == -1 && pending_strong_high_update)
             {
                 double max_swing_val = EMPTY_VALUE;
@@ -1743,14 +1712,11 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     pending_strong_high_update = false;
                 }
             }
-
             if (major_trend == 1 && maj_confirmed_extreme_high != EMPTY_VALUE &&
                 HAClose[i] > maj_confirmed_extreme_high &&
                 processed_weak_high_time != maj_confirmed_extreme_high_time)
             {
-
                 processed_weak_high_time = maj_confirmed_extreme_high_time;
-
                 double min_swing_val = EMPTY_VALUE;
                 datetime min_swing_time = 0;
                 int min_swing_idx = -1;
@@ -1775,7 +1741,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         }
                     }
                 }
-
                 if (min_swing_val != EMPTY_VALUE)
                 {
                     double absolute_min_val = EMPTY_VALUE;
@@ -1811,14 +1776,11 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     pending_weak_high_level = maj_confirmed_extreme_high;
                 }
             }
-
             if (major_trend == -1 && maj_confirmed_extreme_low != EMPTY_VALUE &&
                 HAClose[i] < maj_confirmed_extreme_low &&
                 processed_weak_low_time != maj_confirmed_extreme_low_time)
             {
-
                 processed_weak_low_time = maj_confirmed_extreme_low_time;
-
                 double max_swing_val = EMPTY_VALUE;
                 datetime max_swing_time = 0;
                 int max_swing_idx = -1;
@@ -1843,7 +1805,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                         }
                     }
                 }
-
                 if (max_swing_val != EMPTY_VALUE)
                 {
                     double absolute_max_val = EMPTY_VALUE;
@@ -1910,6 +1871,12 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             SellZoneEntryBuffer[i] = EMPTY_VALUE;
         }
 
+        // PATCH: Ghi carry-forward buffer moi bar — EA doc [1] la co ngay
+        BOS_Up_Level[i] = last_bos_up_level;
+        BOS_Dn_Level[i] = last_bos_dn_level;
+        CHOCH_Up_Level[i] = last_choch_up_level;
+        CHOCH_Dn_Level[i] = last_choch_dn_level;
+
         if (i == 0)
         {
             if (major_trend == -1 && maj_prot_high != EMPTY_VALUE)
@@ -1949,7 +1916,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             {
                 CreateTrackingRayWithLabel("IND_SMC_TRACK_HIGH", g_high_time, g_high_lvl, TrackingLineColor, g_high_text, true, time[0]);
                 CreateTrackingRayWithLabel("IND_SMC_TRACK_LOW", g_low_time, g_low_lvl, TrackingLineColor, g_low_text, false, time[0]);
-
                 if (major_trend == 1 && maj_confirmed_extreme_high != EMPTY_VALUE)
                 {
                     CreateTrackingRayWithLabel("IND_SMC_EXTREME_HIGH", maj_confirmed_extreme_high_time, maj_confirmed_extreme_high, clrOrange, "Weak High", false, time[0]);
@@ -1959,7 +1925,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     ObjectDelete(0, "IND_SMC_EXTREME_HIGH_ray");
                     ObjectDelete(0, "IND_SMC_EXTREME_HIGH_lbl");
                 }
-
                 if (major_trend == -1 && maj_confirmed_extreme_low != EMPTY_VALUE)
                 {
                     CreateTrackingRayWithLabel("IND_SMC_EXTREME_LOW", maj_confirmed_extreme_low_time, maj_confirmed_extreme_low, clrOrange, "Weak Low", true, time[0]);
@@ -1969,8 +1934,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     ObjectDelete(0, "IND_SMC_EXTREME_LOW_ray");
                     ObjectDelete(0, "IND_SMC_EXTREME_LOW_lbl");
                 }
-
-                // VẼ STRONG ZONE PHÂN BIỆT RÕ RÀNG 2 PHE (Fix lỗi triệt tiêu đồ họa)
                 if (major_trend == -1 && maj_strong_high != EMPTY_VALUE)
                 {
                     CreateTrackingRayWithLabel("IND_SMC_STRONG_HIGH", maj_strong_high_time, maj_strong_high, StrongHighColor, "Strong High", false, time[0]);
@@ -1983,7 +1946,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     ObjectDelete(0, "IND_SMC_STRONG_HIGH_lbl");
                     ObjectDelete(0, "IND_SMC_ACTIVE_STRONG_SELL_ZONE");
                 }
-
                 if (major_trend == 1 && maj_strong_low != EMPTY_VALUE)
                 {
                     CreateTrackingRayWithLabel("IND_SMC_STRONG_LOW", maj_strong_low_time, maj_strong_low, StrongLowColor, "Strong Low", true, time[0]);
@@ -1996,7 +1958,6 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                     ObjectDelete(0, "IND_SMC_STRONG_LOW_lbl");
                     ObjectDelete(0, "IND_SMC_ACTIVE_STRONG_BUY_ZONE");
                 }
-
                 if (MQLInfoInteger(MQL_TESTER))
                     ChartRedraw(0);
             }
@@ -2033,17 +1994,14 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
             {
                 CreateTrackingRayWithLabel("IND_SMC_TRACK_HIGH", g_high_time, g_high_lvl, TrackingLineColor, g_high_text, true, t[0]);
                 CreateTrackingRayWithLabel("IND_SMC_TRACK_LOW", g_low_time, g_low_lvl, TrackingLineColor, g_low_text, false, t[0]);
-
                 if (major_trend == 1 && maj_confirmed_extreme_high != EMPTY_VALUE)
                     CreateTrackingRayWithLabel("IND_SMC_EXTREME_HIGH", maj_confirmed_extreme_high_time, maj_confirmed_extreme_high, clrOrange, "Weak High", false, t[0]);
                 if (major_trend == -1 && maj_confirmed_extreme_low != EMPTY_VALUE)
                     CreateTrackingRayWithLabel("IND_SMC_EXTREME_LOW", maj_confirmed_extreme_low_time, maj_confirmed_extreme_low, clrOrange, "Weak Low", true, t[0]);
-
                 if (major_trend == -1 && maj_strong_high != EMPTY_VALUE)
                     CreateTrackingRayWithLabel("IND_SMC_STRONG_HIGH", maj_strong_high_time, maj_strong_high, StrongHighColor, "Strong High", false, t[0]);
                 if (major_trend == 1 && maj_strong_low != EMPTY_VALUE)
                     CreateTrackingRayWithLabel("IND_SMC_STRONG_LOW", maj_strong_low_time, maj_strong_low, StrongLowColor, "Strong Low", true, t[0]);
-
                 ChartRedraw();
             }
         }
@@ -2292,12 +2250,10 @@ void CreateStrongZone(string name, int ext_idx, bool isSellZone, const datetime 
 {
     if (ext_idx < 0 || ext_idx >= total)
         return;
-
     int targetColor = isSellZone ? 0 : 1;
     int k = ext_idx;
     double zHigh = ha_h[ext_idx];
     double zLow = ha_l[ext_idx];
-
     while (k < total && ha_color[k] != targetColor && k <= ext_idx + 10)
     {
         k++;
@@ -2325,21 +2281,17 @@ void CreateStrongZone(string name, int ext_idx, bool isSellZone, const datetime 
             zLow = MathMin(zLow, ha_l[ext_idx]);
         }
     }
-
     datetime tStart = time[ext_idx];
     datetime tEnd = time[0] + PeriodSeconds() * 1000;
-
     if (ObjectFind(0, name) >= 0)
     {
         double old_zHigh = ObjectGetDouble(0, name, OBJPROP_PRICE, 0);
         double old_zLow = ObjectGetDouble(0, name, OBJPROP_PRICE, 1);
         datetime old_tStart = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 0);
-        // Đảm bảo tọa độ giá và điểm bắt đầu không đổi thì mới giữ nguyên, nếu dịch chuyển thì vẽ lại
         if (MathAbs(old_zHigh - zHigh) < _Point && MathAbs(old_zLow - zLow) < _Point && old_tStart == tStart)
             return;
         ObjectDelete(0, name);
     }
-
     ObjectCreate(0, name, OBJ_RECTANGLE, 0, tStart, zHigh, tEnd, zLow);
     ObjectSetInteger(0, name, OBJPROP_COLOR, isSellZone ? StrongSellZoneColor : StrongBuyZoneColor);
     ObjectSetInteger(0, name, OBJPROP_FILL, false); // Nền rỗng, để lộ Zone sóng phụ
