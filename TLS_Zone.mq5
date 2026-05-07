@@ -3,7 +3,7 @@
 #property indicator_chart_window
 
 #property indicator_buffers 26
-#property indicator_plots 18
+#property indicator_plots 22
 
 #property indicator_type1 DRAW_ARROW
 #property indicator_type2 DRAW_ARROW
@@ -30,6 +30,10 @@
 #property indicator_type16 DRAW_NONE
 #property indicator_type17 DRAW_NONE
 #property indicator_type18 DRAW_NONE
+#property indicator_type19 DRAW_NONE
+#property indicator_type20 DRAW_NONE
+#property indicator_type21 DRAW_NONE
+#property indicator_type22 DRAW_NONE
 
 input group "--- Major Swing Settings ---" input color MajorSwingColor = C'80,80,80';
 input int MajorSwingSize = 5;
@@ -294,14 +298,26 @@ int OnInit()
     PlotIndexSetString(17, PLOT_LABEL, "Sell Zone Entry");
 
     // Buffer 22-25: carry-forward — ghi lien tuc moi bar cho EA doc
+    // DRAW_NONE plots added so ChartIndicatorGet exposes these buffers
     SetIndexBuffer(22, BOS_Up_Level, INDICATOR_DATA);
-    PlotIndexSetDouble(22, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+    PlotIndexSetInteger(18, PLOT_DRAW_TYPE, DRAW_NONE);
+    PlotIndexSetString(18, PLOT_LABEL, "BOS_Up_Level");
+    PlotIndexSetDouble(18, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
     SetIndexBuffer(23, BOS_Dn_Level, INDICATOR_DATA);
-    PlotIndexSetDouble(23, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+    PlotIndexSetInteger(19, PLOT_DRAW_TYPE, DRAW_NONE);
+    PlotIndexSetString(19, PLOT_LABEL, "BOS_Dn_Level");
+    PlotIndexSetDouble(19, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
     SetIndexBuffer(24, CHOCH_Up_Level, INDICATOR_DATA);
-    PlotIndexSetDouble(24, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+    PlotIndexSetInteger(20, PLOT_DRAW_TYPE, DRAW_NONE);
+    PlotIndexSetString(20, PLOT_LABEL, "CHOCH_Up_Level");
+    PlotIndexSetDouble(20, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
     SetIndexBuffer(25, CHOCH_Dn_Level, INDICATOR_DATA);
-    PlotIndexSetDouble(25, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+    PlotIndexSetInteger(21, PLOT_DRAW_TYPE, DRAW_NONE);
+    PlotIndexSetString(21, PLOT_LABEL, "CHOCH_Dn_Level");
+    PlotIndexSetDouble(21, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
     ma_handle = iMA(_Symbol, _Period, MovingAveragePeriods, 0, MODE_EMA, PRICE_CLOSE);
     return (INIT_SUCCEEDED);

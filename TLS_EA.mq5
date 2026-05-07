@@ -37,6 +37,9 @@ input double InpMaxSessionDD_USD = 50.0;                                 // Max 
 input group "--- Trade Settings ---" input int InpMagic = 202501; // Magic Number
 input string InpComment = "TLS_SMC";
 
+input group "--- Indicator Settings (Chart) ---"
+input string InpIndicatorName = "test_smc"; // Indicator name on chart (must match exactly)
+
 //==========================================================================
 // BUFFER INDEX CONSTANTS (Indicator — sau patch v46.01)
 //==========================================================================
@@ -187,47 +190,53 @@ double GetSpreadPoints()
 }
 
 //+------------------------------------------------------------------+
-//| INDICATOR: Init 3 iCustom handles                                |
+//| INDICATOR: Get handles from open charts via ChartIndicatorGet    |
+//| Requires: M1/M15/H1 charts open with indicator attached manually |
 //+------------------------------------------------------------------+
 bool InitIndicatorHandles()
 {
-    string ind_name = "TLS_Zone";
+    h_H1  = INVALID_HANDLE;
+    h_M15 = INVALID_HANDLE;
+    h_M1  = INVALID_HANDLE;
 
-    h_H1 = iCustom(_Symbol, PERIOD_H1, ind_name,
-                   clrGray, 5, InpMajorSwingPeriods,
-                   true, clrMagenta,
-                   clrRed, clrRed, C'255,153,0', C'255,51,102',
-                   5, clrDodgerBlue, clrRed, clrOrange,
-                   1, C'190,235,210', C'255,200,200',
-                   true, PERIOD_M5, 1, 3, C'120,220,220', C'255,180,180',
-                   InpMovingAvgPeriods, clrGray,
-                   C'8,153,129', C'242,54,69');
+    long chart_id = ChartFirst();
+    while (chart_id >= 0)
+    {
+        if (ChartSymbol(chart_id) == _Symbol)
+        {
+            ENUM_TIMEFRAMES tf = ChartPeriod(chart_id);
+            int h = ChartIndicatorGet(chart_id, 0, InpIndicatorName);
+            if (h != INVALID_HANDLE)
+            {
+                if (tf == PERIOD_H1  && h_H1  == INVALID_HANDLE) { h_H1  = h; Print("[INIT] H1  handle=", h, " from chart_id=", chart_id); }
+                if (tf == PERIOD_M15 && h_M15 == INVALID_HANDLE) { h_M15 = h; Print("[INIT] M15 handle=", h, " from chart_id=", chart_id); }
+                if (tf == PERIOD_M1  && h_M1  == INVALID_HANDLE) { h_M1  = h; Print("[INIT] M1  handle=", h, " from chart_id=", chart_id); }
+            }
+        }
+        chart_id = ChartNext(chart_id);
+    }
 
-    h_M15 = iCustom(_Symbol, PERIOD_M15, ind_name,
-                    clrGray, 5, InpMajorSwingPeriods,
-                    true, clrMagenta,
-                    clrRed, clrRed, C'255,153,0', C'255,51,102',
-                    5, clrDodgerBlue, clrRed, clrOrange,
-                    1, C'190,235,210', C'255,200,200',
-                    true, PERIOD_M5, 1, 3, C'120,220,220', C'255,180,180',
-                    InpMovingAvgPeriods, clrGray,
-                    C'8,153,129', C'242,54,69');
+    Print("[INIT] Handles — H1=", h_H1, " M15=", h_M15, " M1=", h_M1,
+          " (INVALID=", INVALID_HANDLE, ")");
 
-    h_M1 = iCustom(_Symbol, PERIOD_M1, ind_name,
-                   clrGray, 5, InpMajorSwingPeriods,
-                   true, clrMagenta,
-                   clrRed, clrRed, C'255,153,0', C'255,51,102',
-                   5, clrDodgerBlue, clrRed, clrOrange,
-                   1, C'190,235,210', C'255,200,200',
-                   true, PERIOD_M5, 1, 3, C'120,220,220', C'255,180,180',
-                   InpMovingAvgPeriods, clrGray,
-                   C'8,153,129', C'242,54,69');
+    if (h_H1 == INVALID_HANDLE)
+        Print("[INIT] WARN: H1 handle not found. Open XAUUSDm H1 chart with '", InpIndicatorName, "' attached.");
+    if (h_M15 == INVALID_HANDLE)
+        Print("[INIT] WARN: M15 handle not found. Open XAUUSDm M15 chart with '", InpIndicatorName, "' attached.");
+    if (h_M1 == INVALID_HANDLE)
+        Print("[INIT] WARN: M1 handle not found. Open XAUUSDm M1 chart with '", InpIndicatorName, "' attached.");
 
     if (h_H1 == INVALID_HANDLE || h_M15 == INVALID_HANDLE || h_M1 == INVALID_HANDLE)
     {
-        Print("ERROR: Failed to create indicator handles. Check indicator name/path.");
+        Print("[INIT] ERROR: Missing handles. EA cannot start.");
         return false;
     }
+
+    int bc_h1  = BarsCalculated(h_H1);
+    int bc_m15 = BarsCalculated(h_M15);
+    int bc_m1  = BarsCalculated(h_M1);
+    Print("[INIT] BarsCalculated — H1=", bc_h1, " M15=", bc_m15, " M1=", bc_m1);
+
     return true;
 }
 
@@ -236,28 +245,69 @@ bool InitIndicatorHandles()
 //+------------------------------------------------------------------+
 bool ReadBuffers(int handle, int shift, TFData &out)
 {
+    // Silent wait until indicator is ready
+    int bc = BarsCalculated(handle);
+    if (bc <= 0)
+        return false;
+
+    // Log once when indicator becomes ready
+    static int last_bc_h1 = 0, last_bc_m15 = 0, last_bc_m1 = 0;
+    if (handle == h_H1  && last_bc_h1  == 0) { Print("[READY] H1  BarsCalculated=", bc);  last_bc_h1  = bc; }
+    if (handle == h_M15 && last_bc_m15 == 0) { Print("[READY] M15 BarsCalculated=", bc);  last_bc_m15 = bc; }
+    if (handle == h_M1  && last_bc_m1  == 0) { Print("[READY] M1  BarsCalculated=", bc);  last_bc_m1  = bc; }
+
     double tmp[1];
 
-#define READ_BUF(buf_idx, dest)                         \
-    if (CopyBuffer(handle, buf_idx, shift, 1, tmp) < 1) \
-        return false;                                   \
+#define READ_BUF(buf_idx, dest)                                          \
+    if (CopyBuffer(handle, buf_idx, shift, 1, tmp) < 1) {               \
+        Print("[ReadBuffers] ERROR: CopyBuffer failed buf=", buf_idx,    \
+              " handle=", handle, " shift=", shift,                      \
+              " BarsCalculated=", bc);                                   \
+        return false;                                                    \
+    }                                                                    \
     dest = tmp[0];
 
-    READ_BUF(BUF_MAJOR_TREND, out.major_trend)
-    READ_BUF(BUF_MAJOR_EVENT, out.major_event)
+    READ_BUF(BUF_MAJOR_TREND,     out.major_trend)
+    READ_BUF(BUF_MAJOR_EVENT,     out.major_event)
     READ_BUF(BUF_MAJOR_PROT_HIGH, out.prot_high)
-    READ_BUF(BUF_MAJOR_PROT_LOW, out.prot_low)
-    READ_BUF(BUF_BUY_ZONE_ENTRY, out.buy_zone_entry)
-    READ_BUF(BUF_BUY_ZONE_SL, out.buy_zone_sl)
-    READ_BUF(BUF_SELL_ZONE_SL, out.sell_zone_sl)
+    READ_BUF(BUF_MAJOR_PROT_LOW,  out.prot_low)
+    READ_BUF(BUF_BUY_ZONE_ENTRY,  out.buy_zone_entry)
+    READ_BUF(BUF_BUY_ZONE_SL,     out.buy_zone_sl)
+    READ_BUF(BUF_SELL_ZONE_SL,    out.sell_zone_sl)
     READ_BUF(BUF_SELL_ZONE_ENTRY, out.sell_zone_entry)
-    READ_BUF(BUF_BOS_UP_LEVEL, out.bos_up)
-    READ_BUF(BUF_BOS_DN_LEVEL, out.bos_dn)
-    READ_BUF(BUF_CHOCH_UP_LEVEL, out.choch_up)
-    READ_BUF(BUF_CHOCH_DN_LEVEL, out.choch_dn)
+    READ_BUF(BUF_BOS_UP_LEVEL,    out.bos_up)
+    READ_BUF(BUF_BOS_DN_LEVEL,    out.bos_dn)
+    READ_BUF(BUF_CHOCH_UP_LEVEL,  out.choch_up)
+    READ_BUF(BUF_CHOCH_DN_LEVEL,  out.choch_dn)
 
 #undef READ_BUF
     return true;
+}
+
+//+------------------------------------------------------------------+
+//| DEBUG: Print all buffer values for one timeframe (new bar only)  |
+//+------------------------------------------------------------------+
+void LogTFData(string tf_label, const TFData &d)
+{
+    string bz  = StringFormat("BuyZone[entry=%.5f sl=%.5f]",
+                    d.buy_zone_entry == EMPTY_VALUE ? 0 : d.buy_zone_entry,
+                    d.buy_zone_sl    == EMPTY_VALUE ? 0 : d.buy_zone_sl);
+    string sz  = StringFormat("SellZone[sl=%.5f entry=%.5f]",
+                    d.sell_zone_sl    == EMPTY_VALUE ? 0 : d.sell_zone_sl,
+                    d.sell_zone_entry == EMPTY_VALUE ? 0 : d.sell_zone_entry);
+    string bos = StringFormat("BOS[up=%.5f dn=%.5f]",
+                    d.bos_up == EMPTY_VALUE ? 0 : d.bos_up,
+                    d.bos_dn == EMPTY_VALUE ? 0 : d.bos_dn);
+    string choch = StringFormat("CHOCH[up=%.5f dn=%.5f]",
+                    d.choch_up == EMPTY_VALUE ? 0 : d.choch_up,
+                    d.choch_dn == EMPTY_VALUE ? 0 : d.choch_dn);
+    Print("[BUF] ", tf_label,
+          " Trend=", (int)d.major_trend,
+          " Event=", (int)d.major_event,
+          " | ", bz,
+          " | ", sz,
+          " | ", bos,
+          " | ", choch);
 }
 
 //+------------------------------------------------------------------+
@@ -265,7 +315,20 @@ bool ReadBuffers(int handle, int shift, TFData &out)
 //+------------------------------------------------------------------+
 int CheckH1Trend()
 {
-    return (int)g_H1.major_trend; // 1=Bull, -1=Bear, 0=unknown
+    int trend = (int)g_H1.major_trend;
+    string trend_str = (trend == 1) ? "BULL (+1)" :
+                       (trend == -1) ? "BEAR (-1)" : "NEUTRAL (0)";
+    Print("[H1 TREND] ", trend_str,
+          " | ProtHigh=", g_H1.prot_high == EMPTY_VALUE ? 0 : g_H1.prot_high,
+          " ProtLow=",   g_H1.prot_low  == EMPTY_VALUE ? 0 : g_H1.prot_low,
+          " | BOS_Up=",  g_H1.bos_up    == EMPTY_VALUE ? 0 : g_H1.bos_up,
+          " BOS_Dn=",    g_H1.bos_dn    == EMPTY_VALUE ? 0 : g_H1.bos_dn,
+          " CHOCH_Up=",  g_H1.choch_up  == EMPTY_VALUE ? 0 : g_H1.choch_up,
+          " CHOCH_Dn=",  g_H1.choch_dn  == EMPTY_VALUE ? 0 : g_H1.choch_dn,
+          " | Event=",   (int)g_H1.major_event);
+    if (trend == 0)
+        Print("[H1 TREND] => NEUTRAL — EA will skip this bar.");
+    return trend;
 }
 
 //+------------------------------------------------------------------+
@@ -280,30 +343,71 @@ double CalcRef(const TFData &tf, bool is_buy_side)
 }
 
 //+------------------------------------------------------------------+
-//| LOGIC: Detect M1 signal bar (BOS or CHOCH on closed bar shift=1) |
+//| LOGIC: Detect M1 signal — M1 có CHOCH/BOS cùng chiều + Zone     |
+//| BUY:  event=1(BOS_Up) hoặc 2(CHOCH_Up) + BuyZone tồn tại        |
+//| SELL: event=-1(BOS_Dn) hoặc -2(CHOCH_Dn) + SellZone tồn tại    |
 //+------------------------------------------------------------------+
-// Returns true if signal is present and zone exists for given side
 bool DetectM1Signal(bool is_buy_side)
 {
-    double ev = g_M1.major_event;
+    double ev   = g_M1.major_event;
+    string side = is_buy_side ? "BUY" : "SELL";
+
+    string ev_str;
+    if      (ev ==  1.0) ev_str = "BOS_Up(+1)";
+    else if (ev ==  2.0) ev_str = "CHOCH_Up(+2)";
+    else if (ev == -1.0) ev_str = "BOS_Dn(-1)";
+    else if (ev == -2.0) ev_str = "CHOCH_Dn(-2)";
+    else                 ev_str = StringFormat("NONE(%.0f)", ev);
+
+    // Log snapshot M1
+    Print("[M1 SIGNAL] ", side,
+          " | Event=", ev_str,
+          " | BuyZone[entry=", g_M1.buy_zone_entry == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.buy_zone_entry,5),
+          " sl=",              g_M1.buy_zone_sl    == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.buy_zone_sl,5), "]",
+          " SellZone[sl=",    g_M1.sell_zone_sl    == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.sell_zone_sl,5),
+          " entry=",           g_M1.sell_zone_entry == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.sell_zone_entry,5), "]",
+          " | BOS_Up=",  g_M1.bos_up   == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.bos_up,5),
+          " BOS_Dn=",   g_M1.bos_dn   == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.bos_dn,5),
+          " CHOCH_Up=", g_M1.choch_up == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.choch_up,5),
+          " CHOCH_Dn=", g_M1.choch_dn == EMPTY_VALUE ? "EMPTY" : DoubleToString(g_M1.choch_dn,5));
 
     if (is_buy_side)
     {
-        // Buy signal: BOS Up (1) or CHOCH Up (2)
+        // Cần: BOS_Up(1) hoặc CHOCH_Up(2)
         if (ev != 1.0 && ev != 2.0)
+        {
+            Print("[M1 SIGNAL] FAIL — Event ", ev_str, " không phải BOS_Up/CHOCH_Up");
             return false;
-        // Zone must exist
+        }
+        // Cần: BuyZone tồn tại
         if (g_M1.buy_zone_sl == EMPTY_VALUE || g_M1.buy_zone_entry == EMPTY_VALUE)
+        {
+            Print("[M1 SIGNAL] FAIL — BuyZone không tồn tại (sl=",
+                  g_M1.buy_zone_sl    == EMPTY_VALUE ? "EMPTY" : "OK",
+                  " entry=", g_M1.buy_zone_entry == EMPTY_VALUE ? "EMPTY" : "OK", ")");
             return false;
+        }
+        Print("[M1 SIGNAL] PASS BUY — Event=", ev_str,
+              " BuyZone[entry=", g_M1.buy_zone_entry, " sl=", g_M1.buy_zone_sl, "]");
     }
     else
     {
-        // Sell signal: BOS Dn (-1) or CHOCH Dn (-2)
+        // Cần: BOS_Dn(-1) hoặc CHOCH_Dn(-2)
         if (ev != -1.0 && ev != -2.0)
+        {
+            Print("[M1 SIGNAL] FAIL — Event ", ev_str, " không phải BOS_Dn/CHOCH_Dn");
             return false;
-        // Zone must exist
+        }
+        // Cần: SellZone tồn tại
         if (g_M1.sell_zone_sl == EMPTY_VALUE || g_M1.sell_zone_entry == EMPTY_VALUE)
+        {
+            Print("[M1 SIGNAL] FAIL — SellZone không tồn tại (sl=",
+                  g_M1.sell_zone_sl    == EMPTY_VALUE ? "EMPTY" : "OK",
+                  " entry=", g_M1.sell_zone_entry == EMPTY_VALUE ? "EMPTY" : "OK", ")");
             return false;
+        }
+        Print("[M1 SIGNAL] PASS SELL — Event=", ev_str,
+              " SellZone[sl=", g_M1.sell_zone_sl, " entry=", g_M1.sell_zone_entry, "]");
     }
     return true;
 }
@@ -317,9 +421,15 @@ bool CheckConfluence(bool is_buy_side)
     double H1_ref = CalcRef(g_H1, is_buy_side);
     double M15_ref = CalcRef(g_M15, is_buy_side);
 
+    string side = is_buy_side ? "BUY" : "SELL";
+    Print("[CONFLUENCE] ", side, " — Ref values:",
+          " M1_ref=",  M1_ref  == EMPTY_VALUE ? "EMPTY" : DoubleToString(M1_ref,  5),
+          " H1_ref=",  H1_ref  == EMPTY_VALUE ? "EMPTY" : DoubleToString(H1_ref,  5),
+          " M15_ref=", M15_ref == EMPTY_VALUE ? "EMPTY" : DoubleToString(M15_ref, 5));
+
     // Both HTF refs empty → FAIL
     if (H1_ref == EMPTY_VALUE && M15_ref == EMPTY_VALUE)
-        return false;
+    { Print("[CONFLUENCE] FAIL — Both H1_ref and M15_ref are EMPTY"); return false; }
 
     // Cache ref for order placement
     g_M1_ref = M1_ref;
@@ -328,43 +438,62 @@ bool CheckConfluence(bool is_buy_side)
 
     if (is_buy_side)
     {
-        double M1_zone_bot = g_M1.buy_zone_sl; // BuyZoneSLBuffer (bottom)
-        double H1_zone_bot = g_H1.buy_zone_sl;
+        double M1_zone_bot  = g_M1.buy_zone_sl;
+        double H1_zone_bot  = g_H1.buy_zone_sl;
         double M15_zone_bot = g_M15.buy_zone_sl;
+        Print("[CONFLUENCE] BUY zones: M1_bot=", M1_zone_bot == EMPTY_VALUE ? "EMPTY" : DoubleToString(M1_zone_bot,5),
+              " H1_bot=",  H1_zone_bot  == EMPTY_VALUE ? "EMPTY" : DoubleToString(H1_zone_bot,5),
+              " M15_bot=", M15_zone_bot == EMPTY_VALUE ? "EMPTY" : DoubleToString(M15_zone_bot,5));
 
-        // CHECK H1
-        if (H1_ref != EMPTY_VALUE && H1_zone_bot != EMPTY_VALUE)
+        if (H1_ref == EMPTY_VALUE || H1_zone_bot == EMPTY_VALUE)
+            Print("[CONFLUENCE] CHECK H1 — SKIP (H1_ref=", H1_ref==EMPTY_VALUE?"EMPTY":"OK", " H1_zone_bot=", H1_zone_bot==EMPTY_VALUE?"EMPTY":"OK", ")");
+        else
         {
-            if (M1_zone_bot >= H1_zone_bot && M1_ref <= H1_ref)
-                return true;
+            bool cz = (M1_zone_bot >= H1_zone_bot), cr = (M1_ref <= H1_ref);
+            Print("[CONFLUENCE] CHECK H1: M1_bot(", M1_zone_bot, ")>=H1_bot(", H1_zone_bot, ")=", cz?"OK":"FAIL",
+                  " M1_ref(", M1_ref, ")<=H1_ref(", H1_ref, ")=", cr?"OK":"FAIL");
+            if (cz && cr) { Print("[CONFLUENCE] PASS via H1"); return true; }
         }
-        // CHECK M15
-        if (M15_ref != EMPTY_VALUE && M15_zone_bot != EMPTY_VALUE)
+        if (M15_ref == EMPTY_VALUE || M15_zone_bot == EMPTY_VALUE)
+            Print("[CONFLUENCE] CHECK M15 — SKIP (M15_ref=", M15_ref==EMPTY_VALUE?"EMPTY":"OK", " M15_zone_bot=", M15_zone_bot==EMPTY_VALUE?"EMPTY":"OK", ")");
+        else
         {
-            if (M1_zone_bot >= M15_zone_bot && M1_ref <= M15_ref)
-                return true;
+            bool cz = (M1_zone_bot >= M15_zone_bot), cr = (M1_ref <= M15_ref);
+            Print("[CONFLUENCE] CHECK M15: M1_bot(", M1_zone_bot, ")>=M15_bot(", M15_zone_bot, ")=", cz?"OK":"FAIL",
+                  " M1_ref(", M1_ref, ")<=M15_ref(", M15_ref, ")=", cr?"OK":"FAIL");
+            if (cz && cr) { Print("[CONFLUENCE] PASS via M15"); return true; }
         }
     }
     else
     {
-        double M1_zone_top = g_M1.sell_zone_sl; // SellZoneSLBuffer (top)
-        double H1_zone_top = g_H1.sell_zone_sl;
+        double M1_zone_top  = g_M1.sell_zone_sl;
+        double H1_zone_top  = g_H1.sell_zone_sl;
         double M15_zone_top = g_M15.sell_zone_sl;
+        Print("[CONFLUENCE] SELL zones: M1_top=", M1_zone_top == EMPTY_VALUE ? "EMPTY" : DoubleToString(M1_zone_top,5),
+              " H1_top=",  H1_zone_top  == EMPTY_VALUE ? "EMPTY" : DoubleToString(H1_zone_top,5),
+              " M15_top=", M15_zone_top == EMPTY_VALUE ? "EMPTY" : DoubleToString(M15_zone_top,5));
 
-        // CHECK H1
-        if (H1_ref != EMPTY_VALUE && H1_zone_top != EMPTY_VALUE)
+        if (H1_ref == EMPTY_VALUE || H1_zone_top == EMPTY_VALUE)
+            Print("[CONFLUENCE] CHECK H1 — SKIP (H1_ref=", H1_ref==EMPTY_VALUE?"EMPTY":"OK", " H1_zone_top=", H1_zone_top==EMPTY_VALUE?"EMPTY":"OK", ")");
+        else
         {
-            if (M1_zone_top <= H1_zone_top && M1_ref >= H1_ref)
-                return true;
+            bool cz = (M1_zone_top <= H1_zone_top), cr = (M1_ref >= H1_ref);
+            Print("[CONFLUENCE] CHECK H1: M1_top(", M1_zone_top, ")<=H1_top(", H1_zone_top, ")=", cz?"OK":"FAIL",
+                  " M1_ref(", M1_ref, ")>=H1_ref(", H1_ref, ")=", cr?"OK":"FAIL");
+            if (cz && cr) { Print("[CONFLUENCE] PASS via H1"); return true; }
         }
-        // CHECK M15
-        if (M15_ref != EMPTY_VALUE && M15_zone_top != EMPTY_VALUE)
+        if (M15_ref == EMPTY_VALUE || M15_zone_top == EMPTY_VALUE)
+            Print("[CONFLUENCE] CHECK M15 — SKIP (M15_ref=", M15_ref==EMPTY_VALUE?"EMPTY":"OK", " M15_zone_top=", M15_zone_top==EMPTY_VALUE?"EMPTY":"OK", ")");
+        else
         {
-            if (M1_zone_top <= M15_zone_top && M1_ref >= M15_ref)
-                return true;
+            bool cz = (M1_zone_top <= M15_zone_top), cr = (M1_ref >= M15_ref);
+            Print("[CONFLUENCE] CHECK M15: M1_top(", M1_zone_top, ")<=M15_top(", M15_zone_top, ")=", cz?"OK":"FAIL",
+                  " M1_ref(", M1_ref, ")>=M15_ref(", M15_ref, ")=", cr?"OK":"FAIL");
+            if (cz && cr) { Print("[CONFLUENCE] PASS via M15"); return true; }
         }
     }
 
+    Print("[CONFLUENCE] FAIL — No check passed for ", side);
     return false;
 }
 
@@ -538,16 +667,26 @@ ulong GetOpenPositionTicket()
 //+------------------------------------------------------------------+
 bool CheckBuyNow5Conditions()
 {
-    if (!g_confirmed)
-        return false;
-    if (!g_limit_active)
-        return false;
-    if (g_M1.major_event != 1.0)
-        return false; // BOS Buy on last closed bar
-    if (g_M1.buy_zone_sl == EMPTY_VALUE)
-        return false; // Zone still valid
-    if (CheckH1Trend() != 1)
-        return false; // H1 still bullish
+    string ev_str;
+    double ev = g_M1.major_event;
+    if      (ev ==  1.0) ev_str = "BOS_Up(+1)";
+    else if (ev ==  2.0) ev_str = "CHOCH_Up(+2)";
+    else if (ev == -1.0) ev_str = "BOS_Dn(-1)";
+    else if (ev == -2.0) ev_str = "CHOCH_Dn(-2)";
+    else                 ev_str = StringFormat("NONE(%.0f)", ev);
+    int h1t = (int)g_H1.major_trend;
+    Print("[5COND BUY] C1_confirmed=",   g_confirmed    ? "OK" : "FAIL",
+          " C2_limit_active=",            g_limit_active ? "OK" : "FAIL",
+          " C3_M1_event=", ev_str, "(need BOS_Up+1)",
+          " C4_BuyZone_sl=", g_M1.buy_zone_sl == EMPTY_VALUE ? "EMPTY=FAIL" : DoubleToString(g_M1.buy_zone_sl,5)+"=OK",
+          " C5_H1_trend=", h1t, "(need +1)=", h1t==1?"OK":"FAIL",
+          " ticket=", g_limit_ticket);
+    if (!g_confirmed)             { Print("[5COND BUY] FAIL C1: confirmed=false");    return false; }
+    if (!g_limit_active)          { Print("[5COND BUY] FAIL C2: limit_active=false"); return false; }
+    if (ev != 1.0)                { Print("[5COND BUY] FAIL C3: Event=", ev_str);     return false; }
+    if (g_M1.buy_zone_sl == EMPTY_VALUE) { Print("[5COND BUY] FAIL C4: BuyZone SL=EMPTY"); return false; }
+    if (h1t != 1)                 { Print("[5COND BUY] FAIL C5: H1_trend=", h1t);     return false; }
+    Print("[5COND BUY] ALL 5 PASSED => Execute BUY NOW");
     return true;
 }
 
@@ -556,16 +695,26 @@ bool CheckBuyNow5Conditions()
 //+------------------------------------------------------------------+
 bool CheckSellNow5Conditions()
 {
-    if (!g_confirmed)
-        return false;
-    if (!g_limit_active)
-        return false;
-    if (g_M1.major_event != -1.0)
-        return false; // BOS Sell on last closed bar
-    if (g_M1.sell_zone_sl == EMPTY_VALUE)
-        return false; // Zone still valid
-    if (CheckH1Trend() != -1)
-        return false; // H1 still bearish
+    string ev_str;
+    double ev = g_M1.major_event;
+    if      (ev ==  1.0) ev_str = "BOS_Up(+1)";
+    else if (ev ==  2.0) ev_str = "CHOCH_Up(+2)";
+    else if (ev == -1.0) ev_str = "BOS_Dn(-1)";
+    else if (ev == -2.0) ev_str = "CHOCH_Dn(-2)";
+    else                 ev_str = StringFormat("NONE(%.0f)", ev);
+    int h1t = (int)g_H1.major_trend;
+    Print("[5COND SELL] C1_confirmed=",  g_confirmed    ? "OK" : "FAIL",
+          " C2_limit_active=",           g_limit_active ? "OK" : "FAIL",
+          " C3_M1_event=", ev_str, "(need BOS_Dn-1)",
+          " C4_SellZone_sl=", g_M1.sell_zone_sl == EMPTY_VALUE ? "EMPTY=FAIL" : DoubleToString(g_M1.sell_zone_sl,5)+"=OK",
+          " C5_H1_trend=", h1t, "(need -1)=", h1t==-1?"OK":"FAIL",
+          " ticket=", g_limit_ticket);
+    if (!g_confirmed)              { Print("[5COND SELL] FAIL C1: confirmed=false");    return false; }
+    if (!g_limit_active)           { Print("[5COND SELL] FAIL C2: limit_active=false"); return false; }
+    if (ev != -1.0)                { Print("[5COND SELL] FAIL C3: Event=", ev_str);     return false; }
+    if (g_M1.sell_zone_sl == EMPTY_VALUE) { Print("[5COND SELL] FAIL C4: SellZone SL=EMPTY"); return false; }
+    if (h1t != -1)                 { Print("[5COND SELL] FAIL C5: H1_trend=", h1t);     return false; }
+    Print("[5COND SELL] ALL 5 PASSED => Execute SELL NOW");
     return true;
 }
 
@@ -635,18 +784,23 @@ bool ExecuteNowAndCancelLimit(bool is_buy_side)
 //+------------------------------------------------------------------+
 void ResetTradeState()
 {
-    g_confirmed = false;
+    Print("[RESET] ResetTradeState — was BuySide=", g_is_buy_side?"Y":"N",
+          " confirmed=", g_confirmed?"Y":"N",
+          " limit_active=", g_limit_active?"Y":"N",
+          " ticket=", g_limit_ticket);
+    g_confirmed    = false;
     g_limit_active = false;
-    g_zone_used = false;
+    g_zone_used    = false;
+    g_is_buy_side  = false;
     g_limit_ticket = 0;
-    g_limit_price = 0;
-    g_limit_sl = 0;
-    g_limit_tp = 0;
-    g_limit_lots = 0;
-    g_M1_ref = EMPTY_VALUE;
-    g_H1_ref = EMPTY_VALUE;
-    g_M15_ref = EMPTY_VALUE;
-    g_be_done = false;
+    g_limit_price  = 0;
+    g_limit_sl     = 0;
+    g_limit_tp     = 0;
+    g_limit_lots   = 0;
+    g_M1_ref       = EMPTY_VALUE;
+    g_H1_ref       = EMPTY_VALUE;
+    g_M15_ref      = EMPTY_VALUE;
+    g_be_done      = false;
 }
 
 //+------------------------------------------------------------------+
@@ -774,12 +928,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-    if (h_H1 != INVALID_HANDLE)
-        IndicatorRelease(h_H1);
-    if (h_M15 != INVALID_HANDLE)
-        IndicatorRelease(h_M15);
-    if (h_M1 != INVALID_HANDLE)
-        IndicatorRelease(h_M1);
+    // Note: handles from ChartIndicatorGet are owned by the chart, not released here
+    // IndicatorRelease would detach the indicator from the chart — do not call it
     Comment("");
     Print("TLS_SMC_EA deinitialized. Reason=", reason);
 }
@@ -790,6 +940,16 @@ void OnDeinit(const int reason)
 void OnTick()
 {
     // ---- Session DD gate ----
+    static bool first_tick = true;
+    if (first_tick)
+    {
+        first_tick = false;
+        Print("[TICK1] balance=", AccountInfoDouble(ACCOUNT_BALANCE),
+              " session_start_bal=", g_session_start_balance,
+              " dd_limit=", InpMaxSessionDD_USD,
+              " dd_hit=", g_session_dd_hit?"Y":"N",
+              " UseDD=", InpUseSessionDD?"Y":"N");
+    }
     if (IsSessionDDHit())
     {
         UpdateChartComment();
@@ -872,6 +1032,11 @@ void OnTick()
         UpdateChartComment();
         return;
     }
+
+    // --- DEBUG: log buffer snapshot on every new M1 bar ---
+    LogTFData("H1 ", g_H1);
+    LogTFData("M15", g_M15);
+    LogTFData("M1 ", g_M1);
 
     int h1_trend = CheckH1Trend();
     if (h1_trend == 0)
