@@ -790,7 +790,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                if (zone_anchor_idx != -1) {
                    string m_zone_name = "IND_SMC_mZONE_SELL_CHOCH_" + IntegerToString((long)time[i]);
                    double zEntry, zStop;
-                   CreateZone(m_zone_name, zone_anchor_idx, i, true, min_prot_low, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, false);
+                   CreateZone(m_zone_name, zone_anchor_idx, i, true, min_prot_low, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, ShowMinorStructure);
                    PushZone(MinorSellZonesQueue, m_zone_name, zEntry, zStop, MaxZones);
                }
 
@@ -836,7 +836,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                if (zone_anchor_idx != -1) {
                    string m_zone_name = "IND_SMC_mZONE_BUY_CHOCH_" + IntegerToString((long)time[i]);
                    double zEntry, zStop;
-                   CreateZone(m_zone_name, zone_anchor_idx, i, false, min_prot_high, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, false);
+                   CreateZone(m_zone_name, zone_anchor_idx, i, false, min_prot_high, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, ShowMinorStructure);
                    PushZone(MinorBuyZonesQueue, m_zone_name, zEntry, zStop, MaxZones);
                }
 
@@ -870,7 +870,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                    if (origin_idx != -1) {
                       string m_zone_name = "IND_SMC_mZONE_BUY_BOS_" + IntegerToString((long)last_min_low_time);
                       double zEntry, zStop;
-                      CreateZone(m_zone_name, origin_idx, i, false, ActiveMinorHigh.price, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, false);
+                      CreateZone(m_zone_name, origin_idx, i, false, ActiveMinorHigh.price, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, ShowMinorStructure);
                       PushZone(MinorBuyZonesQueue, m_zone_name, zEntry, zStop, MaxZones);
                    }
                 }
@@ -893,7 +893,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                    if (origin_idx != -1) {
                       string m_zone_name = "IND_SMC_mZONE_SELL_BOS_" + IntegerToString((long)last_min_high_time);
                       double zEntry, zStop;
-                      CreateZone(m_zone_name, origin_idx, i, true, ActiveMinorLow.price, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, false);
+                      CreateZone(m_zone_name, origin_idx, i, true, ActiveMinorLow.price, time, high, low, HAHigh, HALow, HAColor, rates_total, zEntry, zStop, ShowMinorStructure);
                       PushZone(MinorSellZonesQueue, m_zone_name, zEntry, zStop, MaxZones);
                    }
                 }
