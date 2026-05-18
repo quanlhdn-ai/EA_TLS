@@ -1,0 +1,1051 @@
+//@version=6
+indicator("New_TradingZone_SMC_Zone_OB", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+
+// ==============================================================================
+// 1. THÔNG SỐ ĐẦU VÀO (INPUTS)
+// ==============================================================================
+grp_maj = "--- Major Swing Settings ---"
+c_SwingHigh     = input.color(color.green, "Swing High Color", group=grp_maj)
+c_SwingLow      = input.color(color.red, "Swing Low Color", group=grp_maj)
+p_MajSwing      = input.int(9, "Periods In Major Swing", group=grp_maj)
+filter_fractals = input.bool(true, "Filter H/L Pivots (AnhTuan Zigzag)", group=grp_maj)
+
+grp_track = "--- Structure Tracking Graphics (RAY) ---"
+ShowTrackingLines = input.bool(true, "Show Tracking Lines", group=grp_track)
+c_TrackingLine    = input.color(color.fuchsia, "Tracking Line Color", group=grp_track)
+
+grp_str = "--- Structure Settings (BOS/CHOCH) ---"
+c_BOS_Up      = input.color(#1E90FF, "BOS Up Color", group=grp_str) 
+c_BOS_Dn      = input.color(color.red, "BOS Down Color", group=grp_str)
+c_KeyLevel    = input.color(color.orange, "Key Level Color", group=grp_str)
+
+grp_zone = "--- SD Zone Settings ---"
+ShowZone      = input.bool(true, "Enable SD Zone", group=grp_zone)
+MaxZones      = input.int(1, "Max Zones", group=grp_zone)
+c_BuyZone     = input.color(color.rgb(190, 235, 210, 50), "Buy Zone Color", group=grp_zone)
+c_SellZone    = input.color(color.rgb(255, 200, 200, 50), "Sell Zone Color", group=grp_zone)
+
+grp_ob = "--- Valid Order Block Settings ---"
+EnableOB      = input.bool(true, "Enable OB Detection", group=grp_ob)
+c_BuyOB       = input.color(color.rgb(255,250,205, 50), "Buy OB Color", group=grp_ob)
+c_SellOB      = input.color(color.rgb(255,250,205, 50), "Sell OB Color", group=grp_ob)
+
+grp_ha = "--- Heiken Ashi Settings ---"
+ShowHA        = input.bool(true, "Show Heiken Ashi Candles", group=grp_ha)
+c_ha_bull     = input.color(color.rgb(8,153,129), "HA Bull Color", group=grp_ha)
+c_ha_bear     = input.color(color.rgb(242,54,69), "HA Bear Color", group=grp_ha)
+
+grp_min = "--- Minor Swing Settings (Trigger) ---"
+ShowMinor     = input.bool(true, "Show Minor Structure", group=grp_min)
+p_MinSwing    = input.int(5, "Periods In Minor Swing", group=grp_min)
+
+grp_weak = "--- Weak Level Settings ---"
+ShowWeakLevel = input.bool(true, "Show Weak Level", group=grp_weak)
+c_WeakHigh    = input.color(color.new(color.red, 30), "Weak High Color", group=grp_weak)
+c_WeakLow     = input.color(color.new(color.green, 30), "Weak Low Color", group=grp_weak)
+
+grp_strong = "--- Strong Level Settings ---"
+ShowStrongLevel = input.bool(true, "Show Strong Level", group=grp_strong)
+c_StrongHigh    = input.color(color.new(color.red, 0), "Strong High Color", group=grp_strong)
+c_StrongLow     = input.color(color.new(color.green, 0), "Strong Low Color", group=grp_strong)
+
+// ==============================================================================
+// 2. CẤU TRÚC DỮ LIỆU & BỘ NHỚ RAM
+// ==============================================================================
+type ActiveOB
+    box     box_id
+    label   lbl_id
+    label   imb_label_id 
+    line    imb_line_top 
+    line    imb_line_bot 
+    float   top
+    float   bottom
+    float   imb_top      
+    float   imb_bot      
+    bool    has_imb      
+    bool    isBull
+    int     bar_idx 
+
+type SDZone
+    box     box_id
+    float   entry
+    float   sl
+    bool    isSell
+
+// [A] Biến lưu trữ cho Động cơ OB (Giao diện)
+var liveOBs = array.new<ActiveOB>()
+var int   major_trend = 0
+var float act_maj_h = na, var int act_maj_h_idx = -1
+var float act_maj_l = na, var int act_maj_l_idx = -1
+var float act_min_h = na, var int act_min_h_idx = -1
+var float act_min_l = na, var int act_min_l_idx = -1
+var float maj_prot_h = na, var int maj_prot_h_idx = -1
+var float maj_prot_l = na, var int maj_prot_l_idx = -1
+var float maj_ext_h  = na, var int maj_ext_h_idx  = -1
+var float maj_ext_l  = na, var int maj_ext_l_idx  = -1
+var float last_maj_h = na, var int last_maj_h_idx = -1
+var float last_maj_l = na, var int last_maj_l_idx = -1
+var bool pending_purge = false
+
+// [B] Biến lưu trữ ngầm cho Động cơ Zone (Tính toán mảng)
+var buy_zones = array.new<SDZone>()
+var sell_zones = array.new<SDZone>()
+var z_a_h = array.new_float()
+var z_a_l = array.new_float()
+var z_a_t = array.new_int()
+var z_a_ha_o = array.new_float()
+var z_a_ha_h = array.new_float()
+var z_a_ha_l = array.new_float()
+var z_a_ha_c = array.new_float()
+var z_a_maj_h = array.new_float()
+var z_a_maj_l = array.new_float()
+
+var float z_ActiveHigh_price = na, var int z_ActiveHigh_time = 0, var bool z_ActiveHigh_isActive = false
+var float z_ActiveLow_price  = na, var int z_ActiveLow_time  = 0, var bool z_ActiveLow_isActive  = false
+var int   z_major_trend = 0
+var float z_maj_prot_h = na, var int z_maj_prot_h_time = 0
+var float z_maj_prot_l = na, var int z_maj_prot_l_time = 0
+var float z_maj_ext_h  = na, var int z_maj_ext_h_time  = 0
+var float z_maj_ext_l  = na, var int z_maj_ext_l_time  = 0
+var float z_last_maj_h = na, var int z_last_maj_h_time = 0
+var float z_last_maj_l = na, var int z_last_maj_l_time = 0
+var int z_last_processed_high_time = 0
+var int z_last_processed_low_time  = 0
+var int z_last_break_dir  = 0
+var int z_last_break_type = 0
+var int z_latest_break_up_time = 0, var float z_latest_break_up_lvl = na
+var int z_latest_break_dn_time = 0, var float z_latest_break_dn_lvl = na
+
+// [C] Biến lưu trữ cho Weak Level & Active Level (Giao diện đồ họa)
+var float weak_level_price = na
+var int   weak_level_idx   = na
+var line  weak_level_line  = na
+var label weak_level_lbl   = na
+
+var float ui_active_level_price = na
+var int   ui_active_level_idx   = na
+
+// [D] Biến lưu trữ cho Strong Level & Chốt chặn bộ nhớ
+var float strong_level_price = na
+var int   strong_level_idx   = na
+var line  strong_level_line  = na
+var label strong_level_lbl   = na
+
+var int   strong_reset_idx   = -1 
+var float pending_strong_price = na // Dùng cho ngoại lệ bắt râu nến
+var int   pending_strong_idx   = na // Dùng cho ngoại lệ bắt râu nến
+var bool  weak_level_broken  = false
+
+// Mảng lưu trữ các Swing đã chính thức được xác nhận
+var arr_confirmed_swing_highs = array.new_int()
+var arr_confirmed_swing_lows  = array.new_int()
+
+// ==============================================================================
+// 3. TÍNH TOÁN DỮ LIỆU NỀN TẢNG (CHUNG)
+// ==============================================================================
+f_pivots_filter(float ph, float pl, float prev_max, float prev_min) =>
+    float last_high_ = fixnan(ph)
+    float max_high_  = not na(pl) ? ph : na(prev_max) ? ph : prev_max
+    max_high_ := math.max(max_high_, last_high_)
+    float last_low_ = fixnan(pl)
+    float min_low_  = not na(ph) ? pl : na(prev_min) ? pl : prev_min
+    min_low_ := math.min(min_low_, last_low_)
+    float cur_max_high_ = fixnan(max_high_)
+    float cur_min_low_  = fixnan(min_low_)
+    float pivot_high = not na(ph) or barstate.islast ? (max_high_ == ph ? cur_max_high_ : na) : na
+    float pivot_low  = not na(pl) or barstate.islast ? (min_low_ == pl ? cur_min_low_ : na) : na
+    [pivot_high, pivot_low, max_high_, min_low_]
+
+var float ha_open = na
+ha_close = (open + high + low + close) / 4.0
+ha_open := na(ha_open[1]) ? (open + close) / 2.0 : (ha_open[1] + ha_close[1]) / 2.0
+ha_high = math.max(high, math.max(ha_open, ha_close))
+ha_low  = math.min(low, math.min(ha_open, ha_close))
+
+ha_color = ha_close >= ha_open ? c_ha_bull : c_ha_bear
+plotcandle(ShowHA ? ha_open : na, ShowHA ? ha_high : na, ShowHA ? ha_low : na, ShowHA ? ha_close : na, title="HA Candles", color=ha_color, wickcolor=ha_color, bordercolor=ha_color)
+
+ph = ta.pivothigh(high, p_MajSwing, p_MajSwing)
+pl = ta.pivotlow(low, p_MajSwing, p_MajSwing)
+
+float max_high_state = na
+float min_low_state  = na
+[f_ph, f_pl, new_max_high, new_min_low] = f_pivots_filter(ph, pl, max_high_state[1], min_low_state[1])
+max_high_state := new_max_high
+min_low_state  := new_min_low
+
+final_ph = filter_fractals ? f_ph : ph
+final_pl = filter_fractals ? f_pl : pl
+
+// ==============================================================================
+// 4. HÀM CHỨC NĂNG CỦA ĐỘNG CƠ OB (VISUALS & OB LOGIC)
+// ==============================================================================
+draw_ob(float top, float bot, bool isBull, int origin_bar_idx, float imb_t, float imb_b) =>
+    if EnableOB
+        b = box.new(origin_bar_idx, top, bar_index + 10, bot, border_color=na, bgcolor=isBull ? c_BuyOB : c_SellOB)
+        label imb_lbl = label(na)
+        line imb_line_t = line(na)
+        line imb_line_b = line(na)
+        bool has_imb = (imb_t > imb_b)
+        if has_imb
+            imb_lbl := label.new(origin_bar_idx + (bar_index + 10 - origin_bar_idx) / 2, (imb_t + imb_b) / 2, "Imbalance", color=color.new(color.white, 100), textcolor=color.black, style=label.style_label_center, size=size.small)
+            imb_line_t := line.new(origin_bar_idx, imb_t, bar_index + 10, imb_t, color=color.new(color.black, 50), style=line.style_dashed, width=1)
+            imb_line_b := line.new(origin_bar_idx, imb_b, bar_index + 10, imb_b, color=color.new(color.black, 50), style=line.style_dashed, width=1)
+        l = label.new(bar_index + 10, (top + bot) / 2, isBull ? "Buy OB" : "Sell OB", color=color.new(color.white, 100), textcolor=color.rgb(100, 100, 100), style=label.style_label_right, size=size.small)
+        liveOBs.push(ActiveOB.new(b, l, imb_lbl, imb_line_t, imb_line_b, top, bot, imb_t, imb_b, has_imb, isBull, origin_bar_idx))
+
+purge_ob(int threshold_idx) =>
+    if liveOBs.size() > 0
+        for i = liveOBs.size() - 1 to 0 
+            ob = liveOBs.get(i)
+            if ob.bar_idx < threshold_idx
+                ob.box_id.delete()
+                ob.lbl_id.delete()
+                if ob.has_imb
+                    ob.imb_label_id.delete()
+                    ob.imb_line_top.delete()
+                    ob.imb_line_bot.delete()
+                liveOBs.remove(i)
+
+check_single_ob(int offset, bool isBull, int current_limit_offset) =>
+    bool found = false
+    if offset + 1 < bar_index and offset - 1 >= current_limit_offset
+        if isBull
+            if close[offset+1] < open[offset+1] and low[offset] < low[offset+1] and high[offset+1] < low[offset-1]
+                ob_top = high[offset+1], ob_bot = low[offset]
+                imb_top = low[offset-1], imb_bot = high[offset+1]   
+                mitigated = false
+                for m = offset - 1 to current_limit_offset 
+                    if low[m] <= ob_top
+                        mitigated := true
+                        break
+                    if low[m] < imb_top
+                        imb_top := low[m]
+                if not mitigated
+                    draw_ob(ob_top, ob_bot, true, bar_index - (offset + 1), imb_top, imb_bot)
+                    found := true
+        else
+            if close[offset+1] > open[offset+1] and high[offset] > high[offset+1] and low[offset+1] > high[offset-1]
+                ob_top = high[offset], ob_bot = low[offset+1]
+                imb_top = low[offset+1], imb_bot = high[offset-1]   
+                mitigated = false
+                for m = offset - 1 to current_limit_offset 
+                    if high[m] >= ob_bot
+                        mitigated := true
+                        break
+                    if high[m] > imb_bot
+                        imb_bot := high[m]
+                if not mitigated
+                    draw_ob(ob_top, ob_bot, false, bar_index - (offset + 1), imb_top, imb_bot)
+                    found := true
+    found
+
+scan_origin_obs(int origin_idx, int break_idx, bool isBull) =>
+    if EnableOB and origin_idx != -1 and origin_idx <= break_idx
+        bars_back_origin = bar_index - origin_idx
+        bars_back_break  = bar_index - break_idx
+        if bars_back_origin > bars_back_break
+            for j = bars_back_origin to bars_back_break
+                check_single_ob(j, isBull, bars_back_break)
+
+// ==============================================================================
+// 5. HÀM CHỨC NĂNG NGẦM CỦA ĐỘNG CƠ ZONE (ARRAY LOGIC)
+// ==============================================================================
+z_get_index_by_time(int target_t) =>
+    int idx = -1
+    int sz = array.size(z_a_t)
+    if sz > 0
+        for i = 0 to sz - 1
+            if array.get(z_a_t, i) == target_t
+                idx := i
+                break
+    idx
+
+z_add_sd_zone(int swing_idx, int bos_idx, bool isSellZone, float broken_level) =>
+    if ShowZone
+        int ext_idx = swing_idx
+        float actual_broken_level = broken_level
+        if bos_idx >= 0 and swing_idx >= bos_idx
+            float extreme_val = isSellZone ? array.get(z_a_h, bos_idx) : array.get(z_a_l, bos_idx)
+            ext_idx := bos_idx
+            int count = swing_idx - bos_idx + 1
+            for j = 0 to count - 1
+                int check_idx = bos_idx + j
+                if check_idx < array.size(z_a_h)
+                    if isSellZone
+                        if array.get(z_a_h, check_idx) >= extreme_val
+                            extreme_val := array.get(z_a_h, check_idx)
+                            ext_idx := check_idx
+                    else
+                        if array.get(z_a_l, check_idx) <= extreme_val
+                            extreme_val := array.get(z_a_l, check_idx)
+                            ext_idx := check_idx
+                            
+        if (na(actual_broken_level) or actual_broken_level <= 0) and bos_idx >= 0 and swing_idx > bos_idx
+            int check_count = swing_idx - bos_idx
+            float brk_val = isSellZone ? array.get(z_a_l, bos_idx + 1) : array.get(z_a_h, bos_idx + 1)
+            for j = 1 to check_count
+                int check_idx = bos_idx + j
+                if check_idx < array.size(z_a_l)
+                    if isSellZone
+                        if array.get(z_a_l, check_idx) < brk_val
+                            brk_val := array.get(z_a_l, check_idx)
+                    else
+                        if array.get(z_a_h, check_idx) > brk_val
+                            brk_val := array.get(z_a_h, check_idx)
+            actual_broken_level := brk_val
+            
+        int targetColor = isSellZone ? 0 : 1
+        int k = ext_idx
+        float zHigh = array.get(z_a_ha_h, ext_idx)
+        float zLow  = array.get(z_a_ha_l, ext_idx)
+        int total = array.size(z_a_ha_h)
+        
+        while k < total and (array.get(z_a_ha_c, k) >= array.get(z_a_ha_o, k) ? 0 : 1) != targetColor and k <= ext_idx + 10
+            k += 1
+            
+        if k <= ext_idx + 10 and k < total
+            if isSellZone
+                zLow := array.get(z_a_ha_l, k)
+                while k < total and (array.get(z_a_ha_c, k) >= array.get(z_a_ha_o, k) ? 0 : 1) == targetColor
+                    zLow := math.min(zLow, array.get(z_a_ha_l, k))
+                    k += 1
+                zHigh := math.max(zHigh, array.get(z_a_ha_h, ext_idx))
+            else
+                zHigh := array.get(z_a_ha_h, k)
+                while k < total and (array.get(z_a_ha_c, k) >= array.get(z_a_ha_o, k) ? 0 : 1) == targetColor
+                    zHigh := math.max(zHigh, array.get(z_a_ha_h, k))
+                    k += 1
+                zLow := math.min(zLow, array.get(z_a_ha_l, ext_idx))
+                
+        if not na(actual_broken_level) and actual_broken_level > 0
+            if isSellZone and zLow <= actual_broken_level + syminfo.mintick
+                zHigh := array.get(z_a_ha_h, ext_idx)
+                zLow := array.get(z_a_ha_l, ext_idx)
+            else if not isSellZone and zHigh >= actual_broken_level - syminfo.mintick
+                zHigh := array.get(z_a_ha_h, ext_idx)
+                zLow := array.get(z_a_ha_l, ext_idx)
+                
+        int tStart = array.get(z_a_t, ext_idx)
+        int tEnd = tStart + timeframe.in_seconds(timeframe.period) * 10 * 1000 
+        box b = box.new(tStart, zHigh, tEnd, zLow, xloc=xloc.bar_time, border_color=na, bgcolor=isSellZone ? c_SellZone : c_BuyZone)
+        
+        if isSellZone
+            sell_zones.push(SDZone.new(b, zLow, zHigh, true))
+            if sell_zones.size() > MaxZones
+                removed = sell_zones.shift()
+                removed.box_id.delete()
+        else
+            buy_zones.push(SDZone.new(b, zHigh, zLow, false))
+            if buy_zones.size() > MaxZones
+                removed = buy_zones.shift()
+                removed.box_id.delete()
+
+z_clear_zones(bool isBuy) =>
+    if isBuy
+        if buy_zones.size() > 0
+            for i = buy_zones.size() - 1 to 0
+                buy_zones.get(i).box_id.delete()
+            buy_zones.clear()
+    else
+        if sell_zones.size() > 0
+            for i = sell_zones.size() - 1 to 0
+                sell_zones.get(i).box_id.delete()
+            sell_zones.clear()
+
+
+/// ==============================================================================
+// 6. THỰC THI ĐỘNG CƠ OB (DỌN RÁC THÔNG MINH - BẢO LƯU BOS CỦA CON SÓNG HIỆN TẠI)
+// ==============================================================================
+// 1. TẠO BIẾN ĐỘC LẬP CHO CHẤM TRÒN
+isRawHigh = not na(ph) and barstate.isconfirmed
+isRawLow  = not na(pl) and barstate.isconfirmed
+
+plotchar(isRawHigh ? ph : na, title='High', char='●', color=c_SwingHigh, text='', size=size.tiny, location=location.absolute, offset=-p_MajSwing)
+plotchar(isRawLow  ? pl : na, title='Low',  char='●', color=c_SwingLow, text='', size=size.tiny, location=location.absolute, offset=-p_MajSwing)
+
+// GHI NHỚ LỊCH SỬ CÁC SWING ĐÃ XÁC NHẬN CHO STRONG LEVEL VÀ PENDING MEMORY
+if isRawHigh
+    array.push(arr_confirmed_swing_highs, bar_index - p_MajSwing)
+    if array.size(arr_confirmed_swing_highs) > 200
+        array.shift(arr_confirmed_swing_highs)
+if isRawLow
+    array.push(arr_confirmed_swing_lows, bar_index - p_MajSwing)
+    if array.size(arr_confirmed_swing_lows) > 200
+        array.shift(arr_confirmed_swing_lows)
+
+// 2. BIẾN LƯU TRỮ VÀ RÁC CẤU TRÚC
+var line active_kl_up_line = na
+var label active_kl_up_lbl = na
+var line active_kl_dn_line = na
+var label active_kl_dn_lbl = na
+
+var active_struct_lines = array.new_line()
+var active_struct_lbls = array.new_label()
+var active_struct_x1s = array.new_int() // Mảng lưu tọa độ X để xóa có chọn lọc
+
+// 3. KHỞI TẠO CÁC BIẾN CẤU TRÚC THEO CHUẨN MT5
+var float active_high_price = na, var int active_high_idx = -1, var bool active_high_is_active = false
+var float active_low_price = na,  var int active_low_idx = -1,  var bool active_low_is_active = false
+
+if isRawHigh
+    active_high_price := ph, active_high_idx := bar_index - p_MajSwing, active_high_is_active := true
+    last_maj_h := ph, last_maj_h_idx := bar_index - p_MajSwing
+if isRawLow
+    active_low_price := pl, active_low_idx := bar_index - p_MajSwing, active_low_is_active := true
+    last_maj_l := pl, last_maj_l_idx := bar_index - p_MajSwing
+
+// 4. THEO DÕI TREND VÀ KEY LEVEL (TIME-BASED LOGIC)
+if major_trend == 1
+    // Điều kiện linh hoạt: NẾU chưa có Weak Level (vừa ChoCh) HOẶC HA đóng qua Weak Level -> Cho phép dời Protected Low
+    bool can_move_prot_l = na(weak_level_price) or (ha_close > weak_level_price)
+    
+    if na(maj_ext_h) or high > maj_ext_h
+        maj_ext_h := high, maj_ext_h_idx := bar_index
+        if not na(last_maj_l) and last_maj_l_idx <= bar_index and can_move_prot_l
+            maj_prot_l := last_maj_l, maj_prot_l_idx := last_maj_l_idx
+            
+    if active_low_is_active and active_low_idx < maj_ext_h_idx and can_move_prot_l
+        maj_prot_l := active_low_price, maj_prot_l_idx := active_low_idx
+
+else if major_trend == -1
+    // Điều kiện linh hoạt: NẾU chưa có Weak Level (vừa ChoCh) HOẶC HA đóng qua Weak Level -> Cho phép dời Protected High
+    bool can_move_prot_h = na(weak_level_price) or (ha_close < weak_level_price)
+    
+    if na(maj_ext_l) or low < maj_ext_l
+        maj_ext_l := low, maj_ext_l_idx := bar_index
+        if not na(last_maj_h) and last_maj_h_idx <= bar_index and can_move_prot_h
+            maj_prot_h := last_maj_h, maj_prot_h_idx := last_maj_h_idx
+            
+    if active_high_is_active and active_high_idx < maj_ext_l_idx and can_move_prot_h
+        maj_prot_h := active_high_price, maj_prot_h_idx := active_high_idx
+
+else
+    if active_high_is_active and ha_close > active_high_price and barstate.isconfirmed
+        major_trend := 1, maj_ext_h := high, maj_ext_h_idx := bar_index
+        maj_prot_l := last_maj_l, maj_prot_l_idx := last_maj_l_idx
+    else if active_low_is_active and ha_close < active_low_price and barstate.isconfirmed
+        major_trend := -1, maj_ext_l := low, maj_ext_l_idx := bar_index
+        maj_prot_h := last_maj_h, maj_prot_h_idx := last_maj_h_idx
+
+is_maj_choch_up = false
+is_maj_choch_dn = false
+
+// 5. XỬ LÝ CHOCH GIẢM
+if major_trend == 1 and not na(maj_prot_l) and ha_close < maj_prot_l and barstate.isconfirmed
+    if not na(active_kl_up_line)
+        line.delete(active_kl_up_line), label.delete(active_kl_up_lbl)
+        
+    // XÓA RÁC THÔNG MINH: Chỉ xóa các đường từ Protected Low trở về trước
+    if array.size(active_struct_lines) > 0
+        for i = array.size(active_struct_lines) - 1 to 0
+            if array.get(active_struct_x1s, i) <= maj_prot_l_idx
+                line.delete(array.get(active_struct_lines, i))
+                label.delete(array.get(active_struct_lbls, i))
+                array.remove(active_struct_lines, i)
+                array.remove(active_struct_lbls, i)
+                array.remove(active_struct_x1s, i)
+
+    l_choch = line.new(maj_prot_l_idx, maj_prot_l, bar_index, maj_prot_l, color=c_BOS_Dn, width=2)
+    lbl_choch = label.new(math.round((maj_prot_l_idx + bar_index)/2), maj_prot_l, "ChoCh", color=color.new(color.white,100), textcolor=c_BOS_Dn, style=label.style_label_up, size=size.tiny)
+    array.push(active_struct_lines, l_choch), array.push(active_struct_lbls, lbl_choch), array.push(active_struct_x1s, maj_prot_l_idx)
+    
+    float actual_ext_h = maj_ext_h
+    int actual_ext_idx = maj_ext_h_idx
+    int prot_idx = maj_prot_l_idx
+    if prot_idx != -1 and prot_idx <= bar_index
+        int count = bar_index - prot_idx
+        if count > 0
+            actual_ext_h := high[0], actual_ext_idx := bar_index
+            for k = 0 to count
+                if high[k] > actual_ext_h
+                    actual_ext_h := high[k], actual_ext_idx := bar_index - k
+            
+    active_kl_dn_line := line.new(actual_ext_idx, actual_ext_h, bar_index+100, actual_ext_h, color=c_KeyLevel, width=2)
+    active_kl_dn_lbl := label.new(actual_ext_idx, actual_ext_h, "Major Key Level Down", color=color.new(color.white,100), textcolor=c_KeyLevel, style=label.style_label_lower_left, size=size.small)
+    
+    scan_origin_obs(actual_ext_idx, bar_index, false)
+    pending_purge := true
+    if active_low_idx == maj_prot_l_idx
+        active_low_is_active := false
+        
+    major_trend := -1, maj_ext_l := low, maj_ext_l_idx := bar_index
+    maj_prot_h := actual_ext_h, maj_prot_h_idx := actual_ext_idx
+    maj_prot_l := na, maj_prot_l_idx := -1
+    is_maj_choch_dn := true
+    
+    // KHAI TỬ Weak & Active High UI
+    weak_level_price := na 
+    ui_active_level_price := na
+    
+    // KHAI SINH Strong High (TẠI MAJOR KEY LEVEL) VÀ CHỐT CHẶN BỘ NHỚ
+    strong_level_price := actual_ext_h
+    strong_level_idx := actual_ext_idx
+    pending_strong_idx := na
+
+    if array.size(arr_confirmed_swing_highs) > 0
+        float highest_swing_price = na
+        int highest_swing_idx = na
+        for i = 0 to array.size(arr_confirmed_swing_highs) - 1
+            int sw_idx = array.get(arr_confirmed_swing_highs, i)
+            if sw_idx > actual_ext_idx and sw_idx <= bar_index
+                float sw_price = high[bar_index - sw_idx]
+                if na(highest_swing_price) or sw_price > highest_swing_price
+                    highest_swing_price := sw_price
+                    highest_swing_idx := sw_idx
+        
+        if not na(highest_swing_idx)
+            strong_level_price := highest_swing_price
+            strong_level_idx := highest_swing_idx
+            
+            // --- NGOẠI LỆ: KIỂM TRA RÂU NẾN QUÉT TẠI CHOCH ---
+            float abs_highest_price = highest_swing_price
+            int abs_highest_idx = highest_swing_idx
+            
+            int bars_to_check = bar_index - highest_swing_idx
+            if bars_to_check > 0
+                for k = 0 to bars_to_check
+                    if high[k] > abs_highest_price
+                        abs_highest_price := high[k]
+                        abs_highest_idx := bar_index - k
+            
+            if abs_highest_price > highest_swing_price
+                // Nếu có râu cao hơn -> Cắm chốt tại râu nến và đưa vào trạng thái chờ duyệt
+                strong_reset_idx := abs_highest_idx
+                pending_strong_price := abs_highest_price
+                pending_strong_idx := abs_highest_idx
+            else
+                // Không có râu cao hơn -> Cắm chốt tại nến CHOCH
+                strong_reset_idx := bar_index
+                pending_strong_idx := na
+        else
+            strong_reset_idx := bar_index
+    else
+        strong_reset_idx := bar_index
+
+    weak_level_broken := false
+
+// 6. XỬ LÝ CHOCH TĂNG
+else if major_trend == -1 and not na(maj_prot_h) and ha_close > maj_prot_h and barstate.isconfirmed
+    if not na(active_kl_dn_line)
+        line.delete(active_kl_dn_line), label.delete(active_kl_dn_lbl)
+        
+    // XÓA RÁC THÔNG MINH: Chỉ xóa các đường từ Protected High trở về trước
+    if array.size(active_struct_lines) > 0
+        for i = array.size(active_struct_lines) - 1 to 0
+            if array.get(active_struct_x1s, i) <= maj_prot_h_idx
+                line.delete(array.get(active_struct_lines, i))
+                label.delete(array.get(active_struct_lbls, i))
+                array.remove(active_struct_lines, i)
+                array.remove(active_struct_lbls, i)
+                array.remove(active_struct_x1s, i)
+
+    l_choch = line.new(maj_prot_h_idx, maj_prot_h, bar_index, maj_prot_h, color=c_BOS_Up, width=2)
+    lbl_choch = label.new(math.round((maj_prot_h_idx + bar_index)/2), maj_prot_h, "ChoCh", color=color.new(color.white,100), textcolor=c_BOS_Up, style=label.style_label_down, size=size.tiny)
+    array.push(active_struct_lines, l_choch), array.push(active_struct_lbls, lbl_choch), array.push(active_struct_x1s, maj_prot_h_idx)
+    
+    float actual_ext_l = maj_ext_l
+    int actual_ext_idx = maj_ext_l_idx
+    int prot_idx = maj_prot_h_idx
+    if prot_idx != -1 and prot_idx <= bar_index
+        int count = bar_index - prot_idx
+        if count > 0
+            actual_ext_l := low[0], actual_ext_idx := bar_index
+            for k = 0 to count
+                if low[k] < actual_ext_l
+                    actual_ext_l := low[k], actual_ext_idx := bar_index - k
+            
+    active_kl_up_line := line.new(actual_ext_idx, actual_ext_l, bar_index+100, actual_ext_l, color=c_KeyLevel, width=2)
+    active_kl_up_lbl := label.new(actual_ext_idx, actual_ext_l, "Major Key Level Up", color=color.new(color.white,100), textcolor=c_KeyLevel, style=label.style_label_upper_left, size=size.small)
+    
+    scan_origin_obs(actual_ext_idx, bar_index, true)
+    pending_purge := true
+    if active_high_idx == maj_prot_h_idx
+        active_high_is_active := false
+        
+    major_trend := 1, maj_ext_h := high, maj_ext_h_idx := bar_index
+    maj_prot_l := actual_ext_l, maj_prot_l_idx := actual_ext_idx
+    maj_prot_h := na, maj_prot_h_idx := -1
+    is_maj_choch_up := true
+    
+    // KHAI TỬ Weak & Active Low UI
+    weak_level_price := na 
+    ui_active_level_price := na
+    
+    // KHAI SINH Strong Low (TẠI MAJOR KEY LEVEL) VÀ CHỐT CHẶN BỘ NHỚ
+    strong_level_price := actual_ext_l
+    strong_level_idx := actual_ext_idx
+    pending_strong_idx := na
+
+    if array.size(arr_confirmed_swing_lows) > 0
+        float lowest_swing_price = na
+        int lowest_swing_idx = na
+        for i = 0 to array.size(arr_confirmed_swing_lows) - 1
+            int sw_idx = array.get(arr_confirmed_swing_lows, i)
+            if sw_idx > actual_ext_idx and sw_idx <= bar_index
+                float sw_price = low[bar_index - sw_idx]
+                if na(lowest_swing_price) or sw_price < lowest_swing_price
+                    lowest_swing_price := sw_price
+                    lowest_swing_idx := sw_idx
+        
+        if not na(lowest_swing_idx)
+            strong_level_price := lowest_swing_price
+            strong_level_idx := lowest_swing_idx
+            
+            // --- NGOẠI LỆ: KIỂM TRA RÂU NẾN QUÉT TẠI CHOCH ---
+            float abs_lowest_price = lowest_swing_price
+            int abs_lowest_idx = lowest_swing_idx
+            
+            int bars_to_check = bar_index - lowest_swing_idx
+            if bars_to_check > 0
+                for k = 0 to bars_to_check
+                    if low[k] < abs_lowest_price
+                        abs_lowest_price := low[k]
+                        abs_lowest_idx := bar_index - k
+            
+            if abs_lowest_price < lowest_swing_price
+                // Nếu có râu thấp hơn -> Cắm chốt tại râu nến và đưa vào trạng thái chờ duyệt
+                strong_reset_idx := abs_lowest_idx
+                pending_strong_price := abs_lowest_price
+                pending_strong_idx := abs_lowest_idx
+            else
+                // Không có râu thấp hơn -> Cắm chốt tại nến CHOCH
+                strong_reset_idx := bar_index
+                pending_strong_idx := na
+        else
+            strong_reset_idx := bar_index
+    else
+        strong_reset_idx := bar_index
+
+    weak_level_broken := false
+
+// 7. XỬ LÝ BOS 
+if active_high_is_active and ha_close > active_high_price and barstate.isconfirmed
+    if not is_maj_choch_up
+        l_bos = line.new(active_high_idx, active_high_price, bar_index, active_high_price, color=c_BOS_Up, width=2)
+        lbl_bos = label.new(math.round((active_high_idx + bar_index)/2), active_high_price, "BOS", color=color.new(color.white,100), textcolor=c_BOS_Up, style=label.style_label_down, size=size.tiny)
+        array.push(active_struct_lines, l_bos), array.push(active_struct_lbls, lbl_bos), array.push(active_struct_x1s, active_high_idx)
+        
+        if pending_purge
+            purge_ob(last_maj_l_idx)
+            pending_purge := false
+        if last_maj_l_idx != -1
+            scan_origin_obs(last_maj_l_idx, bar_index, true)
+    active_high_is_active := false
+
+if active_low_is_active and ha_close < active_low_price and barstate.isconfirmed
+    if not is_maj_choch_dn
+        l_bos = line.new(active_low_idx, active_low_price, bar_index, active_low_price, color=c_BOS_Dn, width=2)
+        lbl_bos = label.new(math.round((active_low_idx + bar_index)/2), active_low_price, "BOS", color=color.new(color.white,100), textcolor=c_BOS_Dn, style=label.style_label_up, size=size.tiny)
+        array.push(active_struct_lines, l_bos), array.push(active_struct_lbls, lbl_bos), array.push(active_struct_x1s, active_low_idx)
+        
+        if pending_purge
+            purge_ob(last_maj_h_idx)
+            pending_purge := false
+        if last_maj_h_idx != -1
+            scan_origin_obs(last_maj_h_idx, bar_index, false)
+    active_low_is_active := false
+
+// --- XỬ LÝ WEAK LEVEL & ACTIVE LEVEL (KHAI SINH & CẬP NHẬT) ---
+if major_trend == 1 // Xu hướng tăng
+    if isRawHigh
+        // Cập nhật Active High 
+        ui_active_level_price := ph
+        ui_active_level_idx   := bar_index - p_MajSwing
+        
+        // Xử lý Weak High
+        if na(weak_level_price) or ph > weak_level_price 
+            weak_level_price := ph
+            weak_level_idx := bar_index - p_MajSwing
+            weak_level_broken := false
+
+else if major_trend == -1 // Xu hướng giảm
+    if isRawLow
+        // Cập nhật Active Low 
+        ui_active_level_price := pl
+        ui_active_level_idx   := bar_index - p_MajSwing
+        
+        // Xử lý Weak Low
+        if na(weak_level_price) or pl < weak_level_price 
+            weak_level_price := pl
+            weak_level_idx := bar_index - p_MajSwing
+            weak_level_broken := false
+
+// --- XỬ LÝ STRONG LEVEL (XÁC NHẬN BỞI LÝ THUYẾT DOW VÀ CHỐT CHẶN BỘ NHỚ) ---
+// 1. Trigger khi có BOS tiếp diễn xu hướng (Đóng nến HA qua Weak Level)
+if major_trend == -1 and not na(weak_level_price) and ha_close < weak_level_price and barstate.isconfirmed and not weak_level_broken
+    weak_level_broken := true 
+    
+    // --- TÌM ĐỈNH CONFIRMED CAO NHẤT TỪ CHỐT CHẶN ĐẾN NẾN BOS ---
+    float highest_swing_price = na
+    int highest_swing_idx = na
+    
+    if array.size(arr_confirmed_swing_highs) > 0
+        for i = 0 to array.size(arr_confirmed_swing_highs) - 1
+            int sw_idx = array.get(arr_confirmed_swing_highs, i)
+            // Lọc: Chỉ lấy các đỉnh nằm trong khoảng sau Chốt Chặn đến hiện tại
+            if sw_idx > strong_reset_idx and sw_idx <= bar_index
+                float sw_price = high[bar_index - sw_idx]
+                if na(highest_swing_price) or sw_price > highest_swing_price
+                    highest_swing_price := sw_price
+                    highest_swing_idx := sw_idx
+                    
+    if not na(highest_swing_idx)
+        strong_level_price := highest_swing_price
+        strong_level_idx := highest_swing_idx
+        
+        // --- NGOẠI LỆ: KIỂM TRA RÂU NẾN CAO HƠN SAU KHI DỜI LẦN 1 ---
+        float abs_highest_price = highest_swing_price
+        int abs_highest_idx = highest_swing_idx
+        
+        int bars_to_check = bar_index - highest_swing_idx
+        if bars_to_check > 0
+            for k = 0 to bars_to_check
+                if high[k] > abs_highest_price
+                    abs_highest_price := high[k]
+                    abs_highest_idx := bar_index - k
+        
+        if abs_highest_price > highest_swing_price
+            // Cắm chốt tại râu nến và đưa vào trạng thái chờ duyệt
+            strong_reset_idx := abs_highest_idx
+            pending_strong_price := abs_highest_price
+            pending_strong_idx := abs_highest_idx
+        else
+            strong_reset_idx := bar_index
+            pending_strong_idx := na
+    else
+        strong_reset_idx := bar_index
+
+else if major_trend == 1 and not na(weak_level_price) and ha_close > weak_level_price and barstate.isconfirmed and not weak_level_broken
+    weak_level_broken := true 
+    
+    // --- TÌM ĐÁY CONFIRMED THẤP NHẤT TỪ CHỐT CHẶN ĐẾN NẾN BOS ---
+    float lowest_swing_price = na
+    int lowest_swing_idx = na
+    
+    if array.size(arr_confirmed_swing_lows) > 0
+        for i = 0 to array.size(arr_confirmed_swing_lows) - 1
+            int sw_idx = array.get(arr_confirmed_swing_lows, i)
+            // Lọc: Chỉ lấy các đáy nằm trong khoảng sau Chốt Chặn đến hiện tại
+            if sw_idx > strong_reset_idx and sw_idx <= bar_index
+                float sw_price = low[bar_index - sw_idx]
+                if na(lowest_swing_price) or sw_price < lowest_swing_price
+                    lowest_swing_price := sw_price
+                    lowest_swing_idx := sw_idx
+                    
+    if not na(lowest_swing_idx)
+        strong_level_price := lowest_swing_price
+        strong_level_idx := lowest_swing_idx
+
+        // --- NGOẠI LỆ: KIỂM TRA RÂU NẾN THẤP HƠN SAU KHI DỜI LẦN 1 ---
+        float abs_lowest_price = lowest_swing_price
+        int abs_lowest_idx = lowest_swing_idx
+        
+        int bars_to_check = bar_index - lowest_swing_idx
+        if bars_to_check > 0
+            for k = 0 to bars_to_check
+                if low[k] < abs_lowest_price
+                    abs_lowest_price := low[k]
+                    abs_lowest_idx := bar_index - k
+        
+        if abs_lowest_price < lowest_swing_price
+            // Cắm chốt tại râu nến và đưa vào trạng thái chờ duyệt
+            strong_reset_idx := abs_lowest_idx
+            pending_strong_price := abs_lowest_price
+            pending_strong_idx := abs_lowest_idx
+        else
+            strong_reset_idx := bar_index
+            pending_strong_idx := na
+    else
+        strong_reset_idx := bar_index
+
+// 2. Chờ Xác Nhận từ Ngoại lệ bắt râu nến (Pending Logic)
+if not na(pending_strong_idx)
+    // Nếu điểm cực trị đang chờ chính thức hình thành Swing 9 nến -> Chấp nhận dời
+    if major_trend == -1 and isRawHigh and (bar_index - p_MajSwing == pending_strong_idx)
+        strong_level_price := pending_strong_price
+        strong_level_idx := pending_strong_idx
+        pending_strong_idx := na
+    else if major_trend == 1 and isRawLow and (bar_index - p_MajSwing == pending_strong_idx)
+        strong_level_price := pending_strong_price
+        strong_level_idx := pending_strong_idx
+        pending_strong_idx := na
+
+// --- QUẢN LÝ HIỂN THỊ OB ---
+if EnableOB
+    if isRawLow and major_trend == 1
+        check_single_ob(p_MajSwing, true, 0)
+    if isRawHigh and major_trend == -1
+        check_single_ob(p_MajSwing, false, 0)
+
+if liveOBs.size() > 0
+    for i = liveOBs.size() - 1 to 0 
+        ob = liveOBs.get(i)
+        if ob.isBull
+            if low <= ob.top 
+                ob.box_id.delete(), ob.lbl_id.delete()
+                if ob.has_imb
+                    ob.imb_label_id.delete(), ob.imb_line_top.delete(), ob.imb_line_bot.delete()
+                liveOBs.remove(i)
+            else
+                ob.box_id.set_right(bar_index + 10), ob.lbl_id.set_x(bar_index + 10) 
+                if ob.has_imb
+                    ob.imb_line_top.set_x2(bar_index + 10), ob.imb_line_bot.set_x2(bar_index + 10)
+                    ob.imb_label_id.set_x(ob.bar_idx + math.round((bar_index + 10 - ob.bar_idx) / 2))
+                    ob.imb_label_id.set_y((ob.imb_top + ob.imb_bot) / 2)
+                    if low < ob.imb_top
+                        ob.imb_top := low
+                        if ob.imb_top <= ob.imb_bot 
+                            ob.imb_label_id.delete(), ob.imb_line_top.delete(), ob.imb_line_bot.delete()
+                            ob.has_imb := false
+                        else
+                            ob.imb_line_top.set_y1(ob.imb_top), ob.imb_line_top.set_y2(ob.imb_top)
+        else
+            if high >= ob.bottom 
+                ob.box_id.delete(), ob.lbl_id.delete()
+                if ob.has_imb
+                    ob.imb_label_id.delete(), ob.imb_line_top.delete(), ob.imb_line_bot.delete()
+                liveOBs.remove(i)
+            else
+                ob.box_id.set_right(bar_index + 10), ob.lbl_id.set_x(bar_index + 10) 
+                if ob.has_imb
+                    ob.imb_line_top.set_x2(bar_index + 10), ob.imb_line_bot.set_x2(bar_index + 10)
+                    ob.imb_label_id.set_x(ob.bar_idx + math.round((bar_index + 10 - ob.bar_idx) / 2))
+                    ob.imb_label_id.set_y((ob.imb_top + ob.imb_bot) / 2)
+                    if high > ob.imb_bot
+                        ob.imb_bot := high
+                        if ob.imb_bot >= ob.imb_top 
+                            ob.imb_label_id.delete(), ob.imb_line_top.delete(), ob.imb_line_bot.delete()
+                            ob.has_imb := false
+                        else
+                            ob.imb_line_bot.set_y1(ob.imb_bot), ob.imb_line_bot.set_y2(ob.imb_bot)
+                            
+// ==============================================================================
+// 7. THỰC THI ĐỘNG CƠ ZONE (ĐỒNG BỘ LOGIC DỜI KEY LEVEL TRONG PULLBACK)
+// ==============================================================================
+bool is_new_bar = ta.change(time) != 0
+if is_new_bar
+    array.unshift(z_a_h, high[1]), array.unshift(z_a_l, low[1]), array.unshift(z_a_t, time[1])
+    array.unshift(z_a_ha_o, ha_open[1]), array.unshift(z_a_ha_h, ha_high[1]), array.unshift(z_a_ha_l, ha_low[1]), array.unshift(z_a_ha_c, ha_close[1])
+    array.unshift(z_a_maj_h, na), array.unshift(z_a_maj_l, na)
+    
+    if array.size(z_a_h) > 2000
+        array.pop(z_a_h), array.pop(z_a_l), array.pop(z_a_t), array.pop(z_a_ha_o), array.pop(z_a_ha_h), array.pop(z_a_ha_l), array.pop(z_a_ha_c), array.pop(z_a_maj_h), array.pop(z_a_maj_l)
+
+    if not na(ph[1])
+        if array.size(z_a_maj_h) > p_MajSwing
+            array.set(z_a_maj_h, p_MajSwing, ph[1])
+            z_ActiveHigh_price := ph[1], z_ActiveHigh_time := array.get(z_a_t, p_MajSwing), z_ActiveHigh_isActive := true
+            z_last_maj_h := z_ActiveHigh_price, z_last_maj_h_time := z_ActiveHigh_time
+            
+    if not na(pl[1])
+        if array.size(z_a_maj_l) > p_MajSwing
+            array.set(z_a_maj_l, p_MajSwing, pl[1])
+            z_ActiveLow_price := pl[1], z_ActiveLow_time := array.get(z_a_t, p_MajSwing), z_ActiveLow_isActive := true
+            z_last_maj_l := z_ActiveLow_price, z_last_maj_l_time := z_ActiveLow_time
+
+    int sw_idx = p_MajSwing
+    if sw_idx < array.size(z_a_maj_h)
+        if not na(array.get(z_a_maj_h, sw_idx))
+            int sw_time = array.get(z_a_t, sw_idx)
+            if sw_time > z_last_processed_high_time
+                z_last_processed_high_time := sw_time
+                if z_last_break_dir == -1 and z_last_break_type == 1 and sw_time <= z_latest_break_dn_time
+                    int b_idx = z_get_index_by_time(z_latest_break_dn_time)
+                    if b_idx != -1
+                        z_add_sd_zone(sw_idx, b_idx, true, z_latest_break_dn_lvl)
+        if not na(array.get(z_a_maj_l, sw_idx))
+            int sw_time = array.get(z_a_t, sw_idx)
+            if sw_time > z_last_processed_low_time
+                z_last_processed_low_time := sw_time
+                if z_last_break_dir == 1 and z_last_break_type == 1 and sw_time <= z_latest_break_up_time
+                    int b_idx = z_get_index_by_time(z_latest_break_up_time)
+                    if b_idx != -1
+                        z_add_sd_zone(sw_idx, b_idx, false, z_latest_break_up_lvl)
+
+    float curr_h = array.get(z_a_h, 0), float curr_l = array.get(z_a_l, 0), float curr_ha_c = array.get(z_a_ha_c, 0), int curr_t = array.get(z_a_t, 0)
+
+    // Theo dõi đỉnh/đáy cực đại ngầm
+    if z_major_trend == 1
+        if curr_h > z_maj_ext_h
+            z_maj_ext_h := curr_h, z_maj_ext_h_time := curr_t
+    else if z_major_trend == -1
+        if curr_l < z_maj_ext_l
+            z_maj_ext_l := curr_l, z_maj_ext_l_time := curr_t
+    else
+        if z_ActiveHigh_isActive and curr_ha_c > z_ActiveHigh_price
+            z_major_trend := 1, z_maj_ext_h := curr_h, z_maj_ext_h_time := curr_t, z_maj_prot_l := z_last_maj_l, z_maj_prot_l_time := z_last_maj_l_time
+        else if z_ActiveLow_isActive and curr_ha_c < z_ActiveLow_price
+            z_major_trend := -1, z_maj_ext_l := curr_l, z_maj_ext_l_time := curr_t, z_maj_prot_h := z_last_maj_h, z_maj_prot_h_time := z_last_maj_h_time
+
+    if buy_zones.size() > 0
+        for i = buy_zones.size() - 1 to 0
+            if curr_ha_c < buy_zones.get(i).sl
+                buy_zones.get(i).box_id.delete(), buy_zones.remove(i)
+    if sell_zones.size() > 0
+        for i = sell_zones.size() - 1 to 0
+            if curr_ha_c > sell_zones.get(i).sl
+                sell_zones.get(i).box_id.delete(), sell_zones.remove(i)
+
+    bool z_is_major_choch_up = false, bool z_is_major_choch_dn = false
+
+    // CHOCH GIẢM NGẦM
+    if z_major_trend == 1 and not na(z_maj_prot_l) and curr_ha_c < z_maj_prot_l
+        z_clear_zones(true)
+        float actual_ext_h = z_maj_ext_h, int actual_ext_time = z_maj_ext_h_time
+        int prot_idx = z_get_index_by_time(z_maj_prot_l_time)
+        if prot_idx != -1
+            for k = 0 to prot_idx
+                if array.get(z_a_h, k) > actual_ext_h
+                    actual_ext_h := array.get(z_a_h, k), actual_ext_time := array.get(z_a_t, k)
+        z_last_break_dir := -1, z_last_break_type := 2, z_latest_break_dn_time := curr_t, z_latest_break_dn_lvl := z_maj_prot_l
+        int zone_anchor_idx = z_get_index_by_time(actual_ext_time)
+        if zone_anchor_idx != -1
+            for k = p_MajSwing to zone_anchor_idx
+                if k < array.size(z_a_maj_h) and not na(array.get(z_a_maj_h, k))
+                    zone_anchor_idx := k, break
+        if zone_anchor_idx != -1
+            z_add_sd_zone(zone_anchor_idx, 0, true, z_maj_prot_l)
+        z_major_trend := -1, z_maj_ext_l := curr_l, z_maj_ext_l_time := curr_t, z_maj_prot_h := actual_ext_h, z_maj_prot_h_time := actual_ext_time, z_maj_prot_l := na, z_maj_prot_l_time := 0, z_is_major_choch_dn := true
+
+    // CHOCH TĂNG NGẦM
+    else if z_major_trend == -1 and not na(z_maj_prot_h) and curr_ha_c > z_maj_prot_h
+        z_clear_zones(false)
+        float actual_ext_l = z_maj_ext_l, int actual_ext_time = z_maj_ext_l_time
+        int prot_idx = z_get_index_by_time(z_maj_prot_h_time)
+        if prot_idx != -1
+            for k = 0 to prot_idx
+                if array.get(z_a_l, k) < actual_ext_l
+                    actual_ext_l := array.get(z_a_l, k), actual_ext_time := array.get(z_a_t, k)
+        z_last_break_dir := 1, z_last_break_type := 2, z_latest_break_up_time := curr_t, z_latest_break_up_lvl := z_maj_prot_h
+        int zone_anchor_idx = z_get_index_by_time(actual_ext_time)
+        if zone_anchor_idx != -1
+            for k = p_MajSwing to zone_anchor_idx
+                if k < array.size(z_a_maj_l) and not na(array.get(z_a_maj_l, k))
+                    zone_anchor_idx := k, break
+        if zone_anchor_idx != -1
+            z_add_sd_zone(zone_anchor_idx, 0, false, z_maj_prot_h)
+        z_major_trend := 1, z_maj_ext_h := curr_h, z_maj_ext_h_time := curr_t, z_maj_prot_l := actual_ext_l, z_maj_prot_l_time := actual_ext_time, z_maj_prot_h := na, z_maj_prot_h_time := 0, z_is_major_choch_up := true
+
+    // BOS TRỰC TIẾP TRONG ZONE (DỜI PROTECTED LEVEL NGẦM)
+    if z_ActiveHigh_isActive and curr_ha_c > z_ActiveHigh_price
+        if not z_is_major_choch_up
+            z_last_break_dir := 1, z_last_break_type := 1, z_latest_break_up_time := curr_t, z_latest_break_up_lvl := z_ActiveHigh_price
+            
+            // TÌM ĐÁY THẤP NHẤT TRONG NHỊP PULLBACK (DỜI PROTECTED LOW)
+            float pb_l = curr_l
+            int pb_l_t = curr_t
+            int lookback_idx = z_get_index_by_time(z_ActiveHigh_time)
+            if lookback_idx > 0
+                for k = 0 to lookback_idx
+                    if array.get(z_a_l, k) < pb_l
+                        pb_l := array.get(z_a_l, k)
+                        pb_l_t := array.get(z_a_t, k)
+            z_maj_prot_l := pb_l
+            z_maj_prot_l_time := pb_l_t
+
+            int origin_idx = z_get_index_by_time(z_last_maj_l_time)
+            if origin_idx != -1
+                z_add_sd_zone(origin_idx, 0, false, z_ActiveHigh_price)
+        z_ActiveHigh_isActive := false
+
+    if z_ActiveLow_isActive and curr_ha_c < z_ActiveLow_price
+        if not z_is_major_choch_dn
+            z_last_break_dir := -1, z_last_break_type := 1, z_latest_break_dn_time := curr_t, z_latest_break_dn_lvl := z_ActiveLow_price
+            
+            // TÌM ĐỈNH CAO NHẤT TRONG NHỊP PULLBACK (DỜI PROTECTED HIGH)
+            float pb_h = curr_h
+            int pb_h_t = curr_t
+            int lookback_idx = z_get_index_by_time(z_ActiveLow_time)
+            if lookback_idx > 0
+                for k = 0 to lookback_idx
+                    if array.get(z_a_h, k) > pb_h
+                        pb_h := array.get(z_a_h, k)
+                        pb_h_t := array.get(z_a_t, k)
+            z_maj_prot_h := pb_h
+            z_maj_prot_h_time := pb_h_t
+
+            int origin_idx = z_get_index_by_time(z_last_maj_h_time)
+            if origin_idx != -1
+                z_add_sd_zone(origin_idx, 0, true, z_ActiveLow_price)
+        z_ActiveLow_isActive := false
+
+// ==============================================================================
+// 8. CẬP NHẬT UI REAL-TIME (TRACKING ĐƯỜNG KIM CHỈ NAM & CÁC CẤP LEVEL)
+// ==============================================================================
+var line track_high_line = na, var label track_high_lbl = na
+var line track_low_line = na, var label track_low_lbl = na
+
+if barstate.islast
+    int ext_t = time + timeframe.in_seconds(timeframe.period) * 10 * 1000 
+    
+    // Kéo dài các Box Zone ra hiện tại
+    if buy_zones.size() > 0
+        for i = 0 to buy_zones.size() - 1
+            buy_zones.get(i).box_id.set_right(ext_t)
+    if sell_zones.size() > 0
+        for i = 0 to sell_zones.size() - 1
+            sell_zones.get(i).box_id.set_right(ext_t)
+
+    // VẼ ĐƯỜNG KIM CHỈ NAM (TRACKING LINES - CẤP PROTECTED & ACTIVE)
+    if ShowTrackingLines
+        float g_high_lvl = na, string g_high_text = "", int g_high_idx = na
+        float g_low_lvl = na, string g_low_text = "", int g_low_idx = na
+
+        if major_trend == 1
+            // Uptrend: Kim chỉ nam Đảo chiều là Sàn (Prot Low), Tiếp diễn là Trần (Active High)
+            if not na(ui_active_level_price)
+                g_high_lvl := ui_active_level_price, g_high_text := "Active High", g_high_idx := ui_active_level_idx
+            if not na(maj_prot_l)
+                g_low_lvl := maj_prot_l, g_low_text := "Protected Low", g_low_idx := maj_prot_l_idx
+                
+        else if major_trend == -1
+            // Downtrend: Kim chỉ nam Đảo chiều là Trần (Prot High), Tiếp diễn là Sàn (Active Low)
+            if not na(maj_prot_h)
+                g_high_lvl := maj_prot_h, g_high_text := "Protected High", g_high_idx := maj_prot_h_idx
+            if not na(ui_active_level_price)
+                g_low_lvl := ui_active_level_price, g_low_text := "Active Low", g_low_idx := ui_active_level_idx
+
+        // Cập nhật đường Trần (High) -> Đẩy text xuống DƯỚI (upper_left)
+        if not na(track_high_line)
+            track_high_line.delete(), track_high_lbl.delete()
+        if not na(g_high_lvl) and not na(g_high_idx)
+            track_high_line := line.new(g_high_idx, g_high_lvl, bar_index + 10, g_high_lvl, color=c_TrackingLine, style=line.style_dotted, extend=extend.right)
+            track_high_lbl := label.new(bar_index + 5, g_high_lvl, g_high_text, color=color.new(color.white, 100), textcolor=c_TrackingLine, style=label.style_label_upper_left, size=size.small)
+
+        // Cập nhật đường Sàn (Low) -> Đẩy text lên TRÊN (lower_left)
+        if not na(track_low_line)
+            track_low_line.delete(), track_low_lbl.delete()
+        if not na(g_low_lvl) and not na(g_low_idx)
+            track_low_line := line.new(g_low_idx, g_low_lvl, bar_index + 10, g_low_lvl, color=c_TrackingLine, style=line.style_dotted, extend=extend.right)
+            track_low_lbl := label.new(bar_index + 5, g_low_lvl, g_low_text, color=color.new(color.white, 100), textcolor=c_TrackingLine, style=label.style_label_lower_left, size=size.small)
+
+    // VẼ ĐƯỜNG WEAK LEVEL
+    if ShowWeakLevel
+        if not na(weak_level_line)
+            line.delete(weak_level_line), label.delete(weak_level_lbl)
+        
+        if not na(weak_level_price) and not na(weak_level_idx)
+            bool is_weak_high = (major_trend == 1)
+            color w_col = is_weak_high ? c_WeakHigh : c_WeakLow
+            string w_text = is_weak_high ? "Weak High" : "Weak Low"
+            
+            // is_weak_high (Uptrend): Text TRÊN -> lower_left
+            // is_weak_low (Downtrend): Text DƯỚI -> upper_left
+            weak_level_line := line.new(weak_level_idx, weak_level_price, bar_index + 10, weak_level_price, color=w_col, style=line.style_dashed, extend=extend.right)
+            weak_level_lbl := label.new(bar_index + 5, weak_level_price, w_text, color=color.new(color.white, 100), textcolor=w_col, style=is_weak_high ? label.style_label_lower_left : label.style_label_upper_left, size=size.small)
+            
+    // VẼ ĐƯỜNG STRONG LEVEL
+    if ShowStrongLevel
+        if not na(strong_level_line)
+            line.delete(strong_level_line), label.delete(strong_level_lbl)
+        
+        if not na(strong_level_price) and not na(strong_level_idx)
+            bool is_strong_high = (major_trend == -1) 
+            color s_col = is_strong_high ? c_StrongHigh : c_StrongLow
+            string s_text = is_strong_high ? "Strong High" : "Strong Low"
+            
+            // is_strong_high (Downtrend): Text TRÊN -> lower_left
+            // is_strong_low (Uptrend): Text DƯỚI -> upper_left
+            strong_level_line := line.new(strong_level_idx, strong_level_price, bar_index + 10, strong_level_price, color=s_col, style=line.style_solid, width=2, extend=extend.right)
+            strong_level_lbl := label.new(bar_index + 5, strong_level_price, s_text, color=color.new(color.white, 100), textcolor=s_col, style=is_strong_high ? label.style_label_lower_left : label.style_label_upper_left, size=size.small)
