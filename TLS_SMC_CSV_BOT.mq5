@@ -385,14 +385,9 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
 }
 
 void ExecuteTradeLogic() {
-   if (g_trading_stopped_today || g_account_passed) return;
-   if (IsInNewsWindow()) {
-       g_filter_text = "Blocked: Thời gian cấm giao dịch (News Shield Active)";
-       return;
-   }
-
+   // BƯỚC 1: Luôn khớp CSV để dashboard hiển thị đúng kịch bản hiện tại
    string htf = CleanString(SMC_HTF.current_market_phase); string maj = CleanString(SMC_LTF.current_market_phase); string min = CleanString(SMC_LTF.current_minor_phase);
-   int action_type = 0; int rule_idx = -1; double risk_mult = 1.0; string loc_filter = "NONE"; g_action_text = "Đứng ngoài (Không khớp CSV)"; g_filter_text = ""; 
+   int action_type = 0; int rule_idx = -1; double risk_mult = 1.0; string loc_filter = "NONE"; g_action_text = "Đứng ngoài (Không khớp CSV)"; g_filter_text = "";
    bool is_found = false;
    for(int i=0; i<ArraySize(g_matrix_rules); i++) {
        if(g_matrix_rules[i].HTF_State == htf && g_matrix_rules[i].Maj_State == maj && g_matrix_rules[i].Min_State == min) {
@@ -400,7 +395,17 @@ void ExecuteTradeLogic() {
        }
    }
 
-   ulong target_magic = BaseMagicNumber + rule_idx; trade.SetExpertMagicNumber(target_magic);
+   // BƯỚC 2: Kiểm tra Shield sau khi đã cập nhật g_action_text cho dashboard
+   if (g_trading_stopped_today || g_account_passed) {
+       g_filter_text = "[SHIELD] Không thực thi - Prop Shield đang chặn";
+       return;
+   }
+   if (IsInNewsWindow()) {
+       g_filter_text = "Blocked: Thời gian cấm giao dịch (News Shield Active)";
+       return;
+   }
+
+   if(rule_idx >= 0) { ulong target_magic = BaseMagicNumber + rule_idx; trade.SetExpertMagicNumber(target_magic); }
 
    if (action_type == 0) {
        for(int i = OrdersTotal() - 1; i >= 0; i--) { ulong ticket = OrderGetTicket(i); long magic = OrderGetInteger(ORDER_MAGIC); if(ticket > 0 && OrderGetString(ORDER_SYMBOL) == _Symbol && magic >= BaseMagicNumber && magic < BaseMagicNumber + 1000) trade.OrderDelete(ticket); }
