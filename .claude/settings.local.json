@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "Bash(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\ChibaoTradingView.txt\")",
+      "Bash(Measure-Object -Line)",
+      "PowerShell(\\(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\ChibaoTradingView.txt\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }
