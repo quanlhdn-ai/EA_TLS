@@ -1,5 +1,5 @@
 //@version=6
-indicator("New_TradingZone_SMC_Zone_OB", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("TLS_SMC_Gemini_2005", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
 
 // ==============================================================================
 // 1. THÔNG SỐ ĐẦU VÀO (INPUTS)
@@ -112,25 +112,22 @@ var int z_last_break_type = 0
 var int z_latest_break_up_time = 0, var float z_latest_break_up_lvl = na
 var int z_latest_break_dn_time = 0, var float z_latest_break_dn_lvl = na
 
-// [C] Biến lưu trữ cho Weak Level & Active Level (Giao diện đồ họa)
+// [C] Biến lưu trữ cho Weak Level (Giao diện đồ họa)
 var float weak_level_price = na
 var int   weak_level_idx   = na
 var line  weak_level_line  = na
 var label weak_level_lbl   = na
 
-var float ui_active_level_price = na
-var int   ui_active_level_idx   = na
-
-// [D] Biến Radar D4/D5 - cập nhật Protected Level sau BOS (theo logic MT5)
-// Lưu ý: low và high dùng biến anchor/breakout RIÊNG để tránh xung đột khi cả 2 cùng pending
+// [D] Biến Radar D4/D5 — cập nhật Protected Level sau CHOCH/BOS (theo logic MT5)
 var bool pending_prot_low_update  = false
 var bool pending_prot_high_update = false
-var int  prot_low_anchor_bar    = -1
-var int  prot_low_breakout_bar  = -1
-var int  prot_high_anchor_bar   = -1
-var int  prot_high_breakout_bar = -1
+var int  prot_low_anchor_bar      = -1
+var int  prot_low_breakout_bar    = -1
+var int  prot_high_anchor_bar     = -1
+var int  prot_high_breakout_bar   = -1
 var int  processed_prot_weak_high_bar = -1
 var int  processed_prot_weak_low_bar  = -1
+
 
 // ==============================================================================
 // 3. TÍNH TOÁN DỮ LIỆU NỀN TẢNG (CHUNG)
@@ -379,8 +376,7 @@ if isRawLow
     last_maj_l := pl, last_maj_l_idx := bar_index - p_MajSwing
 
 // 4. THEO DÕI TREND VÀ KEY LEVEL (TIME-BASED LOGIC)
-// Protected Level chỉ được cập nhật bởi Radar D4/D5 (sau khi HA phá qua Weak Level)
-// hoặc tại thời điểm CHOCH xảy ra - không tự di chuyển theo đỉnh/đáy mới
+// Protected Level chỉ cập nhật qua Radar D4/D5 (CHOCH hoặc HA phá Weak Level)
 if major_trend == 1
     if na(maj_ext_h) or high > maj_ext_h
         maj_ext_h := high, maj_ext_h_idx := bar_index
@@ -443,11 +439,27 @@ if major_trend == 1 and not na(maj_prot_l) and ha_close < maj_prot_l and barstat
     maj_prot_l := na, maj_prot_l_idx := -1
     is_maj_choch_dn := true
 
-    // KHAI TỬ Weak & Active High UI
+    // KHAI TỬ Weak Level
     weak_level_price := na
-    ui_active_level_price := na
 
-    // KÍCH HOẠT RADAR D4/D5 CHO DOWNTREND MỚI (tìm prot_high đầu tiên sau CHOCH)
+    // SCAN NGAY D4/D5 cho Protected High — bắt pivot đã confirm trước CHOCH
+    // D4 = swing high gần nhất với CHOCH trong range [actual_ext_idx, bar_index]
+    if not na(last_maj_h) and last_maj_h_idx >= actual_ext_idx
+        float choch_d4_h = last_maj_h
+        int   choch_d4_h_b = last_maj_h_idx
+        float choch_d5_h = choch_d4_h
+        int   choch_d5_h_b = choch_d4_h_b
+        for k = choch_d4_h_b to bar_index
+            int off = bar_index - k
+            if off >= 0 and high[off] > choch_d5_h
+                choch_d5_h := high[off]
+                choch_d5_h_b := k
+        if choch_d5_h > choch_d4_h
+            maj_prot_h := choch_d5_h, maj_prot_h_idx := choch_d5_h_b
+        else
+            maj_prot_h := choch_d4_h, maj_prot_h_idx := choch_d4_h_b
+
+    // KÍCH HOẠT RADAR STREAMING — refine thêm với pivot gần CHOCH nhất chưa confirm
     pending_prot_high_update     := true
     prot_high_anchor_bar         := actual_ext_idx
     prot_high_breakout_bar       := bar_index
@@ -497,11 +509,27 @@ else if major_trend == -1 and not na(maj_prot_h) and ha_close > maj_prot_h and b
     maj_prot_h := na, maj_prot_h_idx := -1
     is_maj_choch_up := true
 
-    // KHAI TỬ Weak & Active Low UI
+    // KHAI TỬ Weak Level
     weak_level_price := na
-    ui_active_level_price := na
 
-    // KÍCH HOẠT RADAR D4/D5 CHO UPTREND MỚI (tìm prot_low đầu tiên sau CHOCH)
+    // SCAN NGAY D4/D5 cho Protected Low — bắt pivot đã confirm trước CHOCH
+    // D4 = swing low gần nhất với CHOCH trong range [actual_ext_idx, bar_index]
+    if not na(last_maj_l) and last_maj_l_idx >= actual_ext_idx
+        float choch_d4_l = last_maj_l
+        int   choch_d4_l_b = last_maj_l_idx
+        float choch_d5_l = choch_d4_l
+        int   choch_d5_l_b = choch_d4_l_b
+        for k = choch_d4_l_b to bar_index
+            int off = bar_index - k
+            if off >= 0 and low[off] < choch_d5_l
+                choch_d5_l := low[off]
+                choch_d5_l_b := k
+        if choch_d5_l < choch_d4_l
+            maj_prot_l := choch_d5_l, maj_prot_l_idx := choch_d5_l_b
+        else
+            maj_prot_l := choch_d4_l, maj_prot_l_idx := choch_d4_l_b
+
+    // KÍCH HOẠT RADAR STREAMING — refine thêm với pivot gần CHOCH nhất chưa confirm
     pending_prot_low_update       := true
     prot_low_anchor_bar           := actual_ext_idx
     prot_low_breakout_bar         := bar_index
@@ -535,46 +563,68 @@ if active_low_is_active and ha_close < active_low_price and barstate.isconfirmed
             scan_origin_obs(last_maj_h_idx, bar_index, false)
     active_low_is_active := false
 
-// --- XỬ LÝ WEAK LEVEL & ACTIVE LEVEL (KHAI SINH & CẬP NHẬT) ---
+// --- XỬ LÝ WEAK LEVEL (KHAI SINH & CẬP NHẬT) ---
 if major_trend == 1 // Xu hướng tăng
     if isRawHigh
-        // Cập nhật Active High 
-        ui_active_level_price := ph
-        ui_active_level_idx   := bar_index - p_MajSwing
-        
-        // Xử lý Weak High
-        if na(weak_level_price) or ph > weak_level_price
+        if ph == maj_ext_h
             weak_level_price := ph
             weak_level_idx := bar_index - p_MajSwing
 
 else if major_trend == -1 // Xu hướng giảm
     if isRawLow
-        // Cập nhật Active Low 
-        ui_active_level_price := pl
-        ui_active_level_idx   := bar_index - p_MajSwing
-        
-        // Xử lý Weak Low
-        if na(weak_level_price) or pl < weak_level_price
+        if pl == maj_ext_l
             weak_level_price := pl
             weak_level_idx := bar_index - p_MajSwing
 
-// --- RADAR D4/D5: CẬP NHẬT PROTECTED LEVEL SAU KHI HA PHÁ QUA WEAK LEVEL ---
-// Tương đương hoàn toàn với Radar D4/D5 trong ChibaoMT5.txt
-// Trigger: HA đóng nến qua Weak Level (= maj_confirmed_extreme trong MT5)
+// --- RADAR D4/D5: KÍCH HOẠT KHI HA PHÁ QUA WEAK LEVEL (Thay đổi C) ---
+// Uptrend: HA phá Weak High → tìm Protected Low mới
 if major_trend == 1 and not na(weak_level_price) and ha_close > weak_level_price and barstate.isconfirmed and weak_level_idx != processed_prot_weak_high_bar
     processed_prot_weak_high_bar := weak_level_idx
-    pending_prot_low_update      := true
-    prot_low_anchor_bar          := weak_level_idx
-    prot_low_breakout_bar        := bar_index
+    // Immediate scan: bắt pivot đã confirm trước trigger
+    if not na(last_maj_l) and last_maj_l_idx > weak_level_idx
+        float imm_d4_l = last_maj_l
+        int   imm_d4_l_b = last_maj_l_idx
+        float imm_d5_l = imm_d4_l
+        int   imm_d5_l_b = imm_d4_l_b
+        for k = imm_d4_l_b to bar_index
+            int off = bar_index - k
+            if off >= 0 and low[off] < imm_d5_l
+                imm_d5_l := low[off]
+                imm_d5_l_b := k
+        if imm_d5_l < imm_d4_l
+            maj_prot_l := imm_d5_l, maj_prot_l_idx := imm_d5_l_b
+        else
+            maj_prot_l := imm_d4_l, maj_prot_l_idx := imm_d4_l_b
+    // Khởi động streaming Radar để refine với pivot gần trigger nhất
+    pending_prot_low_update := true
+    prot_low_anchor_bar     := weak_level_idx
+    prot_low_breakout_bar   := bar_index
 
+// Downtrend: HA phá Weak Low → tìm Protected High mới
 if major_trend == -1 and not na(weak_level_price) and ha_close < weak_level_price and barstate.isconfirmed and weak_level_idx != processed_prot_weak_low_bar
-    processed_prot_weak_low_bar  := weak_level_idx
-    pending_prot_high_update     := true
-    prot_high_anchor_bar         := weak_level_idx
-    prot_high_breakout_bar       := bar_index
+    processed_prot_weak_low_bar := weak_level_idx
+    // Immediate scan: bắt pivot đã confirm trước trigger
+    if not na(last_maj_h) and last_maj_h_idx > weak_level_idx
+        float imm_d4_h = last_maj_h
+        int   imm_d4_h_b = last_maj_h_idx
+        float imm_d5_h = imm_d4_h
+        int   imm_d5_h_b = imm_d4_h_b
+        for k = imm_d4_h_b to bar_index
+            int off = bar_index - k
+            if off >= 0 and high[off] > imm_d5_h
+                imm_d5_h := high[off]
+                imm_d5_h_b := k
+        if imm_d5_h > imm_d4_h
+            maj_prot_h := imm_d5_h, maj_prot_h_idx := imm_d5_h_b
+        else
+            maj_prot_h := imm_d4_h, maj_prot_h_idx := imm_d4_h_b
+    // Khởi động streaming Radar để refine với pivot gần trigger nhất
+    pending_prot_high_update := true
+    prot_high_anchor_bar     := weak_level_idx
+    prot_high_breakout_bar   := bar_index
 
-// Radar D4/D5 Execution: chạy mỗi khi có confirmed swing mới trong giai đoạn pending
-// Giữ chạy cho đến hết timeout để lấy swing GẦN NHẤT (giống MT5 - không dừng khi tìm được D4 đầu tiên)
+// --- RADAR D4/D5: THỰC THI STREAMING ---
+// Catch pivot gần breakout nhất (confirm sau trigger) — overwrite Protected Level nếu mới hơn
 if pending_prot_low_update
     if bar_index - prot_low_breakout_bar >= p_MajSwing
         pending_prot_low_update := false
@@ -826,23 +876,23 @@ if barstate.islast
             sell_zones.get(i).box_id.set_right(ext_t)
 
     // VẼ ĐƯỜNG KIM CHỈ NAM (TRACKING LINES - CẤP PROTECTED & ACTIVE)
+    // Priority giống MQL5: g_high = Protected High (downtrend) ưu tiên hơn Active High (fallback)
+    //                       g_low  = Protected Low  (uptrend)  ưu tiên hơn Active Low  (fallback)
     if ShowTrackingLines
         float g_high_lvl = na, string g_high_text = "", int g_high_idx = na
         float g_low_lvl = na, string g_low_text = "", int g_low_idx = na
 
-        if major_trend == 1
-            // Uptrend: Kim chỉ nam Đảo chiều là Sàn (Prot Low), Tiếp diễn là Trần (Active High)
-            if not na(ui_active_level_price)
-                g_high_lvl := ui_active_level_price, g_high_text := "Active High", g_high_idx := ui_active_level_idx
-            if not na(maj_prot_l)
-                g_low_lvl := maj_prot_l, g_low_text := "Protected Low", g_low_idx := maj_prot_l_idx
-                
-        else if major_trend == -1
-            // Downtrend: Kim chỉ nam Đảo chiều là Trần (Prot High), Tiếp diễn là Sàn (Active Low)
-            if not na(maj_prot_h)
-                g_high_lvl := maj_prot_h, g_high_text := "Protected High", g_high_idx := maj_prot_h_idx
-            if not na(ui_active_level_price)
-                g_low_lvl := ui_active_level_price, g_low_text := "Active Low", g_low_idx := ui_active_level_idx
+        // g_high: Protected High khi downtrend, fallback sang Active High
+        if major_trend == -1 and not na(maj_prot_h)
+            g_high_lvl := maj_prot_h, g_high_text := "Protected High", g_high_idx := maj_prot_h_idx
+        else if active_high_is_active
+            g_high_lvl := active_high_price, g_high_text := "Active High", g_high_idx := active_high_idx
+
+        // g_low: Protected Low khi uptrend, fallback sang Active Low
+        if major_trend == 1 and not na(maj_prot_l)
+            g_low_lvl := maj_prot_l, g_low_text := "Protected Low", g_low_idx := maj_prot_l_idx
+        else if active_low_is_active
+            g_low_lvl := active_low_price, g_low_text := "Active Low", g_low_idx := active_low_idx
 
         // Cập nhật đường Trần (High) -> Đẩy text xuống DƯỚI (upper_left)
         if not na(track_high_line)
