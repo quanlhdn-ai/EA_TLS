@@ -122,10 +122,13 @@ var float ui_active_level_price = na
 var int   ui_active_level_idx   = na
 
 // [D] Biến Radar D4/D5 - cập nhật Protected Level sau BOS (theo logic MT5)
+// Lưu ý: low và high dùng biến anchor/breakout RIÊNG để tránh xung đột khi cả 2 cùng pending
 var bool pending_prot_low_update  = false
 var bool pending_prot_high_update = false
-var int  prot_anchor_bar = -1
-var int  prot_breakout_bar = -1
+var int  prot_low_anchor_bar    = -1
+var int  prot_low_breakout_bar  = -1
+var int  prot_high_anchor_bar   = -1
+var int  prot_high_breakout_bar = -1
 var int  processed_prot_weak_high_bar = -1
 var int  processed_prot_weak_low_bar  = -1
 
@@ -446,8 +449,8 @@ if major_trend == 1 and not na(maj_prot_l) and ha_close < maj_prot_l and barstat
 
     // KÍCH HOẠT RADAR D4/D5 CHO DOWNTREND MỚI (tìm prot_high đầu tiên sau CHOCH)
     pending_prot_high_update     := true
-    prot_anchor_bar              := actual_ext_idx
-    prot_breakout_bar            := bar_index
+    prot_high_anchor_bar         := actual_ext_idx
+    prot_high_breakout_bar       := bar_index
     processed_prot_weak_low_bar  := -1
     pending_prot_low_update      := false
 
@@ -500,8 +503,8 @@ else if major_trend == -1 and not na(maj_prot_h) and ha_close > maj_prot_h and b
 
     // KÍCH HOẠT RADAR D4/D5 CHO UPTREND MỚI (tìm prot_low đầu tiên sau CHOCH)
     pending_prot_low_update       := true
-    prot_anchor_bar               := actual_ext_idx
-    prot_breakout_bar             := bar_index
+    prot_low_anchor_bar           := actual_ext_idx
+    prot_low_breakout_bar         := bar_index
     processed_prot_weak_high_bar  := -1
     pending_prot_high_update      := false
 
@@ -561,51 +564,50 @@ else if major_trend == -1 // Xu hướng giảm
 if major_trend == 1 and not na(weak_level_price) and ha_close > weak_level_price and barstate.isconfirmed and weak_level_idx != processed_prot_weak_high_bar
     processed_prot_weak_high_bar := weak_level_idx
     pending_prot_low_update      := true
-    prot_anchor_bar              := weak_level_idx
-    prot_breakout_bar            := bar_index
+    prot_low_anchor_bar          := weak_level_idx
+    prot_low_breakout_bar        := bar_index
 
 if major_trend == -1 and not na(weak_level_price) and ha_close < weak_level_price and barstate.isconfirmed and weak_level_idx != processed_prot_weak_low_bar
     processed_prot_weak_low_bar  := weak_level_idx
     pending_prot_high_update     := true
-    prot_anchor_bar              := weak_level_idx
-    prot_breakout_bar            := bar_index
+    prot_high_anchor_bar         := weak_level_idx
+    prot_high_breakout_bar       := bar_index
 
 // Radar D4/D5 Execution: chạy mỗi khi có confirmed swing mới trong giai đoạn pending
+// Giữ chạy cho đến hết timeout để lấy swing GẦN NHẤT (giống MT5 - không dừng khi tìm được D4 đầu tiên)
 if pending_prot_low_update
-    if bar_index - prot_breakout_bar >= p_MajSwing
+    if bar_index - prot_low_breakout_bar >= p_MajSwing
         pending_prot_low_update := false
     else if isRawLow
         int d4_bar = bar_index - p_MajSwing
-        if d4_bar > prot_anchor_bar and d4_bar <= prot_breakout_bar
+        if d4_bar > prot_low_anchor_bar and d4_bar <= prot_low_breakout_bar
             float d4_val = pl
             float d5_val = d4_val
             int   d5_bar = d4_bar
-            for j = d4_bar to prot_breakout_bar
+            for j = d4_bar to prot_low_breakout_bar
                 int off = bar_index - j
                 if off >= 0 and low[off] < d5_val
                     d5_val := low[off]
                     d5_bar := j
             maj_prot_l     := d5_val < d4_val ? d5_val : d4_val
             maj_prot_l_idx := d5_val < d4_val ? d5_bar  : d4_bar
-            pending_prot_low_update := false
 
 if pending_prot_high_update
-    if bar_index - prot_breakout_bar >= p_MajSwing
+    if bar_index - prot_high_breakout_bar >= p_MajSwing
         pending_prot_high_update := false
     else if isRawHigh
         int d4_bar = bar_index - p_MajSwing
-        if d4_bar > prot_anchor_bar and d4_bar <= prot_breakout_bar
+        if d4_bar > prot_high_anchor_bar and d4_bar <= prot_high_breakout_bar
             float d4_val = ph
             float d5_val = d4_val
             int   d5_bar = d4_bar
-            for j = d4_bar to prot_breakout_bar
+            for j = d4_bar to prot_high_breakout_bar
                 int off = bar_index - j
                 if off >= 0 and high[off] > d5_val
                     d5_val := high[off]
                     d5_bar := j
             maj_prot_h     := d5_val > d4_val ? d5_val : d4_val
             maj_prot_h_idx := d5_val > d4_val ? d5_bar  : d4_bar
-            pending_prot_high_update := false
 
 // --- QUẢN LÝ HIỂN THỊ OB ---
 if EnableOB
