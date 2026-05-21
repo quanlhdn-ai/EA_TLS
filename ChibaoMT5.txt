@@ -4,7 +4,7 @@
 //|                                  Status: Ultimate SMC Master     |
 //+------------------------------------------------------------------+
 #property copyright "Jay Davis & Quân (anhtuan02t1)"
-#property version   "49.00" 
+#property version   "50.00" 
 #property indicator_chart_window
 
 // Tăng buffer lên 26 để chứa thêm 4 đường mZone tính toán ngầm cho Bot EA
@@ -102,6 +102,12 @@ string MinorBOSUpQueue[]; string MinorBOSDnQueue[];
 
 // Queue lưu trữ ngầm cấu trúc mZone
 TZone MinorBuyZonesQueue[]; TZone MinorSellZonesQueue[];
+
+// Lưu trữ riêng đường CHOCH (tách khỏi BOS queue để tránh bị evict bởi MaxBOSLines)
+string g_choch_up_name = "";
+string g_choch_dn_name = "";
+string g_minor_choch_up_name = "";
+string g_minor_choch_dn_name = "";
 
 datetime last_processed_high_time = 0; 
 datetime last_processed_low_time = 0;  
@@ -285,8 +291,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
       latest_break_down_time = 0; latest_break_down_idx = -1; latest_break_down_level = EMPTY_VALUE;
 
       ArrayResize(BOSUpQueue, 0); ArrayResize(BOSDnQueue, 0); ArrayResize(BuyZonesQueue, 0); ArrayResize(SellZonesQueue, 0);
-      ArrayResize(MinorBOSUpQueue, 0); ArrayResize(MinorBOSDnQueue, 0); 
+      ArrayResize(MinorBOSUpQueue, 0); ArrayResize(MinorBOSDnQueue, 0);
       ArrayResize(MinorBuyZonesQueue, 0); ArrayResize(MinorSellZonesQueue, 0);
+      g_choch_up_name = ""; g_choch_dn_name = "";
+      g_minor_choch_up_name = ""; g_minor_choch_dn_name = "";
    }
 
    if (prev_calculated > 0 && rates_total > prev_calculated) {
@@ -662,7 +670,8 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             string choch_name = "IND_SMC_CHOCH_DN_" + IntegerToString((long)maj_prot_low_time);
             if(ObjectFind(0, choch_name) < 0) {
                CreateBOSLine(choch_name, maj_prot_low_time, maj_prot_low, time[i], BOS_Down_Color, "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
-               PushBOS(BOSDnQueue, choch_name, MaxBOSLines);
+               if(g_choch_up_name != "") { ObjectDelete(0, g_choch_up_name); ObjectDelete(0, g_choch_up_name + "_lbl"); g_choch_up_name = ""; }
+               g_choch_dn_name = choch_name;
                MajorEventBuffer[i] = -2; ClearZoneQueue(BuyZonesQueue);
 
                double actual_extreme_high = maj_extreme_high; datetime actual_extreme_time = maj_extreme_high_time; int actual_extreme_idx = maj_extreme_high_idx;
@@ -711,7 +720,8 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             string choch_name = "IND_SMC_CHOCH_UP_" + IntegerToString((long)maj_prot_high_time);
             if(ObjectFind(0, choch_name) < 0) {
                CreateBOSLine(choch_name, maj_prot_high_time, maj_prot_high, time[i], BOS_Up_Color, "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
-               PushBOS(BOSUpQueue, choch_name, MaxBOSLines);
+               if(g_choch_dn_name != "") { ObjectDelete(0, g_choch_dn_name); ObjectDelete(0, g_choch_dn_name + "_lbl"); g_choch_dn_name = ""; }
+               g_choch_up_name = choch_name;
                MajorEventBuffer[i] = 2; ClearZoneQueue(SellZonesQueue);
 
                double actual_extreme_low = maj_extreme_low; datetime actual_extreme_time = maj_extreme_low_time; int actual_extreme_idx = maj_extreme_low_idx;
@@ -810,9 +820,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             if(ObjectFind(0, m_choch_name) < 0) {
                if (ShowMinorStructure) {
                    CreateBOSLine(m_choch_name, min_prot_low_time, min_prot_low, time[i], Minor_BOS_Down_Color, "mCHOCH", STYLE_DOT, 1, ANCHOR_UPPER, 6);
-                   PushBOS(MinorBOSDnQueue, m_choch_name, MaxMinorBOSLines);
+                   if(g_minor_choch_up_name != "") { ObjectDelete(0, g_minor_choch_up_name); ObjectDelete(0, g_minor_choch_up_name + "_lbl"); g_minor_choch_up_name = ""; }
+                   g_minor_choch_dn_name = m_choch_name;
                }
-               MinorEventBuffer[i] = -2; 
+               MinorEventBuffer[i] = -2;
 
                double actual_extreme_high = min_extreme_high; datetime actual_extreme_time = min_extreme_high_time; int actual_extreme_idx = min_extreme_high_idx;
                int prot_idx = min_prot_low_idx;
@@ -856,9 +867,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
             if(ObjectFind(0, m_choch_name) < 0) {
                if (ShowMinorStructure) {
                    CreateBOSLine(m_choch_name, min_prot_high_time, min_prot_high, time[i], Minor_BOS_Up_Color, "mCHOCH", STYLE_DOT, 1, ANCHOR_UPPER, 6);
-                   PushBOS(MinorBOSUpQueue, m_choch_name, MaxMinorBOSLines);
+                   if(g_minor_choch_dn_name != "") { ObjectDelete(0, g_minor_choch_dn_name); ObjectDelete(0, g_minor_choch_dn_name + "_lbl"); g_minor_choch_dn_name = ""; }
+                   g_minor_choch_up_name = m_choch_name;
                }
-               MinorEventBuffer[i] = 2; 
+               MinorEventBuffer[i] = 2;
 
                double actual_extreme_low = min_extreme_low; datetime actual_extreme_time = min_extreme_low_time; int actual_extreme_idx = min_extreme_low_idx;
                int prot_idx = min_prot_high_idx;
