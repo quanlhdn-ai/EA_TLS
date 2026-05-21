@@ -576,12 +576,12 @@ else if major_trend == -1 // Xu hướng giảm
             weak_level_price := pl
             weak_level_idx := bar_index - p_MajSwing
 
-// --- RADAR D4/D5: KÍCH HOẠT KHI HA PHÁ QUA WEAK LEVEL (Thay đổi C) ---
-// Uptrend: HA phá Weak High → tìm Protected Low mới
+// --- RADAR D4/D5: KÍCH HOẠT KHI HA PHÁ QUA WEAK LEVEL ---
+// Uptrend: HA phá Weak High → Immediate set Protected Low = last_maj_l + D5 scan
+// Radar tiếp tục tìm D4 mới hơn (gần BOS hơn, chưa confirm lúc trigger)
 if major_trend == 1 and not na(weak_level_price) and ha_close > weak_level_price and barstate.isconfirmed and weak_level_idx != processed_prot_weak_high_bar
     processed_prot_weak_high_bar := weak_level_idx
-    // Immediate scan: bắt pivot đã confirm trước trigger
-    if not na(last_maj_l) and last_maj_l_idx > weak_level_idx
+    if not na(last_maj_l)
         float imm_d4_l = last_maj_l
         int   imm_d4_l_b = last_maj_l_idx
         float imm_d5_l = imm_d4_l
@@ -595,16 +595,15 @@ if major_trend == 1 and not na(weak_level_price) and ha_close > weak_level_price
             maj_prot_l := imm_d5_l, maj_prot_l_idx := imm_d5_l_b
         else
             maj_prot_l := imm_d4_l, maj_prot_l_idx := imm_d4_l_b
-    // Khởi động streaming Radar để refine với pivot gần trigger nhất
-    pending_prot_low_update := true
-    prot_low_anchor_bar     := weak_level_idx
-    prot_low_breakout_bar   := bar_index
+        pending_prot_low_update := true
+        prot_low_anchor_bar     := last_maj_l_idx
+        prot_low_breakout_bar   := bar_index
 
-// Downtrend: HA phá Weak Low → tìm Protected High mới
+// Downtrend: HA phá Weak Low → Immediate set Protected High = last_maj_h + D5 scan
+// Radar tiếp tục tìm D4 mới hơn (gần BOS hơn, chưa confirm lúc trigger)
 if major_trend == -1 and not na(weak_level_price) and ha_close < weak_level_price and barstate.isconfirmed and weak_level_idx != processed_prot_weak_low_bar
     processed_prot_weak_low_bar := weak_level_idx
-    // Immediate scan: bắt pivot đã confirm trước trigger
-    if not na(last_maj_h) and last_maj_h_idx > weak_level_idx
+    if not na(last_maj_h)
         float imm_d4_h = last_maj_h
         int   imm_d4_h_b = last_maj_h_idx
         float imm_d5_h = imm_d4_h
@@ -618,10 +617,9 @@ if major_trend == -1 and not na(weak_level_price) and ha_close < weak_level_pric
             maj_prot_h := imm_d5_h, maj_prot_h_idx := imm_d5_h_b
         else
             maj_prot_h := imm_d4_h, maj_prot_h_idx := imm_d4_h_b
-    // Khởi động streaming Radar để refine với pivot gần trigger nhất
-    pending_prot_high_update := true
-    prot_high_anchor_bar     := weak_level_idx
-    prot_high_breakout_bar   := bar_index
+        pending_prot_high_update := true
+        prot_high_anchor_bar     := last_maj_h_idx
+        prot_high_breakout_bar   := bar_index
 
 // --- RADAR D4/D5: THỰC THI STREAMING ---
 // Catch pivot gần breakout nhất (confirm sau trigger) — overwrite Protected Level nếu mới hơn
