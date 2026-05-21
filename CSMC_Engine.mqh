@@ -91,6 +91,10 @@ private:
    bool              is_min_prot_high_sweep, is_min_prot_low_sweep;
    // === [KẾT THÚC RADAR SYSTEM] ===
 
+   // Lưu trữ riêng đường CHOCH (tách khỏi BOS queue để tránh bị evict bởi MaxBOSLines)
+   string            current_choch_up_name, current_choch_dn_name;
+   string            current_minor_choch_up_name, current_minor_choch_dn_name;
+
 public:
    double            open[], high[], low[], close[];
    datetime          time[];
@@ -183,6 +187,8 @@ public:
       min_processed_prot_weak_high_time = 0; min_processed_prot_weak_low_time = 0;
       min_prot_anchor_time = 0; min_prot_breakout_idx = -1;
       is_min_prot_high_sweep = false; is_min_prot_low_sweep = false;
+      current_choch_up_name = ""; current_choch_dn_name = "";
+      current_minor_choch_up_name = ""; current_minor_choch_dn_name = "";
    }
 
    void Update()
@@ -410,22 +416,44 @@ public:
 
             // =========================================================================
             // MAJOR RADAR: KÍCH HOẠT KHI GIÁ PHÁ VỠ CONFIRMED EXTREME (WEAK HIGH/LOW)
+            // Immediate set Protected Level = last_maj_low/high + D5 scan
+            // Radar streaming tiếp tục tìm D4 mới hơn (gần BOS hơn, chưa confirm lúc trigger)
             // =========================================================================
+            // Major Uptrend: HA phá Weak High → Immediate set Protected Low = last_maj_low + D5 scan
             if (major_trend == 1 && maj_confirmed_extreme_high != EMPTY_VALUE &&
                 HAClose[i] > maj_confirmed_extreme_high &&
                 processed_prot_weak_high_time != maj_confirmed_extreme_high_time) {
                processed_prot_weak_high_time = maj_confirmed_extreme_high_time;
-               pending_prot_low_update = true;
-               prot_anchor_time = maj_confirmed_extreme_high_time;
-               prot_breakout_idx = i;
+               if (last_maj_low != EMPTY_VALUE) {
+                  double imm_d4 = last_maj_low; datetime imm_d4_t = last_maj_low_time; int imm_d4_idx = last_maj_low_idx;
+                  double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
+                  for (int k = last_maj_low_idx; k >= i; k--) {
+                     if (low[k] < imm_d5) { imm_d5 = low[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
+                  }
+                  if (imm_d5 < imm_d4) { maj_prot_low = imm_d5; maj_prot_low_time = imm_d5_t; maj_prot_low_idx = imm_d5_idx; is_maj_prot_low_sweep = true; }
+                  else                  { maj_prot_low = imm_d4; maj_prot_low_time = imm_d4_t; maj_prot_low_idx = imm_d4_idx; is_maj_prot_low_sweep = false; }
+                  pending_prot_low_update = true;
+                  prot_anchor_time = last_maj_low_time;
+                  prot_breakout_idx = i;
+               }
             }
+            // Major Downtrend: HA phá Weak Low → Immediate set Protected High = last_maj_high + D5 scan
             if (major_trend == -1 && maj_confirmed_extreme_low != EMPTY_VALUE &&
                 HAClose[i] < maj_confirmed_extreme_low &&
                 processed_prot_weak_low_time != maj_confirmed_extreme_low_time) {
                processed_prot_weak_low_time = maj_confirmed_extreme_low_time;
-               pending_prot_high_update = true;
-               prot_anchor_time = maj_confirmed_extreme_low_time;
-               prot_breakout_idx = i;
+               if (last_maj_high != EMPTY_VALUE) {
+                  double imm_d4 = last_maj_high; datetime imm_d4_t = last_maj_high_time; int imm_d4_idx = last_maj_high_idx;
+                  double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
+                  for (int k = last_maj_high_idx; k >= i; k--) {
+                     if (high[k] > imm_d5) { imm_d5 = high[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
+                  }
+                  if (imm_d5 > imm_d4) { maj_prot_high = imm_d5; maj_prot_high_time = imm_d5_t; maj_prot_high_idx = imm_d5_idx; is_maj_prot_high_sweep = true; }
+                  else                  { maj_prot_high = imm_d4; maj_prot_high_time = imm_d4_t; maj_prot_high_idx = imm_d4_idx; is_maj_prot_high_sweep = false; }
+                  pending_prot_high_update = true;
+                  prot_anchor_time = last_maj_high_time;
+                  prot_breakout_idx = i;
+               }
             }
 
             // =========================================================================
@@ -476,23 +504,45 @@ public:
             }
 
             // =========================================================================
-            // MINOR RADAR: KÍCH HOẠT
+            // MINOR RADAR: KÍCH HOẠT KHI GIÁ PHÁ VỠ CONFIRMED EXTREME (WEAK HIGH/LOW)
+            // Immediate set Protected Level = last_min_low/high + D5 scan
+            // Radar streaming tiếp tục tìm D4 mới hơn (gần BOS hơn, chưa confirm lúc trigger)
             // =========================================================================
+            // Minor Uptrend: HA phá Weak High → Immediate set Protected Low = last_min_low + D5 scan
             if (minor_trend == 1 && min_confirmed_extreme_high != EMPTY_VALUE &&
                 HAClose[i] > min_confirmed_extreme_high &&
                 min_processed_prot_weak_high_time != min_confirmed_extreme_high_time) {
                min_processed_prot_weak_high_time = min_confirmed_extreme_high_time;
-               min_pending_prot_low_update = true;
-               min_prot_anchor_time = min_confirmed_extreme_high_time;
-               min_prot_breakout_idx = i;
+               if (last_min_low != EMPTY_VALUE) {
+                  double imm_d4 = last_min_low; datetime imm_d4_t = last_min_low_time; int imm_d4_idx = last_min_low_idx;
+                  double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
+                  for (int k = last_min_low_idx; k >= i; k--) {
+                     if (low[k] < imm_d5) { imm_d5 = low[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
+                  }
+                  if (imm_d5 < imm_d4) { min_prot_low = imm_d5; min_prot_low_time = imm_d5_t; min_prot_low_idx = imm_d5_idx; is_min_prot_low_sweep = true; }
+                  else                  { min_prot_low = imm_d4; min_prot_low_time = imm_d4_t; min_prot_low_idx = imm_d4_idx; is_min_prot_low_sweep = false; }
+                  min_pending_prot_low_update = true;
+                  min_prot_anchor_time = last_min_low_time;
+                  min_prot_breakout_idx = i;
+               }
             }
+            // Minor Downtrend: HA phá Weak Low → Immediate set Protected High = last_min_high + D5 scan
             if (minor_trend == -1 && min_confirmed_extreme_low != EMPTY_VALUE &&
                 HAClose[i] < min_confirmed_extreme_low &&
                 min_processed_prot_weak_low_time != min_confirmed_extreme_low_time) {
                min_processed_prot_weak_low_time = min_confirmed_extreme_low_time;
-               min_pending_prot_high_update = true;
-               min_prot_anchor_time = min_confirmed_extreme_low_time;
-               min_prot_breakout_idx = i;
+               if (last_min_high != EMPTY_VALUE) {
+                  double imm_d4 = last_min_high; datetime imm_d4_t = last_min_high_time; int imm_d4_idx = last_min_high_idx;
+                  double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
+                  for (int k = last_min_high_idx; k >= i; k--) {
+                     if (high[k] > imm_d5) { imm_d5 = high[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
+                  }
+                  if (imm_d5 > imm_d4) { min_prot_high = imm_d5; min_prot_high_time = imm_d5_t; min_prot_high_idx = imm_d5_idx; is_min_prot_high_sweep = true; }
+                  else                  { min_prot_high = imm_d4; min_prot_high_time = imm_d4_t; min_prot_high_idx = imm_d4_idx; is_min_prot_high_sweep = false; }
+                  min_pending_prot_high_update = true;
+                  min_prot_anchor_time = last_min_high_time;
+                  min_prot_breakout_idx = i;
+               }
             }
 
             // =========================================================================
@@ -553,7 +603,8 @@ public:
                string choch_name = m_prefix + "CHOCH_DN_" + IntegerToString((long)maj_prot_low_time);
                if(ObjectFind(0, choch_name) < 0) {
                   CreateBOSLine(choch_name, maj_prot_low_time, maj_prot_low, time[i], c_BOSDn, m_isHTF ? "HCHOCH" : "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
-                  PushBOS(BOSDnQueue, choch_name, MaxBOSLines);
+                  if(m_showGraphics && current_choch_up_name != "") { ObjectDelete(0, current_choch_up_name); ObjectDelete(0, current_choch_up_name + "_lbl"); current_choch_up_name = ""; }
+                  current_choch_dn_name = choch_name;
                   ClearZoneQueue(BuyZonesQueue);
 
                   double actual_extreme_high = maj_extreme_high; datetime actual_extreme_time = maj_extreme_high_time; int actual_extreme_idx = maj_extreme_high_idx;
@@ -610,7 +661,8 @@ public:
                string choch_name = m_prefix + "CHOCH_UP_" + IntegerToString((long)maj_prot_high_time);
                if(ObjectFind(0, choch_name) < 0) {
                   CreateBOSLine(choch_name, maj_prot_high_time, maj_prot_high, time[i], c_BOSUp, m_isHTF ? "HCHOCH" : "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
-                  PushBOS(BOSUpQueue, choch_name, MaxBOSLines);
+                  if(m_showGraphics && current_choch_dn_name != "") { ObjectDelete(0, current_choch_dn_name); ObjectDelete(0, current_choch_dn_name + "_lbl"); current_choch_dn_name = ""; }
+                  current_choch_up_name = choch_name;
                   ClearZoneQueue(SellZonesQueue);
 
                   double actual_extreme_low = maj_extreme_low; datetime actual_extreme_time = maj_extreme_low_time; int actual_extreme_idx = maj_extreme_low_idx;
@@ -726,7 +778,8 @@ public:
                   if(ObjectFind(0, choch_name) < 0) {
                      if(m_showMinor) {
                         CreateBOSLine(choch_name, min_prot_low_time, min_prot_low, time[i], c_mBOSDn, "mCHOCH", STYLE_DOT, 1, ANCHOR_UPPER, 6);
-                        PushBOS(MinorBOSDnQueue, choch_name, MaxMinorBOSLines);
+                        if(current_minor_choch_up_name != "") { ObjectDelete(0, current_minor_choch_up_name); ObjectDelete(0, current_minor_choch_up_name + "_lbl"); current_minor_choch_up_name = ""; }
+                        current_minor_choch_dn_name = choch_name;
                      }
 
                      // Tính actual extreme (đỉnh thực tế giữa i và prot_low_idx)
@@ -777,7 +830,8 @@ public:
                   if(ObjectFind(0, choch_name) < 0) {
                      if(m_showMinor) {
                         CreateBOSLine(choch_name, min_prot_high_time, min_prot_high, time[i], c_mBOSUp, "mCHOCH", STYLE_DOT, 1, ANCHOR_UPPER, 6);
-                        PushBOS(MinorBOSUpQueue, choch_name, MaxMinorBOSLines);
+                        if(current_minor_choch_dn_name != "") { ObjectDelete(0, current_minor_choch_dn_name); ObjectDelete(0, current_minor_choch_dn_name + "_lbl"); current_minor_choch_dn_name = ""; }
+                        current_minor_choch_up_name = choch_name;
                      }
 
                      // Tính actual extreme (đáy thực tế giữa i và prot_high_idx)
