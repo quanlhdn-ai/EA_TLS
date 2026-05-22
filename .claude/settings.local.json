@@ -4,7 +4,9 @@
       "Bash(git ls-tree *)",
       "Bash(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\ChibaoTradingView.txt\")",
       "Bash(Measure-Object -Line)",
-      "PowerShell(\\(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\ChibaoTradingView.txt\" | Measure-Object -Line\\).Lines)"
+      "PowerShell(\\(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\ChibaoTradingView.txt\" | Measure-Object -Line\\).Lines)",
+      "Bash(git remote *)",
+      "Bash(Select-String -Path \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\TLS_BOT_INDICATOR\\\\TLS_Matrix.csv\" -Pattern \"^[^;]+;[^;]+;[^;]+;5;\")"
     ]
   }
 }
