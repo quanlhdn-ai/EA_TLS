@@ -818,18 +818,6 @@ if is_new_bar
         if not z_is_major_choch_up
             z_last_break_dir := 1, z_last_break_type := 1, z_latest_break_up_time := curr_t, z_latest_break_up_lvl := z_ActiveHigh_price
             
-            // TÌM ĐÁY THẤP NHẤT TRONG NHỊP PULLBACK (DỜI PROTECTED LOW)
-            float pb_l = curr_l
-            int pb_l_t = curr_t
-            int lookback_idx = z_get_index_by_time(z_ActiveHigh_time)
-            if lookback_idx > 0
-                for k = 0 to lookback_idx
-                    if array.get(z_a_l, k) < pb_l
-                        pb_l := array.get(z_a_l, k)
-                        pb_l_t := array.get(z_a_t, k)
-            z_maj_prot_l := pb_l
-            z_maj_prot_l_time := pb_l_t
-
             int origin_idx = z_get_index_by_time(z_last_maj_l_time)
             if origin_idx != -1
                 z_add_sd_zone(origin_idx, 0, false, z_ActiveHigh_price)
@@ -839,18 +827,6 @@ if is_new_bar
         if not z_is_major_choch_dn
             z_last_break_dir := -1, z_last_break_type := 1, z_latest_break_dn_time := curr_t, z_latest_break_dn_lvl := z_ActiveLow_price
             
-            // TÌM ĐỈNH CAO NHẤT TRONG NHỊP PULLBACK (DỜI PROTECTED HIGH)
-            float pb_h = curr_h
-            int pb_h_t = curr_t
-            int lookback_idx = z_get_index_by_time(z_ActiveLow_time)
-            if lookback_idx > 0
-                for k = 0 to lookback_idx
-                    if array.get(z_a_h, k) > pb_h
-                        pb_h := array.get(z_a_h, k)
-                        pb_h_t := array.get(z_a_t, k)
-            z_maj_prot_h := pb_h
-            z_maj_prot_h_time := pb_h_t
-
             int origin_idx = z_get_index_by_time(z_last_maj_h_time)
             if origin_idx != -1
                 z_add_sd_zone(origin_idx, 0, true, z_ActiveLow_price)
