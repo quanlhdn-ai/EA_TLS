@@ -122,6 +122,9 @@ public:
 
    // [V6.0] Confirmed Extreme (Weak High / Weak Low) - dùng cho TP target nâng cao
    double   current_maj_confirmed_extreme_high, current_maj_confirmed_extreme_low;
+   // Mức BOS/ChoCh vừa break — dùng cho entry LIMIT_AT_BOS
+   double   current_bos_up_level;   // Swing high vừa bị phá lên (BOS Up / ChoCh Up)
+   double   current_bos_dn_level;   // Swing low vừa bị phá xuống (BOS Down / ChoCh Down)
 
    void Init(string sym, ENUM_TIMEFRAMES tf, string prefix, bool isHTF, bool showMinor, bool showGraphics,
              color bZone, color sZone, color kLevel, color bUp, color bDn, color mbUp, color mbDn,
@@ -189,6 +192,7 @@ public:
       is_min_prot_high_sweep = false; is_min_prot_low_sweep = false;
       current_choch_up_name = ""; current_choch_dn_name = "";
       current_minor_choch_up_name = ""; current_minor_choch_dn_name = "";
+      current_bos_up_level = 0; current_bos_dn_level = 0;
    }
 
    void Update()
@@ -427,7 +431,7 @@ public:
                if (last_maj_low != EMPTY_VALUE) {
                   double imm_d4 = last_maj_low; datetime imm_d4_t = last_maj_low_time; int imm_d4_idx = last_maj_low_idx;
                   double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
-                  for (int k = last_maj_low_idx; k >= i; k--) {
+                  for (int k = MathMin(last_maj_low_idx, ArraySize(low) - 1); k >= i; k--) {
                      if (low[k] < imm_d5) { imm_d5 = low[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
                   }
                   if (imm_d5 < imm_d4) { maj_prot_low = imm_d5; maj_prot_low_time = imm_d5_t; maj_prot_low_idx = imm_d5_idx; is_maj_prot_low_sweep = true; }
@@ -445,7 +449,7 @@ public:
                if (last_maj_high != EMPTY_VALUE) {
                   double imm_d4 = last_maj_high; datetime imm_d4_t = last_maj_high_time; int imm_d4_idx = last_maj_high_idx;
                   double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
-                  for (int k = last_maj_high_idx; k >= i; k--) {
+                  for (int k = MathMin(last_maj_high_idx, ArraySize(high) - 1); k >= i; k--) {
                      if (high[k] > imm_d5) { imm_d5 = high[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
                   }
                   if (imm_d5 > imm_d4) { maj_prot_high = imm_d5; maj_prot_high_time = imm_d5_t; maj_prot_high_idx = imm_d5_idx; is_maj_prot_high_sweep = true; }
@@ -605,6 +609,7 @@ public:
                   CreateBOSLine(choch_name, maj_prot_low_time, maj_prot_low, time[i], c_BOSDn, m_isHTF ? "HCHOCH" : "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                   if(m_showGraphics && current_choch_up_name != "") { ObjectDelete(0, current_choch_up_name); ObjectDelete(0, current_choch_up_name + "_lbl"); current_choch_up_name = ""; }
                   current_choch_dn_name = choch_name;
+                  current_bos_dn_level = maj_prot_low;
                   ClearZoneQueue(BuyZonesQueue);
 
                   double actual_extreme_high = maj_extreme_high; datetime actual_extreme_time = maj_extreme_high_time; int actual_extreme_idx = maj_extreme_high_idx;
@@ -663,6 +668,7 @@ public:
                   CreateBOSLine(choch_name, maj_prot_high_time, maj_prot_high, time[i], c_BOSUp, m_isHTF ? "HCHOCH" : "CHOCH", STYLE_SOLID, 2, ANCHOR_LOWER, 6);
                   if(m_showGraphics && current_choch_dn_name != "") { ObjectDelete(0, current_choch_dn_name); ObjectDelete(0, current_choch_dn_name + "_lbl"); current_choch_dn_name = ""; }
                   current_choch_up_name = choch_name;
+                  current_bos_up_level = maj_prot_high;
                   ClearZoneQueue(SellZonesQueue);
 
                   double actual_extreme_low = maj_extreme_low; datetime actual_extreme_time = maj_extreme_low_time; int actual_extreme_idx = maj_extreme_low_idx;
@@ -728,6 +734,7 @@ public:
 
                      last_break_dir = 1; last_break_type = 1;
                      latest_break_up_time = time[i]; latest_break_up_idx = i; latest_break_up_level = ActiveHigh.price;
+                     current_bos_up_level = ActiveHigh.price;
                      int origin_idx = last_maj_low_idx;
                      if (origin_idx != -1) {
                         string zone_name = m_prefix + "ZONE_BUY_BOS_" + IntegerToString((long)last_maj_low_time);
@@ -756,6 +763,7 @@ public:
 
                      last_break_dir = -1; last_break_type = 1;
                      latest_break_down_time = time[i]; latest_break_down_idx = i; latest_break_down_level = ActiveLow.price;
+                     current_bos_dn_level = ActiveLow.price;
                      int origin_idx = last_maj_high_idx;
                      if (origin_idx != -1) {
                         string zone_name = m_prefix + "ZONE_SELL_BOS_" + IntegerToString((long)last_maj_high_time);
