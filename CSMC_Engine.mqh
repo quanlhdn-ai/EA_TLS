@@ -520,7 +520,7 @@ public:
                if (last_min_low != EMPTY_VALUE) {
                   double imm_d4 = last_min_low; datetime imm_d4_t = last_min_low_time; int imm_d4_idx = last_min_low_idx;
                   double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
-                  for (int k = last_min_low_idx; k >= i; k--) {
+                  for (int k = MathMin(last_min_low_idx, ArraySize(low) - 1); k >= i; k--) {
                      if (low[k] < imm_d5) { imm_d5 = low[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
                   }
                   if (imm_d5 < imm_d4) { min_prot_low = imm_d5; min_prot_low_time = imm_d5_t; min_prot_low_idx = imm_d5_idx; is_min_prot_low_sweep = true; }
@@ -538,7 +538,7 @@ public:
                if (last_min_high != EMPTY_VALUE) {
                   double imm_d4 = last_min_high; datetime imm_d4_t = last_min_high_time; int imm_d4_idx = last_min_high_idx;
                   double imm_d5 = imm_d4; datetime imm_d5_t = imm_d4_t; int imm_d5_idx = imm_d4_idx;
-                  for (int k = last_min_high_idx; k >= i; k--) {
+                  for (int k = MathMin(last_min_high_idx, ArraySize(high) - 1); k >= i; k--) {
                      if (high[k] > imm_d5) { imm_d5 = high[k]; imm_d5_t = time[k]; imm_d5_idx = k; }
                   }
                   if (imm_d5 > imm_d4) { min_prot_high = imm_d5; min_prot_high_time = imm_d5_t; min_prot_high_idx = imm_d5_idx; is_min_prot_high_sweep = true; }
