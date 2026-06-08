@@ -1,0 +1,217 @@
+HTF_State;Maj_State;Min_State;Entry_Type;Risk_Multiplier;BE_Trigger_R;Partial_R;Partial_Pct;TP_Strategy;TP_Param;Trail_Strategy;Location_Filter;Dash_Note
+Impulse Up - BoS Up;Impulse Up - BoS Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;1-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;2-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;3-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;4-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;5-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;6-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Down;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;7-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Down;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;8-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Down;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;9-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Down;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;10-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Down;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;11-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - BoS Down;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;12-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - ChoCh Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;13-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - ChoCh Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;14-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;15-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - ChoCh Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;16-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - ChoCh Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;17-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;18-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;19-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;20-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;21-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;22-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;23-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;24-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Up;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;25-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Up;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;26-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Up;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;27-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Up;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;28-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Up;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;29-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Down - BoS Up;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;30-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - ChoCh Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;31-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - ChoCh Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;32-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;33-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - ChoCh Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;34-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - ChoCh Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;35-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Up;Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;36-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;37-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;38-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;39-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;40-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;41-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;42-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Down;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;43-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Down;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;44-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Down;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;45-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Down;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;46-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Down;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;47-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - BoS Down;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;48-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - ChoCh Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;49-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - ChoCh Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;50-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;51-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - ChoCh Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;52-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - ChoCh Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;53-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;54-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;55-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;56-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;57-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;58-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;59-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;60-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Up;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;61-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Up;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;62-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Up;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;63-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Up;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;64-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Up;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;65-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Down - BoS Up;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;66-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - ChoCh Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;67-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - ChoCh Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;68-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;69-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - ChoCh Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;70-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - ChoCh Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;71-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - BoS Down;Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;72-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;73-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;74-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;75-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;76-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;77-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;78-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Down;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;79-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Down;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;80-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Down;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;81-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Down;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;82-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Down;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;83-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - BoS Down;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;84-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;85-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;86-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;87-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;88-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;89-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;90-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;91-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;92-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;93-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;94-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;95-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;96-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Up;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;97-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Up;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;98-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Up;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;99-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Up;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;100-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Up;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;101-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Down - BoS Up;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;102-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;103-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;104-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;105-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;106-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;107-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;108-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;109-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;110-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;111-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;112-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;113-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;114-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Down;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;115-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Down;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;116-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Down;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;117-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Down;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;118-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Down;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;119-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - BoS Down;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;120-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - ChoCh Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;121-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - ChoCh Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;122-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;123-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - ChoCh Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;124-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - ChoCh Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;125-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;126-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;127-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;128-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;129-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;130-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;131-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;132-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Up;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;133-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Up;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;134-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Up;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;135-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Up;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;136-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Up;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;137-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Down - BoS Up;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;138-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - ChoCh Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;139-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - ChoCh Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;140-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;141-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - ChoCh Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;142-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - ChoCh Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;143-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Down;Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;144-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;145-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;146-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;147-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;148-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;149-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;150-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Down;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;151-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Down;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;152-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Down;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;153-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Down;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;154-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Down;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;155-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - BoS Down;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;156-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - ChoCh Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;157-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - ChoCh Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;158-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;159-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - ChoCh Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;160-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - ChoCh Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;161-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;162-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;163-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;164-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;165-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;166-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;167-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;168-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Up;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;169-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Up;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;170-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Up;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;171-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Up;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;172-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Up;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;173-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Down - BoS Up;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;174-Dung ngoaiTP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - ChoCh Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;175-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - ChoCh Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;176-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;177-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - ChoCh Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;178-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - ChoCh Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;179-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Down - BoS Up;Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;180-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;181-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;182-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;183-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;184-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;185-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;186-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Down;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;187-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Down;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;188-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Down;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;189-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Down;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;190-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Down;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;191-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - BoS Down;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;192-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;193-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;194-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;195-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;196-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;197-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;198-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Down;Impulse Up - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;199-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Down;Impulse Up - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;200-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Down;Impulse Down - ChoCh Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;201-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Down;Impulse Down - BoS Down;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;202-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Down;Impulse Down - BoS Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;203-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Down;Impulse Up - ChoCh Up;2;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;204-Sell Limit tai mep Sell Zone M1 Major, Cat lo o dinh Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Up;Impulse Up - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;205-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Up;Impulse Up - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;206-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Up;Impulse Down - ChoCh Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;207-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Up;Impulse Down - BoS Down;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;208-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Up;Impulse Down - BoS Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;209-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Down - BoS Up;Impulse Up - ChoCh Up;0;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;210-Dung ngoaiTP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;Impulse Up - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;211-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;Impulse Up - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;212-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;Impulse Down - ChoCh Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;213-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;Impulse Down - BoS Down;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;214-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;Impulse Down - BoS Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;215-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0
+Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;Impulse Up - ChoCh Up;1;1.0;0;0;0;FIXED_R;2.0;NONE;HTF_ZONE;216-Buy Limit tai mep Buy Zone M1 Major, Cat lo o day Major.TP: FIXED_R2.0

@@ -1,0 +1,28 @@
+*****Update: 08/06/2026
+Các file cập nhật:
+  - Chỉ báo: Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor.mq5
+  - Thư viện:CSMC_Engine.mqh
+Nội dung cập nhật:
+  1. Thêm biến prot_anchor_idx / min_prot_anchor_idx (Major & Minor)
+     vào global state, khối reset, khối shift-adjustment.
+  2. Xóa 4 vòng lặp tìm kiếm O(n) theo timestamp (prot_anchor_time /
+     min_prot_anchor_time) bên trong vòng lặp chính — thay bằng
+     truy cập trực tiếp qua index đã lưu.
+  3. [Indicator] Tối ưu CopyBuffer EMA: chỉ copy số bars cần thiết
+     thay vì toàn bộ rates_total mỗi lần tính.
+  4. [Library] Thêm tham số tùy chọn max_bars (mặc định 5000) vào
+     Init() — cho phép cấu hình số bars lịch sử linh hoạt theo
+     timeframe, thay vì hard-code cứng.
+Lý do/mục đích cập nhật:
+  Indicator bị lỗi "indicator is too slow, ~37000 ms" khi chạy song
+  song với bot trên máy cấu hình thấp và cài đặt Max bars = Unlimited.
+  Nguyên nhân gốc: độ phức tạp O(n²) do 4 vòng lặp tìm kiếm lồng
+  nhau bên trong vòng lặp chính. Fix này giảm về O(n), không thay đổi
+  bất kỳ logic nào (BOS/CHOCH/Zone/Trend vẫn cho kết quả giống hệt).
+  Library được cập nhật đồng bộ để đảm bảo nhất quán với indicator.
+
+*****Update:04/06/2026
+Cập nhât lôi thư viên CSMC_Engine.mqh cho Minor Trend 
+Lỗi array out of range in 'CSMC_Engine.mqh' (542, 31) xảy ra ở dòng 542 — cụ thể là high[k] trong vòng lặp Minor Radar khi last_min_high_idx vượt quá kích thước mảng.
+
+So sánh với Major Radar (dòng 434, 452) đã có guard MathMin(..., ArraySize(...) - 1), nhưng Minor Radar ở dòng 523 và 541 bị thiếu bảo vệ này.
