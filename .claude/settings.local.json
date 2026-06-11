@@ -6,7 +6,9 @@
       "Bash(Measure-Object -Line)",
       "PowerShell(\\(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\ChibaoTradingView.txt\" | Measure-Object -Line\\).Lines)",
       "Bash(git remote *)",
-      "Bash(Select-String -Path \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\TLS_BOT_INDICATOR\\\\TLS_Matrix.csv\" -Pattern \"^[^;]+;[^;]+;[^;]+;5;\")"
+      "Bash(Select-String -Path \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\TLS_BOT_INDICATOR\\\\TLS_Matrix.csv\" -Pattern \"^[^;]+;[^;]+;[^;]+;5;\")",
+      "Bash(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\BOT_HEDGING\\\\TLS_SMC_CSV_BOT_HEDGING.mq5\")",
+      "PowerShell(\\(Get-Content \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\EA_Test\\\\EA_TLS\\\\BOT_HEDGING\\\\TLS_SMC_CSV_BOT_HEDGING.mq5\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }
