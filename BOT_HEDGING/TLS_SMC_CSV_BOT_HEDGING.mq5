@@ -57,6 +57,8 @@ input double FixedLotSize              = 0.05;
 input double SL_Buffer_Pips            = 30.0;
 // Inp_No_SL (true = không đặt SL trên sàn, chỉ quản lý SL ảo trong EA - lưu ý rủi ro cao nếu mất kết nối)
 input bool   Inp_No_SL                 = false;
+// Inp_Pool_SL_Percent (Tỷ lệ % thua lỗ tối đa cho tập lệnh cùng hướng; khi tổng lỗ của pool Buy hoặc pool Sell chạm mức này thì đóng toàn bộ tập lệnh đó, pool còn lại vẫn chạy bình thường - để 0 = tắt)
+input double Inp_Pool_SL_Percent       = 0.0;
 
 input group "--- Flexible Take Profit ---"
 // Inp_FlexTP_Enabled (Bật cơ chế chốt lãi linh hoạt FlexTP, tự đóng toàn bộ pool lệnh khi đạt ngưỡng lợi nhuận)
@@ -101,6 +103,8 @@ input double Zone_Break_Tolerance_Pct  = 50.0;
 input int    Inp_ZoneTP_MaxRounds  = 2;
 // Inp_Gate_MaxOrders (Số lệnh tối đa được phép đặt trong một lần mở cổng; đủ số này sẽ chặn vào lệnh thêm cho đến khi cổng đóng và mở lại - để 0 = không giới hạn)
 input int    Inp_Gate_MaxOrders  = 2;
+// Inp_Gate_MaxPipsFromZone (Khoảng cách tối đa theo pips từ giá hiện tại đến cạnh entry của M15 Zone; giá đi xa hơn mức này sẽ bị chặn vào lệnh mới - để 0 = không giới hạn)
+input double Inp_Gate_MaxPipsFromZone = 0.0;
 
 input group "--- HTF Settings (M15) ---"
 // HTF_Timeframe (Khung thời gian dùng để xác định Vùng giá - HTF Zone)
@@ -195,6 +199,11 @@ double g_zone_sell_last_pnl  = 0.0;
 // Đếm số lệnh đã đặt trong lần mở cổng hiện tại (reset về 0 mỗi khi cổng mở lại)
 int    g_zone_buy_entry_count  = 0;
 int    g_zone_sell_entry_count = 0;
+// Fresh signal: yêu cầu BOS/ChoCh M1 mới sau khi round chốt lãi
+bool   g_need_fresh_buy_signal  = false;
+bool   g_need_fresh_sell_signal = false;
+double g_buy_stale_sl_ref       = 0.0;
+double g_sell_stale_sl_ref      = 0.0;
 
 // Prop Shield
 bool     g_trading_stopped_today = false;
@@ -492,7 +501,13 @@ void UpdateGatekeeperState() {
             bool c_price = (bid <= buffered_top);
             bool c_fresh = (buy_s != g_last_broken_buy_zone_sl);
             bool c_h1    = !Inp_Enable_H1_Gate_Filter ? true : (SMC_TREND.current_major_trend == 1);
-            if(c_price && c_fresh && c_h1) { g_gate_buy_open = true; g_gate_buy_zone_entry = buy_e; g_gate_buy_zone_sl = buy_s; g_zone_buy_profit_rounds = 0; g_zone_buy_entry_count = 0; }
+            if(c_price && c_fresh && c_h1) {
+                bool is_new_zone = (buy_s != g_gate_buy_zone_sl);
+                g_gate_buy_open = true; g_gate_buy_zone_entry = buy_e; g_gate_buy_zone_sl = buy_s;
+                if(is_new_zone) { g_zone_buy_profit_rounds = 0; g_zone_buy_entry_count = 0; }
+                g_need_fresh_buy_signal = true;
+                g_buy_stale_sl_ref = SMC_LTF.current_buy_zone_sl;
+            }
             if(Inp_Debug_Gate) Print("[GATE_BUY] Zone=", buy_e, "/", buy_s, " | price=", c_price, " fresh=", c_fresh, " H1=", c_h1, " → ", g_gate_buy_open ? "OPEN" : "LOCK");
         }
     }
@@ -507,7 +522,13 @@ void UpdateGatekeeperState() {
             bool c_price = (ask >= buffered_bot);
             bool c_fresh = (sell_s != g_last_broken_sell_zone_sl);
             bool c_h1    = !Inp_Enable_H1_Gate_Filter ? true : (SMC_TREND.current_major_trend == -1);
-            if(c_price && c_fresh && c_h1) { g_gate_sell_open = true; g_gate_sell_zone_entry = sell_e; g_gate_sell_zone_sl = sell_s; g_zone_sell_profit_rounds = 0; g_zone_sell_entry_count = 0; }
+            if(c_price && c_fresh && c_h1) {
+                bool is_new_zone = (sell_s != g_gate_sell_zone_sl);
+                g_gate_sell_open = true; g_gate_sell_zone_entry = sell_e; g_gate_sell_zone_sl = sell_s;
+                if(is_new_zone) { g_zone_sell_profit_rounds = 0; g_zone_sell_entry_count = 0; }
+                g_need_fresh_sell_signal = true;
+                g_sell_stale_sl_ref = SMC_LTF.current_sell_zone_sl;
+            }
             if(Inp_Debug_Gate) Print("[GATE_SELL] Zone=", sell_e, "/", sell_s, " | price=", c_price, " fresh=", c_fresh, " H1=", c_h1, " → ", g_gate_sell_open ? "OPEN" : "LOCK");
         }
     }
@@ -554,10 +575,20 @@ void UpdateZoneRoundTracking() {
         if(type == POSITION_TYPE_BUY) { buy_pnl += pnl; buy_cnt++; }
         else                          { sell_pnl += pnl; sell_cnt++; }
     }
-    if(g_zone_buy_prev_cnt > 0 && buy_cnt == 0 && g_zone_buy_last_pnl > 0) g_zone_buy_profit_rounds++;
+    if(g_zone_buy_prev_cnt > 0 && buy_cnt == 0 && g_zone_buy_last_pnl > 0) {
+        g_zone_buy_profit_rounds++;
+        g_zone_buy_entry_count   = 0;
+        g_need_fresh_buy_signal  = true;
+        g_buy_stale_sl_ref       = SMC_LTF.current_buy_zone_sl;
+    }
     if(buy_cnt > 0) g_zone_buy_last_pnl = buy_pnl;
     g_zone_buy_prev_cnt = buy_cnt;
-    if(g_zone_sell_prev_cnt > 0 && sell_cnt == 0 && g_zone_sell_last_pnl > 0) g_zone_sell_profit_rounds++;
+    if(g_zone_sell_prev_cnt > 0 && sell_cnt == 0 && g_zone_sell_last_pnl > 0) {
+        g_zone_sell_profit_rounds++;
+        g_zone_sell_entry_count  = 0;
+        g_need_fresh_sell_signal = true;
+        g_sell_stale_sl_ref      = SMC_LTF.current_sell_zone_sl;
+    }
     if(sell_cnt > 0) g_zone_sell_last_pnl = sell_pnl;
     g_zone_sell_prev_cnt = sell_cnt;
 }
@@ -789,6 +820,32 @@ void ExecuteTradeLogic() {
                 return;
             }
         }
+        // Fresh signal: chặn nếu zone M1 chưa đổi kể từ khi round trước chốt lãi
+        if(signal == 1 && g_need_fresh_buy_signal) {
+            if(g_buy_stale_sl_ref > 0 && MathAbs(sl_price - g_buy_stale_sl_ref) < _Point) {
+                g_filter_text = "Blocked: Chờ BOS/ChoCh M1 mới sau khi chốt round";
+                return;
+            }
+            g_need_fresh_buy_signal = false;
+        }
+        if(signal == -1 && g_need_fresh_sell_signal) {
+            if(g_sell_stale_sl_ref > 0 && MathAbs(sl_price - g_sell_stale_sl_ref) < _Point) {
+                g_filter_text = "Blocked: Chờ BOS/ChoCh M1 mới sau khi chốt round";
+                return;
+            }
+            g_need_fresh_sell_signal = false;
+        }
+        // Khoảng cách từ giá hiện tại đến cạnh entry của M15 Zone
+        if(Inp_Gate_MaxPipsFromZone > 0) {
+            double ps = GetPipSize(_Symbol);
+            double dist = 0;
+            if(signal == 1  && g_gate_buy_zone_entry  > 0) dist = (SymbolInfoDouble(_Symbol, SYMBOL_BID) - g_gate_buy_zone_entry)  / ps;
+            if(signal == -1 && g_gate_sell_zone_entry > 0) dist = (g_gate_sell_zone_entry - SymbolInfoDouble(_Symbol, SYMBOL_ASK)) / ps;
+            if(dist > Inp_Gate_MaxPipsFromZone) {
+                g_filter_text = "Blocked: Giá xa Zone " + DoubleToString(dist, 0) + " pips (>" + DoubleToString(Inp_Gate_MaxPipsFromZone, 0) + ")";
+                return;
+            }
+        }
     }
     double pip_size = GetPipSize(_Symbol);
     double buffer_val = SL_Buffer_Pips * pip_size;
@@ -977,6 +1034,67 @@ void CheckFlexTP() {
 }
 
 // ==================================================================
+// POOL STOP-LOSS
+// ==================================================================
+void CheckPoolSL() {
+    if(Inp_Pool_SL_Percent <= 0) return;
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    if(balance <= 0) return;
+    double limit_usd = balance * (Inp_Pool_SL_Percent / 100.0);
+    double buy_pnl = 0, sell_pnl = 0;
+    int    buy_cnt = 0, sell_cnt = 0;
+    for(int i = 0; i < PositionsTotal(); i++) {
+        ulong ticket = PositionGetTicket(i);
+        if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+        long   type = PositionGetInteger(POSITION_TYPE);
+        double pnl  = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP) + PositionGetDouble(POSITION_COMMISSION);
+        if(type == POSITION_TYPE_BUY)  { buy_pnl  += pnl; buy_cnt++;  }
+        else                           { sell_pnl += pnl; sell_cnt++; }
+    }
+    bool close_buy  = (buy_cnt  > 0 && buy_pnl  <= -limit_usd);
+    bool close_sell = (sell_cnt > 0 && sell_pnl <= -limit_usd);
+    if(!close_buy && !close_sell) return;
+    bool closed_buy = false, closed_sell = false;
+    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+        long type = PositionGetInteger(POSITION_TYPE);
+        if(close_buy  && type == POSITION_TYPE_BUY  && trade.PositionClose(ticket)) closed_buy  = true;
+        if(close_sell && type == POSITION_TYPE_SELL && trade.PositionClose(ticket)) closed_sell = true;
+    }
+    for(int i = OrdersTotal() - 1; i >= 0; i--) {
+        ulong ticket = OrderGetTicket(i);
+        if(!ticket || OrderGetString(ORDER_SYMBOL) != _Symbol || !IsNormalMagic(OrderGetInteger(ORDER_MAGIC))) continue;
+        long ot = OrderGetInteger(ORDER_TYPE);
+        bool is_buy  = (ot == ORDER_TYPE_BUY_LIMIT  || ot == ORDER_TYPE_BUY_STOP);
+        bool is_sell = (ot == ORDER_TYPE_SELL_LIMIT || ot == ORDER_TYPE_SELL_STOP);
+        if((close_buy && is_buy) || (close_sell && is_sell)) trade.OrderDelete(ticket);
+    }
+    if(closed_buy) {
+        g_need_fresh_buy_signal = true;
+        g_buy_stale_sl_ref = SMC_LTF.current_buy_zone_sl;
+        double pct = MathAbs(buy_pnl) / balance * 100.0;
+        Radar.SendMessage("🛑 <b>POOL SL: ĐÓNG TẬP LỆNH BUY</b>\n━━━━━━━━━━━━━━━\n"
+            + "💸 <b>Lỗ:</b> " + DoubleToString(buy_pnl, 2) + "$ (-" + DoubleToString(pct, 2) + "%)\n"
+            + "🎚️ <b>Ngưỡng Pool SL:</b> " + DoubleToString(Inp_Pool_SL_Percent, 1) + "%\n"
+            + "✅ <b>Pool SELL vẫn tiếp tục chạy</b>\n"
+            + "💳 <b>Balance:</b> " + DoubleToString(balance, 2) + "$");
+    }
+    if(closed_sell) {
+        g_need_fresh_sell_signal = true;
+        g_sell_stale_sl_ref = SMC_LTF.current_sell_zone_sl;
+        double pct = MathAbs(sell_pnl) / balance * 100.0;
+        Radar.SendMessage("🛑 <b>POOL SL: ĐÓNG TẬP LỆNH SELL</b>\n━━━━━━━━━━━━━━━\n"
+            + "💸 <b>Lỗ:</b> " + DoubleToString(sell_pnl, 2) + "$ (-" + DoubleToString(pct, 2) + "%)\n"
+            + "🎚️ <b>Ngưỡng Pool SL:</b> " + DoubleToString(Inp_Pool_SL_Percent, 1) + "%\n"
+            + "✅ <b>Pool BUY vẫn tiếp tục chạy</b>\n"
+            + "💳 <b>Balance:</b> " + DoubleToString(balance, 2) + "$");
+    }
+}
+
+// ==================================================================
 // DASHBOARD
 // ==================================================================
 void DashLabel(string name, int x, int y, color clr, int fsz, string text) {
@@ -1104,6 +1222,7 @@ void OnTick() {
     ManagePropFirmRules();
     CleanPendingOrdersForNews();
     CheckFlexTP();
+    CheckPoolSL();
     ManageTrades_Tick();
     UpdateZoneRoundTracking(); // [ZONE LIMIT] phát hiện tập lệnh normal vừa chốt lãi
     UpdateGatekeeperState();
