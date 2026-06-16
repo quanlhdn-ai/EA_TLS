@@ -17,34 +17,54 @@ CTelegramRadar Radar;
 // INPUTS
 // ==================================================================
 input group "--- EA Identification ---"
-input long   BaseMagicNumber           = 2026000;   // Magic number gốc của EA (Normal: [Base,Base+1000); Hedge Sell: [Base+10000,Base+10100); Counter-hedge Buy: [Base+20000,Base+20100))
+// Inp_BaseMagicNumber (Magic number gốc của EA, dùng để phân biệt lệnh của bot này với lệnh tay hoặc bot khác)
+input long   BaseMagicNumber           = 2026000;
 
 input group "--- Telegram Radar Settings ---"
-input string  Inp_BotToken             = "YOUR_BOT_TOKEN_HERE"; // Token Bot Telegram để gửi thông báo
-input string  Inp_ChatID               = "YOUR_CHAT_ID_HERE";   // ID Chat/Group Telegram nhận thông báo
-input bool    Inp_SendScreenshot       = true;                  // Gửi kèm ảnh chụp chart khi báo tin
+// Inp_BotToken (Token của Bot Telegram dùng để gửi thông báo)
+input string  Inp_BotToken             = "YOUR_BOT_TOKEN_HERE";
+// Inp_ChatID (ID của Chat hoặc Group Telegram sẽ nhận thông báo)
+input string  Inp_ChatID               = "YOUR_CHAT_ID_HERE";
+// Inp_SendScreenshot (Gửi kèm ảnh chụp biểu đồ mỗi khi báo tin)
+input bool    Inp_SendScreenshot       = true;
 
 input group "--- Prop Firm Protection ---"
-input bool   Inp_UseMarginLimit        = true;    // Bật giới hạn margin tối đa khi tính khối lượng lệnh
-input double Inp_MaxMarginPercent      = 38.0;    // % margin tối đa / balance được phép dùng (cắt lot nếu vượt)
-input double Inp_DailyDrawdownLimit    = 3.0;     // % lỗ tối đa trong ngày so với balance đầu phiên -> chạm là đóng hết lệnh & dừng trade
-input double Inp_DailyProfitLimit      = 0.0;     // % lãi mục tiêu trong ngày -> đạt là dừng trade (0 = không giới hạn)
-input double Inp_AutoPassTarget        = 11010.0; // Mức equity (USD) mục tiêu -> đạt là tự đóng hết lệnh (Auto Pass)
-input string Inp_NewsTimes             = "15:30, 21:00"; // Danh sách giờ tin (giờ server, "HH:MM", phân tách bằng dấu phẩy)
-input int    Inp_NewsBufferMinutes     = 2;       // Số phút trước/sau giờ tin bị chặn vào lệnh & xóa lệnh chờ
+// Inp_UseMarginLimit (Bật giới hạn margin tối đa khi tính khối lượng lệnh)
+input bool   Inp_UseMarginLimit        = true;
+// Inp_MaxMarginPercent (Tỷ lệ % margin tối đa so với balance được phép dùng, vượt mức sẽ tự cắt giảm lot)
+input double Inp_MaxMarginPercent      = 38.0;
+// Inp_DailyDrawdownLimit (Tỷ lệ % thua lỗ tối đa trong ngày so với balance đầu phiên, chạm mức này sẽ đóng hết lệnh và dừng giao dịch)
+input double Inp_DailyDrawdownLimit    = 3.0;
+// Inp_DailyProfitLimit (Tỷ lệ % lợi nhuận mục tiêu trong ngày, đạt mức này sẽ dừng giao dịch; để 0 = không giới hạn)
+input double Inp_DailyProfitLimit      = 0.0;
+// Inp_AutoPassTarget (Mức equity mục tiêu theo USD, đạt mức này sẽ tự đóng hết lệnh để chốt mục tiêu - Auto Pass)
+input double Inp_AutoPassTarget        = 11010.0;
+// Inp_NewsTimes (Danh sách giờ tin tức cần tránh giao dịch, định dạng HH:MM theo giờ server, các mốc giờ ngăn cách bằng dấu phẩy)
+input string Inp_NewsTimes             = "15:30, 21:00";
+// Inp_NewsBufferMinutes (Số phút chặn giao dịch trước và sau mỗi giờ tin trong danh sách Inp_NewsTimes)
+input int    Inp_NewsBufferMinutes     = 2;
 
 input group "--- Risk Management & Scaling ---"
-input int    Inp_Max_Risk_Trades       = 3;       // Số lệnh đang chịu risk (chưa hòa vốn) tối đa cùng lúc - vượt là không vào lệnh mới
-input bool   UseRiskPerTrade           = true;    // true = tính lot theo % risk balance; false = dùng lot cố định FixedLotSize
-input double RiskPercent               = 0.5;     // % balance chấp nhận rủi ro mỗi lệnh (khi UseRiskPerTrade = true)
-input double FixedLotSize              = 0.05;    // Khối lượng lệnh cố định (khi UseRiskPerTrade = false)
-input double SL_Buffer_Pips            = 30.0;    // Số pip đệm thêm ra ngoài mức SL gốc (zone SL) để tránh bị quét SL
-input bool   Inp_No_SL                 = false;   // true = không đặt SL trên sàn (quản lý SL ảo nội bộ) - rủi ro cao
+// Inp_Max_Risk_Trades (Số lệnh đang mở chưa hòa vốn tối đa cho phép cùng lúc, vượt số này sẽ không vào lệnh mới)
+input int    Inp_Max_Risk_Trades       = 3;
+// UseRiskPerTrade (true = tính khối lượng lệnh theo % rủi ro của balance, false = dùng khối lượng cố định FixedLotSize)
+input bool   UseRiskPerTrade           = true;
+// RiskPercent (Tỷ lệ % balance chấp nhận rủi ro cho mỗi lệnh, chỉ áp dụng khi UseRiskPerTrade = true)
+input double RiskPercent               = 0.5;
+// FixedLotSize (Khối lượng lệnh cố định tính bằng lot, chỉ áp dụng khi UseRiskPerTrade = false)
+input double FixedLotSize              = 0.05;
+// SL_Buffer_Pips (Số pip đệm thêm ra ngoài mức SL gốc lấy từ zone, để tránh bị quét SL)
+input double SL_Buffer_Pips            = 30.0;
+// Inp_No_SL (true = không đặt SL trên sàn, chỉ quản lý SL ảo trong EA - lưu ý rủi ro cao nếu mất kết nối)
+input bool   Inp_No_SL                 = false;
 
 input group "--- Flexible Take Profit ---"
-input bool   Inp_FlexTP_Enabled        = false;   // Bật cơ chế chốt lãi linh hoạt (FlexTP) theo tổng P&L cả pool lệnh
-input double Inp_FlexTP_Percent        = 1.0;     // % lợi nhuận / balance để FlexTP đóng hết pool
-input double Inp_FlexTP_Pips           = 0.0;     // Số pip lợi nhuận trung bình để FlexTP đóng hết pool (0 = không dùng tiêu chí pip)
+// Inp_FlexTP_Enabled (Bật cơ chế chốt lãi linh hoạt FlexTP, tự đóng toàn bộ pool lệnh khi đạt ngưỡng lợi nhuận)
+input bool   Inp_FlexTP_Enabled        = false;
+// Inp_FlexTP_Percent (Tỷ lệ % lợi nhuận so với balance để FlexTP đóng toàn bộ pool lệnh)
+input double Inp_FlexTP_Percent        = 1.0;
+// Inp_FlexTP_Pips (Số pip lợi nhuận trung bình mỗi lệnh để FlexTP đóng toàn bộ pool; để 0 = không dùng điều kiện này)
+input double Inp_FlexTP_Pips           = 0.0;
 
 enum ENUM_ENTRY_MODE {
     ENTRY_SMART       = 0,
@@ -53,54 +73,78 @@ enum ENUM_ENTRY_MODE {
 };
 
 input group "--- Smart Order Execution ---"
-input ENUM_ENTRY_MODE Inp_Entry_Mode   = ENTRY_SMART; // Chế độ vào lệnh: SMART (Market nếu SL gần/Limit nếu xa), LIMIT_BOS (Limit tại mốc BOS/ChoCh), MARKET_ONLY (luôn Market)
-input double Market_vs_Limit_Pips      = 50.0;    // Ngưỡng Entry->SL (pips): nếu <= ngưỡng thì vào Market, ngược lại đặt Limit (chế độ SMART)
-input double Max_Zone_SL_Pips          = 300.0;   // Khoảng cách SL tối đa (pips); zone rộng hơn sẽ bị cắt bớt (kéo entry lại gần SL)
-input double Entry_Buffer_Percent      = 10.0;    // % độ rộng zone dùng dịch điểm vào lệnh (dương = ra ngoài mép zone, âm = vào sâu trong zone)
-input double Min_Reward_to_Risk_R      = 1.5;     // Tỷ lệ R:R tối thiểu yêu cầu (so với chướng ngại HTF đối diện); không đạt thì bỏ qua lệnh
-input double Inp_Min_Entry_Dist_Pips   = 30.0;    // Khoảng cách tối thiểu (pips) giữa SL lệnh mới với SL lệnh cùng chiều gần nhất, tránh vào trùng vùng
+// Inp_Entry_Mode (Chế độ vào lệnh: SMART = Market nếu SL gần và Limit tại zone nếu SL xa; LIMIT_BOS = luôn đặt Limit tại mốc BOS/ChoCh; MARKET_ONLY = luôn vào Market)
+input ENUM_ENTRY_MODE Inp_Entry_Mode   = ENTRY_SMART;
+// Market_vs_Limit_Pips (Ngưỡng khoảng cách Entry đến SL theo pips để quyết định Market hay Limit ở chế độ SMART: nhỏ hơn hoặc bằng ngưỡng này thì vào Market)
+input double Market_vs_Limit_Pips      = 50.0;
+// Max_Zone_SL_Pips (Khoảng cách SL tối đa cho phép theo pips, nếu zone rộng hơn mức này sẽ bị thu hẹp lại để SL không quá xa)
+input double Max_Zone_SL_Pips          = 300.0;
+// Entry_Buffer_Percent (Tỷ lệ % độ rộng zone dùng để dịch điểm vào lệnh: số dương dịch ra ngoài mép zone, số âm dịch vào sâu trong zone)
+input double Entry_Buffer_Percent      = 10.0;
+// Min_Reward_to_Risk_R (Tỷ lệ Reward:Risk - R tối thiểu yêu cầu; nếu mục tiêu lợi nhuận không đạt tỷ lệ này so với rủi ro thì bỏ qua lệnh)
+input double Min_Reward_to_Risk_R      = 1.5;
+// Inp_Min_Entry_Dist_Pips (Khoảng cách tối thiểu theo pips giữa SL của lệnh mới với SL của lệnh cùng chiều gần nhất, để tránh vào lệnh trùng vùng giá)
+input double Inp_Min_Entry_Dist_Pips   = 30.0;
 
 input group "--- The Smart Gatekeeper ---"
-input bool   Inp_Buddha_Palm           = true;    // Bật bộ lọc "Bàn tay Phật": chặn Buy trong HTF Sell Zone và chặn Sell trong HTF Buy Zone
-input double HTF_Zone_Buffer_Pct       = 0.0;     // % độ rộng HTF Zone làm đệm mở cổng: dương = mở rộng ra ngoài zone (có sàn Min_HTF_Buffer_Pips), âm = yêu cầu giá vào sâu trong zone theo % (vd -50 = phải tới giữa zone mới mở cổng)
-input double Min_HTF_Buffer_Pips       = 15.0;    // Sàn tối thiểu (pips) cho vùng đệm mở cổng - chỉ áp dụng khi HTF_Zone_Buffer_Pct >= 0
-input double Zone_Break_Tolerance_Pct  = 50.0;    // % chiều cao HTF Zone cho phép giá xuyên qua trước khi coi là "vỡ zone" và đóng cổng (kill line)
-input int    Inp_Max_Entries_Per_Zone  = 2;     // Giới hạn số lượt vào lệnh mỗi lần chạm Zone (0 = không giới hạn)
+// Inp_Enable_H1_Gate_Filter (Chế độ giao dịch: true - 3TF, xét thêm xu hướng H1 (Trend) khi mở/đóng cổng Buy/Sell - mở cổng Buy khi H1 tăng và chạm Buy Zone, mở cổng Sell khi H1 giảm và chạm Sell Zone (mặc định); false - 2TF, bỏ qua hoàn toàn điều kiện H1, cổng chỉ mở/đóng dựa theo Zone của khung Location (HTF) và M1)
+input bool   Inp_Enable_H1_Gate_Filter = true;
+// Inp_Buddha_Palm (Bật bộ lọc Bàn Tay Phật: chặn vào lệnh Buy khi đang trong HTF Sell Zone và chặn lệnh Sell khi đang trong HTF Buy Zone)
+input bool   Inp_Buddha_Palm           = true;
+// HTF_Zone_Buffer_Pct (Tỷ lệ % độ rộng HTF Zone dùng làm vùng đệm để mở cổng: số dương mở rộng vùng kích hoạt ra ngoài zone, số âm yêu cầu giá đi vào sâu trong zone theo % đó mới mở cổng - ví dụ -50 nghĩa là giá phải vào tới điểm giữa của zone)
+input double HTF_Zone_Buffer_Pct       = 0.0;
+// Min_HTF_Buffer_Pips (Khoảng đệm tối thiểu theo pip cho vùng mở cổng, chỉ có tác dụng khi HTF_Zone_Buffer_Pct >= 0)
+input double Min_HTF_Buffer_Pips       = 15.0;
+// Zone_Break_Tolerance_Pct (Tỷ lệ % chiều cao HTF Zone cho phép giá xuyên qua trước khi coi là zone đã vỡ và tự đóng cổng - kill line)
+input double Zone_Break_Tolerance_Pct  = 50.0;
+// Inp_ZoneTP_MaxRounds (Số lượt vào lệnh được tính theo tập lệnh chốt lãi cho mỗi lần chạm Zone; đủ số lượt này sẽ chặn vào lệnh thêm cho đến khi giá chạm Zone mới - để 0 = không giới hạn)
+input int    Inp_ZoneTP_MaxRounds  = 2;
+// Inp_Gate_MaxOrders (Số lệnh tối đa được phép đặt trong một lần mở cổng; đủ số này sẽ chặn vào lệnh thêm cho đến khi cổng đóng và mở lại - để 0 = không giới hạn)
+input int    Inp_Gate_MaxOrders  = 2;
 
 input group "--- HTF Settings (M15) ---"
-input ENUM_TIMEFRAMES HTF_Timeframe         = PERIOD_M15; // Khung thời gian xác định Vùng giá (Location/HTF Zone)
-input int    HTF_PeriodsInMajorSwing        = 9;  // Số nến mỗi bên để xác định đỉnh/đáy Major Swing trên khung HTF
-input int    HTF_PeriodsInMinorSwing        = 5;  // Số nến mỗi bên để xác định đỉnh/đáy Minor Swing trên khung HTF
-input color  HTF_BuyZoneColor               = C'235,250,240'; // Màu vẽ vùng Buy Zone trên khung HTF
-input color  HTF_SellZoneColor              = C'255,235,235'; // Màu vẽ vùng Sell Zone trên khung HTF
-input color  HTF_KeyLevelColor              = clrOrange;  // Màu vẽ các mức giá quan trọng (Key Level) trên khung HTF
-input color  HTF_BOS_Up_Color               = clrDodgerBlue; // Màu vẽ đường BOS tăng trên khung HTF
-input color  HTF_BOS_Dn_Color               = clrRed;    // Màu vẽ đường BOS giảm trên khung HTF
+// HTF_Timeframe (Khung thời gian dùng để xác định Vùng giá - HTF Zone)
+input ENUM_TIMEFRAMES HTF_Timeframe         = PERIOD_M15;
+// HTF_PeriodsInMajorSwing (Số nến mỗi bên dùng để xác định đỉnh/đáy Major Swing trên khung HTF)
+input int    HTF_PeriodsInMajorSwing        = 9;
+// HTF_PeriodsInMinorSwing (Số nến mỗi bên dùng để xác định đỉnh/đáy Minor Swing trên khung HTF)
+input int    HTF_PeriodsInMinorSwing        = 5;
+// HTF_BuyZoneColor (Màu vẽ vùng Buy Zone trên khung HTF)
+input color  HTF_BuyZoneColor               = C'235,250,240';
+// HTF_SellZoneColor (Màu vẽ vùng Sell Zone trên khung HTF)
+input color  HTF_SellZoneColor              = C'255,235,235';
+// HTF_KeyLevelColor (Màu vẽ các mức giá quan trọng - Key Level - trên khung HTF)
+input color  HTF_KeyLevelColor              = clrOrange;
+// HTF_BOS_Up_Color (Màu vẽ đường BOS tăng - Break of Structure Up - trên khung HTF)
+input color  HTF_BOS_Up_Color               = clrDodgerBlue;
+// HTF_BOS_Dn_Color (Màu vẽ đường BOS giảm - Break of Structure Down - trên khung HTF)
+input color  HTF_BOS_Dn_Color               = clrRed;
 
 input group "--- Trend TF Settings (H1) ---"
-input ENUM_TIMEFRAMES Trend_Timeframe       = PERIOD_H1; // Khung thời gian xác định Xu hướng lớn (Trend)
-input int    Trend_PeriodsInMajorSwing      = 9;  // Số nến mỗi bên để xác định đỉnh/đáy Major Swing trên khung Trend
-input int    Trend_PeriodsInMinorSwing      = 5;  // Số nến mỗi bên để xác định đỉnh/đáy Minor Swing trên khung Trend
+// Trend_Timeframe (Khung thời gian dùng để xác định Xu hướng lớn - Trend)
+input ENUM_TIMEFRAMES Trend_Timeframe       = PERIOD_H1;
+// Trend_PeriodsInMajorSwing (Số nến mỗi bên dùng để xác định đỉnh/đáy Major Swing trên khung Trend)
+input int    Trend_PeriodsInMajorSwing      = 9;
+// Trend_PeriodsInMinorSwing (Số nến mỗi bên dùng để xác định đỉnh/đáy Minor Swing trên khung Trend)
+input int    Trend_PeriodsInMinorSwing      = 5;
 
 input group "--- LTF Core Logic Settings (M1) ---"
-input int    PeriodsInMajorSwing            = 9;  // Số nến mỗi bên để xác định đỉnh/đáy Major Swing trên M1 (khung tín hiệu vào lệnh)
-input int    PeriodsInMinorSwing            = 5;  // Số nến mỗi bên để xác định đỉnh/đáy Minor Swing trên M1
-input int    MaxZones                       = 1;  // Số lượng Zone (Buy/Sell) tối đa lưu trữ mỗi loại trên M1
-input int    MaxBOSLines                    = 5;  // Số đường BOS Major tối đa lưu trữ/hiển thị trên chart M1
-input int    MaxMinorBOSLines               = 3;  // Số đường BOS Minor tối đa lưu trữ/hiển thị trên chart M1
-
-input group "--- Hedging Protection ---"
-// Magic: HedgeSell=[Base+10000,Base+10100), CounterBuy=[Base+20000,Base+20100)
-input bool   Inp_Hedge_Enabled             = true; // Bật/tắt toàn bộ module Hedging Protection
-input double Inp_Hedge_Trigger_Pct         = 30.0;   // Trigger khi pool lỗ >= X% balance
-input double Inp_Hedge_Vol_Ratio           = 0.5;    // Vol hedge = stuck_vol * ratio
-input double Inp_Hedge_TP_Profit_Pct       = 10.0;   // Đóng C2 khi hedge lãi >= X% trigger_balance
-input double Inp_Hedge_Reentry_Pct         = 5.0;    // Re-entry khi pool lỗ thêm X% balance
-input int    Inp_Hedge_Max_Per_Day         = 3;      // Max lần hedge/ngày mỗi chiều
+// PeriodsInMajorSwing (Số nến mỗi bên dùng để xác định đỉnh/đáy Major Swing trên M1 - khung xác định tín hiệu vào lệnh)
+input int    PeriodsInMajorSwing            = 9;
+// PeriodsInMinorSwing (Số nến mỗi bên dùng để xác định đỉnh/đáy Minor Swing trên M1)
+input int    PeriodsInMinorSwing            = 5;
+// MaxZones (Số lượng Zone Buy và Sell tối đa được lưu lại mỗi loại trên M1)
+input int    MaxZones                       = 1;
+// MaxBOSLines (Số đường BOS Major tối đa được lưu và hiển thị trên chart M1)
+input int    MaxBOSLines                    = 5;
+// MaxMinorBOSLines (Số đường BOS Minor tối đa được lưu và hiển thị trên chart M1)
+input int    MaxMinorBOSLines               = 3;
 
 input group "--- Dashboard Settings ---"
-input color  DashboardColor                = clrBlack; // Màu chữ chính của bảng Dashboard trên chart
-input bool   Inp_Debug_Gate                = false;     // Bật log debug chi tiết cho Gatekeeper (Experts log)
+// DashboardColor (Màu chữ chính của bảng Dashboard hiển thị trên chart)
+input color  DashboardColor                = clrBlack;
+// Inp_Debug_Gate (Bật ghi log debug chi tiết cho Gatekeeper vào tab Experts)
+input bool   Inp_Debug_Gate                = false;
 
 // ==================================================================
 // STRUCTS
@@ -120,28 +164,6 @@ struct TPosTracker {
     bool partial_done; double trail_r_watermark; double realized_pnl; bool be_notified;
 };
 TPosTracker g_trackers[];
-
-// --- [HEDGE] ---
-struct THedgeGroup {
-    int      hedge_id;
-    int      direction;             // +1 = hedge SELL (bảo vệ BUY pool)
-                                    // -1 = counter-hedge BUY (bảo vệ SELL pool)
-    double   hedge_vol;
-    double   trigger_balance;       // Balance lúc trigger (tính 10% TP threshold)
-    ulong    hedge_ticket;          // Position ticket = ResultOrder() của market order
-    bool     is_active;             // Lệnh hedge còn đang mở
-    bool     is_orphaned;           // Positions được bảo vệ đã đóng hết
-    bool     waiting_reentry;       // Đang chờ re-entry sau C2
-    double   reentry_ref_pnl_usd;   // P&L của protected pool lúc đóng C2
-    datetime created_time;
-};
-THedgeGroup g_hedge_groups[];
-
-struct TPoolStats {
-    double total_vol;
-    double total_pnl_usd;
-    int    count;
-};
 
 // ==================================================================
 // BIẾN TOÀN CỤC
@@ -170,17 +192,16 @@ int    g_zone_buy_prev_cnt   = 0;
 int    g_zone_sell_prev_cnt  = 0;
 double g_zone_buy_last_pnl   = 0.0;
 double g_zone_sell_last_pnl  = 0.0;
+// Đếm số lệnh đã đặt trong lần mở cổng hiện tại (reset về 0 mỗi khi cổng mở lại)
+int    g_zone_buy_entry_count  = 0;
+int    g_zone_sell_entry_count = 0;
 
 // Prop Shield
 bool     g_trading_stopped_today = false;
 bool     g_account_passed        = false;
 datetime g_last_day_checked      = 0;
 double   g_sod_balance           = 0;
-
-// --- [HEDGE] ---
-int    g_hedge_sell_count = 0;   // Số lần hedge sell hôm nay
-int    g_hedge_buy_count  = 0;   // Số lần counter-hedge buy hôm nay
-int    g_next_hedge_id    = 0;   // ID tiếp theo trong ngày (0–99, reset hàng ngày)
+string   g_shield_stop_reason    = "";
 
 // ==================================================================
 // HELPER: CSV & UTILITIES
@@ -252,22 +273,10 @@ bool IsNewBar() {
 }
 
 // ==================================================================
-// HELPER: MAGIC NUMBER CLASSIFICATION [HEDGE]
+// HELPER: MAGIC NUMBER CLASSIFICATION
 // ==================================================================
 bool IsNormalMagic(long magic) {
     return (magic >= BaseMagicNumber && magic < BaseMagicNumber + 1000);
-}
-bool IsHedgeSellMagic(long magic) {
-    return (magic >= BaseMagicNumber + 10000 && magic < BaseMagicNumber + 10100);
-}
-bool IsHedgeBuyMagic(long magic) {
-    return (magic >= BaseMagicNumber + 20000 && magic < BaseMagicNumber + 20100);
-}
-bool IsHedgeMagic(long magic) {
-    return IsHedgeSellMagic(magic) || IsHedgeBuyMagic(magic);
-}
-bool IsEAMagic(long magic) {
-    return IsNormalMagic(magic) || IsHedgeMagic(magic);
 }
 
 // ==================================================================
@@ -278,32 +287,27 @@ CSMC_Engine SMC_HTF;
 CSMC_Engine SMC_TREND;
 
 // ==================================================================
-// PROP SHIELD [MODIFIED: đóng cả hedge positions]
+// PROP SHIELD
 // ==================================================================
 void CloseAll_PropFirm(string reason) {
     bool action_taken = false;
     for(int i = OrdersTotal() - 1; i >= 0; i--) {
         ulong ticket = OrderGetTicket(i);
-        if(IsEAMagic(OrderGetInteger(ORDER_MAGIC))) {
+        if(IsNormalMagic(OrderGetInteger(ORDER_MAGIC))) {
             trade.OrderDelete(ticket);
             action_taken = true;
         }
     }
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
-        if(IsEAMagic(PositionGetInteger(POSITION_MAGIC))) {
+        if(IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) {
             trade.PositionClose(ticket);
             action_taken = true;
         }
     }
-    // Reset toàn bộ hedge groups khi Prop Shield kích hoạt
-    for(int i = 0; i < ArraySize(g_hedge_groups); i++) {
-        g_hedge_groups[i].is_active      = false;
-        g_hedge_groups[i].waiting_reentry = false;
-    }
     if(action_taken)
         Radar.SendMessage("🚨 <b>PROP SHIELD TRIGGERED!</b>\n" + reason
-            + "\nĐã tự động xóa sạch lệnh chờ và chốt toàn bộ vị thế (kể cả Hedge)!");
+            + "\nĐã tự động xóa sạch lệnh chờ và chốt toàn bộ vị thế!");
 }
 
 bool IsInNewsWindow() {
@@ -340,29 +344,28 @@ void CleanPendingOrdersForNews() {
     }
 }
 
-// [MODIFIED: reset hedge counters hàng ngày]
 void ManagePropFirmRules() {
     if(g_account_passed) return;
     datetime current_day = iTime(_Symbol, PERIOD_D1, 0);
     if(current_day != g_last_day_checked) {
         g_sod_balance           = AccountInfoDouble(ACCOUNT_BALANCE);
         g_trading_stopped_today = false;
+        g_shield_stop_reason    = "";
         g_last_day_checked      = current_day;
-        // Reset hedge daily counters — hedge groups đang mở KHÔNG reset
-        g_hedge_sell_count = 0;
-        g_hedge_buy_count  = 0;
-        g_next_hedge_id    = 0;
     }
     double current_equity = AccountInfoDouble(ACCOUNT_EQUITY);
     if(Inp_AutoPassTarget > 0 && current_equity >= Inp_AutoPassTarget) {
         CloseAll_PropFirm("🎉 CHÚC MỪNG PASS QUỸ! Đạt mục tiêu: " + DoubleToString(current_equity, 2) + "$");
-        g_account_passed = true; g_trading_stopped_today = true; return;
+        g_account_passed = true; g_trading_stopped_today = true;
+        g_shield_stop_reason = "Đã đạt mục tiêu Pass (" + DoubleToString(current_equity, 2) + "$)";
+        return;
     }
     if(Inp_DailyDrawdownLimit > 0 && g_sod_balance > 0) {
         double loss_limit = g_sod_balance - g_sod_balance * (Inp_DailyDrawdownLimit / 100.0);
         if(current_equity <= loss_limit && !g_trading_stopped_today) {
             CloseAll_PropFirm("🛑 DAILY DD HIT! Vượt quá " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%");
             g_trading_stopped_today = true;
+            g_shield_stop_reason = "Chạm Daily Drawdown " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%";
         }
     }
     if(Inp_DailyProfitLimit > 0 && g_sod_balance > 0 && !g_trading_stopped_today) {
@@ -374,6 +377,8 @@ void ManagePropFirmRules() {
                 + "💰 Equity: " + DoubleToString(current_equity, 2) + "$\n"
                 + "✅ Đã chốt toàn bộ lệnh. Nghỉ giao dịch đến hết ngày.");
             g_trading_stopped_today = true;
+            g_shield_stop_reason = "Đạt Daily Profit Target +" + DoubleToString(daily_profit_pct, 2)
+                                  + "% (>= " + DoubleToString(Inp_DailyProfitLimit, 1) + "%)";
         }
     }
 }
@@ -442,7 +447,7 @@ void UpdateGatekeeperState() {
         last_htf_trend = SMC_HTF.current_major_trend;
     }
     static int last_trend_tf_trend = 0;
-    if(SMC_TREND.current_major_trend != last_trend_tf_trend) {
+    if(Inp_Enable_H1_Gate_Filter && SMC_TREND.current_major_trend != last_trend_tf_trend) {
         if(SMC_TREND.current_major_trend ==  1) g_gate_sell_open = false;
         if(SMC_TREND.current_major_trend == -1) g_gate_buy_open  = false;
         last_trend_tf_trend = SMC_TREND.current_major_trend;
@@ -463,6 +468,17 @@ void UpdateGatekeeperState() {
         s_prev_htf_sell_sl = SMC_HTF.current_sell_zone_sl;
     }
 
+    // Đóng cổng nếu Zone đã kích hoạt cổng không còn tồn tại trên Zone Queue của HTF
+    // (đã bị giá phá vỡ và bị xóa khỏi chart).
+    if(g_gate_buy_open && g_gate_buy_zone_sl > 0) {
+        bool zone_still_exists = (g_gate_buy_zone_sl == SMC_HTF.current_buy_zone_sl) || (g_gate_buy_zone_sl == SMC_HTF.current_minor_buy_zone_sl);
+        if(!zone_still_exists) { g_gate_buy_open = false; g_last_broken_buy_zone_sl = g_gate_buy_zone_sl; }
+    }
+    if(g_gate_sell_open && g_gate_sell_zone_sl > 0) {
+        bool zone_still_exists = (g_gate_sell_zone_sl == SMC_HTF.current_sell_zone_sl) || (g_gate_sell_zone_sl == SMC_HTF.current_minor_sell_zone_sl);
+        if(!zone_still_exists) { g_gate_sell_open = false; g_last_broken_sell_zone_sl = g_gate_sell_zone_sl; }
+    }
+
     if(!g_gate_buy_open) {
         double buy_e = SMC_HTF.current_buy_zone_entry, buy_s = SMC_HTF.current_buy_zone_sl;
         if(buy_e == 0 || buy_s == 0) { buy_e = SMC_HTF.current_minor_buy_zone_entry; buy_s = SMC_HTF.current_minor_buy_zone_sl; }
@@ -475,8 +491,8 @@ void UpdateGatekeeperState() {
             double buffered_top = buy_e + buf * pip_size;
             bool c_price = (bid <= buffered_top);
             bool c_fresh = (buy_s != g_last_broken_buy_zone_sl);
-            bool c_h1    = (SMC_TREND.current_major_trend == 1);
-            if(c_price && c_fresh && c_h1) { g_gate_buy_open = true; g_gate_buy_zone_entry = buy_e; g_gate_buy_zone_sl = buy_s; g_zone_buy_profit_rounds = 0; }
+            bool c_h1    = !Inp_Enable_H1_Gate_Filter ? true : (SMC_TREND.current_major_trend == 1);
+            if(c_price && c_fresh && c_h1) { g_gate_buy_open = true; g_gate_buy_zone_entry = buy_e; g_gate_buy_zone_sl = buy_s; g_zone_buy_profit_rounds = 0; g_zone_buy_entry_count = 0; }
             if(Inp_Debug_Gate) Print("[GATE_BUY] Zone=", buy_e, "/", buy_s, " | price=", c_price, " fresh=", c_fresh, " H1=", c_h1, " → ", g_gate_buy_open ? "OPEN" : "LOCK");
         }
     }
@@ -490,8 +506,8 @@ void UpdateGatekeeperState() {
             double buffered_bot = sell_e - buf * pip_size;
             bool c_price = (ask >= buffered_bot);
             bool c_fresh = (sell_s != g_last_broken_sell_zone_sl);
-            bool c_h1    = (SMC_TREND.current_major_trend == -1);
-            if(c_price && c_fresh && c_h1) { g_gate_sell_open = true; g_gate_sell_zone_entry = sell_e; g_gate_sell_zone_sl = sell_s; g_zone_sell_profit_rounds = 0; }
+            bool c_h1    = !Inp_Enable_H1_Gate_Filter ? true : (SMC_TREND.current_major_trend == -1);
+            if(c_price && c_fresh && c_h1) { g_gate_sell_open = true; g_gate_sell_zone_entry = sell_e; g_gate_sell_zone_sl = sell_s; g_zone_sell_profit_rounds = 0; g_zone_sell_entry_count = 0; }
             if(Inp_Debug_Gate) Print("[GATE_SELL] Zone=", sell_e, "/", sell_s, " | price=", c_price, " fresh=", c_fresh, " H1=", c_h1, " → ", g_gate_sell_open ? "OPEN" : "LOCK");
         }
     }
@@ -732,7 +748,7 @@ void ExecuteTradeLogic() {
             rule_idx = i; break;
         }
     }
-    if(g_trading_stopped_today || g_account_passed) { g_filter_text = "[SHIELD] Prop Shield đang chặn"; return; }
+    if(g_trading_stopped_today || g_account_passed) { g_filter_text = "[SHIELD] " + g_shield_stop_reason; return; }
     if(IsInNewsWindow()) { g_filter_text = "Blocked: News Shield Active"; return; }
     if(rule_idx >= 0) trade.SetExpertMagicNumber(BaseMagicNumber + rule_idx);
     if(action_type == 0) {
@@ -759,10 +775,17 @@ void ExecuteTradeLogic() {
     if(loc_filter == "HTF_ZONE") {
         bool passed = (signal == 1 && g_gate_buy_open) || (signal == -1 && g_gate_sell_open);
         if(!passed) return;
-        if(Inp_Max_Entries_Per_Zone > 0) {
+        if(Inp_ZoneTP_MaxRounds > 0) {
             int rounds = (signal == 1) ? g_zone_buy_profit_rounds : g_zone_sell_profit_rounds;
-            if(rounds >= Inp_Max_Entries_Per_Zone) {
-                g_filter_text = "Blocked: Đã đủ " + IntegerToString(Inp_Max_Entries_Per_Zone) + " tập lệnh chốt lãi từ Zone này";
+            if(rounds >= Inp_ZoneTP_MaxRounds) {
+                g_filter_text = "Blocked: Đã đủ " + IntegerToString(Inp_ZoneTP_MaxRounds) + " tập lệnh chốt lãi từ Zone này";
+                return;
+            }
+        }
+        if(Inp_Gate_MaxOrders > 0) {
+            int cnt = (signal == 1) ? g_zone_buy_entry_count : g_zone_sell_entry_count;
+            if(cnt >= Inp_Gate_MaxOrders) {
+                g_filter_text = "Blocked: Đã đủ " + IntegerToString(Inp_Gate_MaxOrders) + " lệnh/lần mở cổng";
                 return;
             }
         }
@@ -874,6 +897,10 @@ void ExecuteTradeLogic() {
         if(success || trade.ResultRetcode() == 10009) g_last_traded_sell_sl = sl_price;
     }
     if(success || trade.ResultRetcode() == 10009) {
+        if(loc_filter == "HTF_ZONE") {
+            if(signal == 1) g_zone_buy_entry_count++;
+            else            g_zone_sell_entry_count++;
+        }
         double display_tp = (bos_lmt_price > 0) ? bos_lmt_tp : lmt_tp;
         double sl_pips    = MathAbs(eff_entry - final_sl) / pip_size;
         string msg = "🛒 <b>ORDER PLACED: KHỚP LỆNH SMC</b>\n━━━━━━━━━━━━━━━\n"
@@ -885,16 +912,6 @@ void ExecuteTradeLogic() {
     }
 }
 
-// Kiểm tra ticket có phải orphaned hedge không (dùng bởi CheckFlexTP)
-bool IsOrphanedHedgeTicket(ulong ticket) {
-    for(int j = 0; j < ArraySize(g_hedge_groups); j++) {
-        if(g_hedge_groups[j].hedge_ticket == ticket
-        && g_hedge_groups[j].is_active
-        && g_hedge_groups[j].is_orphaned) return true;
-    }
-    return false;
-}
-
 void CheckFlexTP() {
     if(!Inp_FlexTP_Enabled) return;
     double pip_size = GetPipSize(_Symbol); double balance = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -904,10 +921,7 @@ void CheckFlexTP() {
         ulong ticket = PositionGetTicket(i);
         if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
         long magic = PositionGetInteger(POSITION_MAGIC);
-        // Gộp: normal positions + orphaned hedge positions vào cùng pool
-        bool include = IsNormalMagic(magic)
-                    || (IsHedgeMagic(magic) && IsOrphanedHedgeTicket(ticket));
-        if(!include) continue;
+        if(!IsNormalMagic(magic)) continue;
         long   type       = PositionGetInteger(POSITION_TYPE);
         double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
         double usd        = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP) + PositionGetDouble(POSITION_COMMISSION);
@@ -936,10 +950,7 @@ void CheckFlexTP() {
         ulong ticket = PositionGetTicket(i);
         if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
         long magic = PositionGetInteger(POSITION_MAGIC);
-        // Đóng: normal positions + orphaned hedge positions
-        bool can_close = IsNormalMagic(magic)
-                      || (IsHedgeMagic(magic) && IsOrphanedHedgeTicket(ticket));
-        if(!can_close) continue;
+        if(!IsNormalMagic(magic)) continue;
         long type = PositionGetInteger(POSITION_TYPE);
         bool do_close = close_all
                      || (close_buy  && type == POSITION_TYPE_BUY)
@@ -966,398 +977,7 @@ void CheckFlexTP() {
 }
 
 // ==================================================================
-// [HEDGE MODULE] - Toàn bộ phần mới
-// ==================================================================
-
-// Tính tổng vol và P&L của một pool theo chiều:
-//   direction = +1 → BUY pool  (normal buys + orphaned counter-hedge buys)
-//   direction = -1 → SELL pool (normal sells + orphaned hedge sells)
-TPoolStats CalcPoolStats(int direction) {
-    TPoolStats stats;
-    stats.total_vol     = 0;
-    stats.total_pnl_usd = 0;
-    stats.count         = 0;
-    for(int i = 0; i < PositionsTotal(); i++) {
-        ulong ticket = PositionGetTicket(i);
-        if(!PositionSelectByTicket(ticket)) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-        long magic = PositionGetInteger(POSITION_MAGIC);
-        long type  = PositionGetInteger(POSITION_TYPE);
-        bool is_buy  = (type == POSITION_TYPE_BUY);
-        bool is_sell = (type == POSITION_TYPE_SELL);
-        bool include = false;
-        if(direction == 1) {
-            if(is_buy && IsNormalMagic(magic)) include = true;
-            // Orphaned counter-hedge buy
-            if(is_buy && IsHedgeBuyMagic(magic)) {
-                for(int j = 0; j < ArraySize(g_hedge_groups); j++) {
-                    if(g_hedge_groups[j].hedge_ticket == ticket
-                    && g_hedge_groups[j].is_active
-                    && g_hedge_groups[j].is_orphaned) { include = true; break; }
-                }
-            }
-        } else {
-            if(is_sell && IsNormalMagic(magic)) include = true;
-            // Orphaned hedge sell
-            if(is_sell && IsHedgeSellMagic(magic)) {
-                for(int j = 0; j < ArraySize(g_hedge_groups); j++) {
-                    if(g_hedge_groups[j].hedge_ticket == ticket
-                    && g_hedge_groups[j].is_active
-                    && g_hedge_groups[j].is_orphaned) { include = true; break; }
-                }
-            }
-        }
-        if(include) {
-            stats.total_vol     += PositionGetDouble(POSITION_VOLUME);
-            stats.total_pnl_usd += PositionGetDouble(POSITION_PROFIT)
-                                  + PositionGetDouble(POSITION_SWAP)
-                                  + PositionGetDouble(POSITION_COMMISSION);
-            stats.count++;
-        }
-    }
-    return stats;
-}
-
-bool HasActiveHedge(int direction) {
-    for(int i = 0; i < ArraySize(g_hedge_groups); i++) {
-        if(g_hedge_groups[i].is_active && g_hedge_groups[i].direction == direction)
-            return true;
-    }
-    return false;
-}
-
-// Tính tổng volume thực tế tất cả vị thế cùng chiều (dùng để sizing hedge)
-// Khác CalcPoolStats: đếm CẢ hedge non-orphaned vì chúng vẫn chịu rủi ro thị trường
-double CalcGrossVolForSizing(int direction) {
-    double total = 0;
-    for(int i = 0; i < PositionsTotal(); i++) {
-        ulong ticket = PositionGetTicket(i);
-        if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-        long magic = PositionGetInteger(POSITION_MAGIC);
-        if(!IsEAMagic(magic)) continue;
-        long type = PositionGetInteger(POSITION_TYPE);
-        bool is_buy  = (type == POSITION_TYPE_BUY);
-        bool is_sell = (type == POSITION_TYPE_SELL);
-        if(direction == 1  && is_buy)  total += PositionGetDouble(POSITION_VOLUME);
-        if(direction == -1 && is_sell) total += PositionGetDouble(POSITION_VOLUME);
-    }
-    return total;
-}
-
-// Đặt lệnh hedge market:
-//   direction = +1 → mở SELL (bảo vệ BUY pool)
-//   direction = -1 → mở BUY  (bảo vệ SELL pool)
-void ExecuteHedgeEntry(int direction) {
-    double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
-    TPoolStats pool   = CalcPoolStats(direction);  // pool bị bảo vệ (dùng để check có vị thế không)
-    if(pool.count == 0) {
-        Print("[HEDGE] Pool trống — bỏ qua hedge entry");
-        return;
-    }
-    // Sizing dựa trên TỔNG volume thực tế cùng chiều (kể cả hedge chưa orphaned)
-    double gross_vol = CalcGrossVolForSizing(direction);
-    if(gross_vol <= 0) {
-        Print("[HEDGE] Gross vol = 0 — bỏ qua hedge entry");
-        return;
-    }
-    double step    = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-    double min_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-    double max_lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-    double raw_vol = gross_vol * Inp_Hedge_Vol_Ratio;
-    double hedge_vol = MathFloor(raw_vol / step) * step;
-    if(hedge_vol < min_lot) {
-        Print("[HEDGE] Vol quá nhỏ (", hedge_vol, " < min ", min_lot, ") → bỏ qua");
-        return;
-    }
-    hedge_vol = MathMin(hedge_vol, max_lot);
-    // Kiểm tra margin
-    if(Inp_UseMarginLimit) {
-        double used_margin    = AccountInfoDouble(ACCOUNT_MARGIN);
-        double max_margin     = balance * (Inp_MaxMarginPercent / 100.0);
-        double remaining      = max_margin - used_margin;
-        if(remaining <= 0) { Print("[HEDGE] Hết margin room → bỏ qua hedge"); return; }
-    }
-    int  hedge_id    = g_next_hedge_id;
-    long hedge_magic = BaseMagicNumber + (direction == 1 ? 10000 : 20000) + hedge_id;
-    trade.SetExpertMagicNumber(hedge_magic);
-    string comment_str = (direction == 1)
-        ? "HEDGE_SELL_#" + IntegerToString(hedge_id)
-        : "HEDGE_BUY_#"  + IntegerToString(hedge_id);
-    bool success = false;
-    if(direction == 1) success = trade.Sell(hedge_vol, _Symbol, 0, 0, 0, comment_str);
-    else               success = trade.Buy (hedge_vol, _Symbol, 0, 0, 0, comment_str);
-    if(success || trade.ResultRetcode() == 10009) {
-        int sz = ArraySize(g_hedge_groups);
-        ArrayResize(g_hedge_groups, sz + 1);
-        g_hedge_groups[sz].hedge_id           = hedge_id;
-        g_hedge_groups[sz].direction          = direction;
-        g_hedge_groups[sz].hedge_vol          = hedge_vol;
-        g_hedge_groups[sz].trigger_balance    = balance;
-        g_hedge_groups[sz].hedge_ticket       = trade.ResultOrder();
-        g_hedge_groups[sz].is_active          = true;
-        g_hedge_groups[sz].is_orphaned        = false;
-        g_hedge_groups[sz].waiting_reentry    = false;
-        g_hedge_groups[sz].reentry_ref_pnl_usd = 0;
-        g_hedge_groups[sz].created_time       = TimeCurrent();
-        // Cập nhật counters
-        g_next_hedge_id = (g_next_hedge_id + 1) % 100;
-        if(direction == 1) g_hedge_sell_count++;
-        else               g_hedge_buy_count++;
-        string dir_str  = (direction == 1) ? "SELL" : "BUY";
-        string pool_str = (direction == 1) ? "BUY"  : "SELL";
-        int cnt_today   = (direction == 1) ? g_hedge_sell_count : g_hedge_buy_count;
-        string msg = "🛡️ <b>HEDGE ACTIVATED: " + dir_str + " #" + IntegerToString(hedge_id) + "</b>\n"
-                   + "━━━━━━━━━━━━━━━\n"
-                   + "📊 <b>Lý do:</b> " + pool_str + " pool lỗ ≥ "
-                   + DoubleToString(Inp_Hedge_Trigger_Pct, 1) + "% balance\n"
-                   + "📦 <b>Vol hedge:</b> " + DoubleToString(hedge_vol, 2) + " lots"
-                   + " (" + DoubleToString(Inp_Hedge_Vol_Ratio, 2) + "x của " + DoubleToString(gross_vol, 2) + " lots)\n"
-                   + "💰 <b>Pool P&L:</b> " + DoubleToString(pool.total_pnl_usd, 2) + "$\n"
-                   + "💳 <b>Balance:</b> " + DoubleToString(balance, 2) + "$\n"
-                   + "🔢 <b>Hedge hôm nay:</b> " + IntegerToString(cnt_today)
-                   + "/" + IntegerToString(Inp_Hedge_Max_Per_Day);
-        Radar.SendMessageWithPhoto(msg);
-    } else {
-        Print("[HEDGE] Đặt lệnh thất bại: retcode=", trade.ResultRetcode(),
-              " comment=", trade.ResultComment());
-    }
-}
-
-// Đồng bộ g_hedge_groups[] với thực tế và đánh dấu orphaned
-void ValidateHedgeGroups() {
-    for(int i = 0; i < ArraySize(g_hedge_groups); i++) {
-        if(!g_hedge_groups[i].is_active) continue;
-        // Kiểm tra ticket còn tồn tại
-        if(!PositionSelectByTicket(g_hedge_groups[i].hedge_ticket)) {
-            // Tìm lại theo magic (phòng trường hợp ticket thay đổi sau restart)
-            bool found = false;
-            long expected_magic = BaseMagicNumber
-                + (g_hedge_groups[i].direction == 1 ? 10000 : 20000)
-                + g_hedge_groups[i].hedge_id;
-            for(int j = 0; j < PositionsTotal(); j++) {
-                ulong t = PositionGetTicket(j);
-                if(PositionSelectByTicket(t) && PositionGetInteger(POSITION_MAGIC) == expected_magic) {
-                    g_hedge_groups[i].hedge_ticket = t;
-                    found = true; break;
-                }
-            }
-            if(!found) { g_hedge_groups[i].is_active = false; continue; }
-        }
-        // Kiểm tra orphaned: không còn position nào được bảo vệ
-        if(!g_hedge_groups[i].is_orphaned) {
-            bool protected_exist = false;
-            for(int j = 0; j < PositionsTotal(); j++) {
-                ulong t = PositionGetTicket(j);
-                if(!PositionSelectByTicket(t) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-                long magic = PositionGetInteger(POSITION_MAGIC);
-                long type  = PositionGetInteger(POSITION_TYPE);
-                if(g_hedge_groups[i].direction == 1) {
-                    // Hedge SELL đang bảo vệ BUY → tìm normal BUY
-                    if(type == POSITION_TYPE_BUY && IsNormalMagic(magic)) { protected_exist = true; break; }
-                } else {
-                    // Counter-hedge BUY đang bảo vệ SELL → tìm normal SELL hoặc orphaned hedge sell
-                    if(type == POSITION_TYPE_SELL && IsNormalMagic(magic)) { protected_exist = true; break; }
-                    if(type == POSITION_TYPE_SELL && IsHedgeSellMagic(magic)) {
-                        for(int k = 0; k < ArraySize(g_hedge_groups); k++) {
-                            if(k == i) continue;
-                            if(g_hedge_groups[k].hedge_ticket == t && g_hedge_groups[k].is_active && g_hedge_groups[k].is_orphaned)
-                                { protected_exist = true; break; }
-                        }
-                        if(protected_exist) break;
-                    }
-                }
-            }
-            if(!protected_exist) {
-                g_hedge_groups[i].is_orphaned = true;
-                Print("[HEDGE] Group #", g_hedge_groups[i].hedge_id,
-                      " (", (g_hedge_groups[i].direction == 1 ? "SELL" : "BUY"), ") → ORPHANED");
-            }
-        }
-    }
-}
-
-// Kiểm tra và thực hiện đóng hedge theo điều kiện C0, C1, C2
-void CheckHedgeExitConditions() {
-    for(int i = 0; i < ArraySize(g_hedge_groups); i++) {
-        if(!g_hedge_groups[i].is_active) continue;
-        if(!PositionSelectByTicket(g_hedge_groups[i].hedge_ticket)) continue;
-        double hedge_pnl = PositionGetDouble(POSITION_PROFIT)
-                         + PositionGetDouble(POSITION_SWAP)
-                         + PositionGetDouble(POSITION_COMMISSION);
-        double hedge_pnl_pct = (g_hedge_groups[i].trigger_balance > 0)
-                             ? (hedge_pnl / g_hedge_groups[i].trigger_balance * 100.0)
-                             : 0;
-        bool   should_close  = false;
-        bool   is_c2         = false;
-        string close_reason  = "";
-
-        // C0: Orphaned + đang lãi → đóng ngay (mục đích bảo vệ đã xong)
-        if(g_hedge_groups[i].is_orphaned && hedge_pnl > 0) {
-            should_close = true;
-            close_reason = "C0: Orphaned + Lãi";
-        }
-        // C1: Trend đảo chiều (ChoCh) + hedge đang lãi → đóng ngay
-        // Hedge SELL (dir=+1) đóng khi H1 flip lên (+1)
-        // Counter-hedge BUY (dir=-1) đóng khi H1 flip xuống (-1)
-        if(!should_close && hedge_pnl > 0) {
-            bool trend_reversed = (g_hedge_groups[i].direction == 1  && SMC_TREND.current_major_trend == 1)
-                                || (g_hedge_groups[i].direction == -1 && SMC_TREND.current_major_trend == -1);
-            if(trend_reversed) { should_close = true; close_reason = "C1: ChoCh đảo chiều + Lãi"; }
-        }
-        // C2: Hedge lãi đủ Inp_Hedge_TP_Profit_Pct% trigger_balance → chốt lãi
-        if(!should_close && hedge_pnl_pct >= Inp_Hedge_TP_Profit_Pct) {
-            should_close = true; is_c2 = true;
-            close_reason = "C2: Lãi đủ " + DoubleToString(Inp_Hedge_TP_Profit_Pct, 1) + "%";
-        }
-        if(!should_close) continue;
-        // Ghi nhận re-entry reference trước khi đóng (chỉ C2)
-        if(is_c2) {
-            TPoolStats protected_pool = CalcPoolStats(g_hedge_groups[i].direction);
-            g_hedge_groups[i].reentry_ref_pnl_usd = protected_pool.total_pnl_usd;
-            g_hedge_groups[i].waiting_reentry      = true;
-        }
-        if(trade.PositionClose(g_hedge_groups[i].hedge_ticket)) {
-            g_hedge_groups[i].is_active = false;
-            double cur_balance = AccountInfoDouble(ACCOUNT_BALANCE);
-            string dir_str = (g_hedge_groups[i].direction == 1) ? "SELL" : "BUY";
-            string msg = "🔄 <b>HEDGE CLOSED [" + close_reason + "]</b>\n"
-                       + "━━━━━━━━━━━━━━━\n"
-                       + "📊 <b>Loại:</b> Hedge " + dir_str
-                       + " #" + IntegerToString(g_hedge_groups[i].hedge_id) + "\n"
-                       + "💰 <b>P&L hedge:</b> " + DoubleToString(hedge_pnl, 2) + "$"
-                       + " (+" + DoubleToString(hedge_pnl_pct, 1) + "%)\n"
-                       + "💳 <b>Balance:</b> " + DoubleToString(cur_balance, 2) + "$";
-            if(is_c2)
-                msg += "\n⏳ <b>Chờ re-entry:</b> Protected pool lỗ thêm "
-                     + DoubleToString(Inp_Hedge_Reentry_Pct, 1) + "% balance";
-            Radar.SendMessage(msg);
-        }
-    }
-}
-
-// Kiểm tra điều kiện re-entry sau C2
-void CheckHedgeReentry() {
-    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-    for(int i = 0; i < ArraySize(g_hedge_groups); i++) {
-        if(!g_hedge_groups[i].waiting_reentry) continue;
-        // Nếu đã có hedge active cùng chiều → pool đã được bảo vệ, hủy re-entry
-        if(HasActiveHedge(g_hedge_groups[i].direction)) {
-            g_hedge_groups[i].waiting_reentry = false;
-            continue;
-        }
-        // Kiểm tra trend vẫn hợp lệ (cùng chiều với hedge ban đầu)
-        bool trend_valid = (g_hedge_groups[i].direction == 1  && SMC_TREND.current_major_trend == -1)
-                        || (g_hedge_groups[i].direction == -1 && SMC_TREND.current_major_trend ==  1);
-        // Hủy waiting nếu trend đảo ngược
-        if(!trend_valid) { g_hedge_groups[i].waiting_reentry = false; continue; }
-        // Tính ngưỡng kích hoạt: pool phải lỗ thêm Inp_Hedge_Reentry_Pct% balance
-        double reentry_threshold = g_hedge_groups[i].reentry_ref_pnl_usd
-                                 - (Inp_Hedge_Reentry_Pct / 100.0 * balance);
-        TPoolStats pool = CalcPoolStats(g_hedge_groups[i].direction);
-        int count_today = (g_hedge_groups[i].direction == 1) ? g_hedge_sell_count : g_hedge_buy_count;
-        if(pool.total_pnl_usd < reentry_threshold
-        && count_today < Inp_Hedge_Max_Per_Day
-        && pool.count > 0) {
-            g_hedge_groups[i].waiting_reentry = false;
-            Print("[HEDGE] Re-entry trigger: pool P&L=", pool.total_pnl_usd,
-                  " < threshold=", reentry_threshold);
-            ExecuteHedgeEntry(g_hedge_groups[i].direction);
-        }
-    }
-}
-
-// Kiểm tra có pending re-entry nào cho hướng này không
-bool HasPendingReentry(int direction) {
-    for(int j = 0; j < ArraySize(g_hedge_groups); j++) {
-        if(g_hedge_groups[j].direction == direction && g_hedge_groups[j].waiting_reentry)
-            return true;
-    }
-    return false;
-}
-
-// Phát hiện flip H1 trend và kích hoạt hedge nếu đủ điều kiện
-void CheckNewHedgeTrigger() {
-    int current_h1 = SMC_TREND.current_major_trend;
-    if(current_h1 == 0) return;
-    double balance     = AccountInfoDouble(ACCOUNT_BALANCE);
-    double trigger_usd = balance * (Inp_Hedge_Trigger_Pct / 100.0);
-    // STATE-BASED: kiểm tra mỗi tick dựa trên H1 direction hiện tại
-    // HasActiveHedge() là debounce tự nhiên: không trigger lại khi đã có hedge active
-    // HasPendingReentry() nhường quyền cho CheckHedgeReentry() khi đang chờ re-entry với threshold cao hơn
-    //
-    // [HEDGE SELL] H1 đang DOWN + BUY pool lỗ đủ ngưỡng + chưa có hedge sell active/pending
-    if(current_h1 < 0 && !HasActiveHedge(1) && !HasPendingReentry(1) && g_hedge_sell_count < Inp_Hedge_Max_Per_Day) {
-        TPoolStats buy_pool = CalcPoolStats(1);
-        bool pool_in_loss = (buy_pool.total_pnl_usd < 0)
-                         && (MathAbs(buy_pool.total_pnl_usd) >= trigger_usd);
-        if(pool_in_loss && buy_pool.count > 0) {
-            Print("[HEDGE] TRIGGER SELL: BUY pool P&L=", buy_pool.total_pnl_usd,
-                  " (", -MathAbs(buy_pool.total_pnl_usd)/balance*100.0, "%) threshold=-",
-                  Inp_Hedge_Trigger_Pct, "%");
-            ExecuteHedgeEntry(1);
-        }
-    }
-    // [COUNTER-HEDGE BUY] H1 đang UP + SELL pool lỗ đủ ngưỡng + chưa có counter-hedge buy active/pending
-    if(current_h1 > 0 && !HasActiveHedge(-1) && !HasPendingReentry(-1) && g_hedge_buy_count < Inp_Hedge_Max_Per_Day) {
-        TPoolStats sell_pool = CalcPoolStats(-1);
-        bool pool_in_loss = (sell_pool.total_pnl_usd < 0)
-                         && (MathAbs(sell_pool.total_pnl_usd) >= trigger_usd);
-        if(pool_in_loss && sell_pool.count > 0) {
-            Print("[HEDGE] TRIGGER BUY: SELL pool P&L=", sell_pool.total_pnl_usd,
-                  " (", -MathAbs(sell_pool.total_pnl_usd)/balance*100.0, "%) threshold=-",
-                  Inp_Hedge_Trigger_Pct, "%");
-            ExecuteHedgeEntry(-1);
-        }
-    }
-}
-
-// Hàm tổng điều phối hedge — gọi mỗi tick sau ManageTrades_Tick()
-void ManageHedgeGroups() {
-    if(!Inp_Hedge_Enabled) return;
-    if(g_trading_stopped_today || g_account_passed) return;
-    if(IsInNewsWindow()) return;
-    ValidateHedgeGroups();
-    CheckHedgeExitConditions();
-    CheckHedgeReentry();
-    CheckNewHedgeTrigger();
-}
-
-// Tái tạo g_hedge_groups[] khi bot restart — đọc từ positions đang mở
-void ReconstructHedgeGroupsOnInit() {
-    ArrayResize(g_hedge_groups, 0);
-    int reconstructed = 0;
-    for(int i = 0; i < PositionsTotal(); i++) {
-        ulong ticket = PositionGetTicket(i);
-        if(!PositionSelectByTicket(ticket)) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-        long magic = PositionGetInteger(POSITION_MAGIC);
-        if(!IsHedgeMagic(magic)) continue;
-        bool is_sell_hedge = IsHedgeSellMagic(magic);
-        int  hedge_id      = (int)(magic - BaseMagicNumber - (is_sell_hedge ? 10000 : 20000));
-        if(hedge_id < 0 || hedge_id >= 100) continue;
-        int sz = ArraySize(g_hedge_groups);
-        ArrayResize(g_hedge_groups, sz + 1);
-        g_hedge_groups[sz].hedge_id            = hedge_id;
-        g_hedge_groups[sz].direction           = is_sell_hedge ? 1 : -1;
-        g_hedge_groups[sz].hedge_vol           = PositionGetDouble(POSITION_VOLUME);
-        g_hedge_groups[sz].trigger_balance     = AccountInfoDouble(ACCOUNT_BALANCE);
-        g_hedge_groups[sz].hedge_ticket        = ticket;
-        g_hedge_groups[sz].is_active           = true;
-        g_hedge_groups[sz].is_orphaned         = false;  // ValidateHedgeGroups() sẽ cập nhật
-        g_hedge_groups[sz].waiting_reentry     = false;
-        g_hedge_groups[sz].reentry_ref_pnl_usd = 0;
-        g_hedge_groups[sz].created_time        = (datetime)PositionGetInteger(POSITION_TIME);
-        if(hedge_id >= g_next_hedge_id) g_next_hedge_id = (hedge_id + 1) % 100;
-        reconstructed++;
-        Print("[HEDGE INIT] Tái tạo group #", hedge_id,
-              " (", (is_sell_hedge ? "SELL" : "BUY"), ") ticket=", ticket);
-    }
-    if(reconstructed > 0)
-        Print("[HEDGE INIT] Đã tái tạo ", reconstructed, " hedge group(s)");
-}
-
-// ==================================================================
-// DASHBOARD [MODIFIED: thêm hedge status]
+// DASHBOARD
 // ==================================================================
 void DashLabel(string name, int x, int y, color clr, int fsz, string text) {
     if(ObjectFind(0, name) < 0) {
@@ -1402,7 +1022,7 @@ void UpdateDashboard() {
     string flt_txt = (g_filter_text == "") ? " " : g_filter_text;
     color  flt_clr = c_gray;
     if(StringFind(flt_txt, "PASSED") >= 0) flt_clr = c_ok;
-    else if(StringFind(flt_txt, "Blocked") >= 0) flt_clr = c_bad;
+    else if(StringFind(flt_txt, "Blocked") >= 0 || StringFind(flt_txt, "[SHIELD]") >= 0) flt_clr = c_bad;
     ObjectDelete(0, "BOT_DASH_FLT");
     DashLabel("BOT_DASH_T",    8, 25, c_dark, 7, t_pad + ": " + SMC_TREND.current_market_phase);
     DashLabel("BOT_DASH_L",    8, 42, c_dark, 7, l_pad + ": " + SMC_HTF.current_market_phase);
@@ -1418,66 +1038,31 @@ void UpdateDashboard() {
     DashLabel("BOT_DASH_RSK_K", 135, 137, c_dark,  7, "Risk:");
     DashLabel("BOT_DASH_RSK_V", 170, 137, rsk_clr, 7, rsk_val);
     DashLabel("BOT_DASH_FLT2", 8, 154, flt_clr, 7, flt_txt);
-    // --- Hedge status rows: gộp tất cả active hedges vào 1 dòng mỗi chiều ---
-    string hedge_sell_str = "NONE";  color hedge_sell_clr = c_gray;
-    string hedge_buy_str  = "NONE";  color hedge_buy_clr  = c_gray;
-    double sell_total_pnl = 0; int sell_active_cnt = 0;
-    double buy_total_pnl  = 0; int buy_active_cnt  = 0;
-    for(int i = 0; i < ArraySize(g_hedge_groups); i++) {
-        if(!g_hedge_groups[i].is_active) continue;
-        if(!PositionSelectByTicket(g_hedge_groups[i].hedge_ticket)) continue;
-        double pnl = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-        string orphan_tag = g_hedge_groups[i].is_orphaned ? "[O]" : "";
-        if(g_hedge_groups[i].direction == 1) {
-            sell_total_pnl += pnl; sell_active_cnt++;
-            // Append mỗi hedge: #id vol pnl[O]
-            string entry = "#" + IntegerToString(g_hedge_groups[i].hedge_id)
-                         + " " + DoubleToString(g_hedge_groups[i].hedge_vol, 2) + "L"
-                         + (pnl >= 0 ? "+" : "") + DoubleToString(pnl, 0) + "$" + orphan_tag;
-            hedge_sell_str = (hedge_sell_str == "NONE") ? entry : (hedge_sell_str + " | " + entry);
-        } else {
-            buy_total_pnl += pnl; buy_active_cnt++;
-            string entry = "#" + IntegerToString(g_hedge_groups[i].hedge_id)
-                         + " " + DoubleToString(g_hedge_groups[i].hedge_vol, 2) + "L"
-                         + (pnl >= 0 ? "+" : "") + DoubleToString(pnl, 0) + "$" + orphan_tag;
-            hedge_buy_str = (hedge_buy_str == "NONE") ? entry : (hedge_buy_str + " | " + entry);
-        }
-    }
-    if(sell_active_cnt > 0) hedge_sell_clr = (sell_total_pnl >= 0) ? c_ok : c_bad;
-    if(buy_active_cnt  > 0) hedge_buy_clr  = (buy_total_pnl  >= 0) ? c_ok : c_bad;
-    // Hiển thị waiting_reentry khi không có active hedge cùng chiều
-    for(int i = 0; i < ArraySize(g_hedge_groups); i++) {
-        if(!g_hedge_groups[i].is_active && g_hedge_groups[i].waiting_reentry) {
-            if(g_hedge_groups[i].direction == 1 && sell_active_cnt == 0) { hedge_sell_str = "#" + IntegerToString(g_hedge_groups[i].hedge_id) + " [WAIT RE-ENTRY]"; hedge_sell_clr = C'200,130,0'; }
-            if(g_hedge_groups[i].direction == -1 && buy_active_cnt  == 0) { hedge_buy_str  = "#" + IntegerToString(g_hedge_groups[i].hedge_id) + " [WAIT RE-ENTRY]"; hedge_buy_clr  = C'200,130,0'; }
-        }
-    }
-    string hedge_cnt = "HgCnt: S=" + IntegerToString(g_hedge_sell_count)
-                     + "/" + IntegerToString(Inp_Hedge_Max_Per_Day)
-                     + " B=" + IntegerToString(g_hedge_buy_count)
-                     + "/" + IntegerToString(Inp_Hedge_Max_Per_Day);
-    DashLabel("BOT_DASH_SEP_H", 8, 168, c_sep,          7, "─────────────────────");
-    DashLabel("BOT_DASH_HS_K",  8, 182, c_dark,          7, "HgSell:");
-    DashLabel("BOT_DASH_HS_V",  58, 182, hedge_sell_clr, 7, hedge_sell_str);
-    DashLabel("BOT_DASH_HB_K",  8, 196, c_dark,          7, "HgBuy :");
-    DashLabel("BOT_DASH_HB_V",  58, 196, hedge_buy_clr,  7, hedge_buy_str);
-    DashLabel("BOT_DASH_HC",    8, 210, c_gray,          7, hedge_cnt);
+    // Gate Entry Count: số lệnh đã đặt / giới hạn cho mỗi lần mở cổng, theo từng chiều
+    string gate_str;
+    if(Inp_Gate_MaxOrders > 0)
+        gate_str = "Gate:   Buy " + IntegerToString(g_zone_buy_entry_count)  + "/" + IntegerToString(Inp_Gate_MaxOrders)
+                  + "  Sell "      + IntegerToString(g_zone_sell_entry_count) + "/" + IntegerToString(Inp_Gate_MaxOrders);
+    else
+        gate_str = "Gate:   Buy " + IntegerToString(g_zone_buy_entry_count)
+                  + "  Sell "      + IntegerToString(g_zone_sell_entry_count) + " (Unlimited)";
+    DashLabel("BOT_DASH_GTE", 8, 168, c_gray, 7, gate_str);
     // Zone Round Limit: số "tập lệnh" đã chốt lãi / giới hạn cho phép, theo từng chiều
     string zone_rd_str;
-    if(Inp_Max_Entries_Per_Zone > 0)
-        zone_rd_str = "ZoneTP: Buy " + IntegerToString(g_zone_buy_profit_rounds)  + "/" + IntegerToString(Inp_Max_Entries_Per_Zone)
-                     + "  Sell "      + IntegerToString(g_zone_sell_profit_rounds) + "/" + IntegerToString(Inp_Max_Entries_Per_Zone);
+    if(Inp_ZoneTP_MaxRounds > 0)
+        zone_rd_str = "ZoneTP: Buy " + IntegerToString(g_zone_buy_profit_rounds)  + "/" + IntegerToString(Inp_ZoneTP_MaxRounds)
+                     + "  Sell "      + IntegerToString(g_zone_sell_profit_rounds) + "/" + IntegerToString(Inp_ZoneTP_MaxRounds);
     else
         zone_rd_str = "ZoneTP: Buy " + IntegerToString(g_zone_buy_profit_rounds)
                      + "  Sell "      + IntegerToString(g_zone_sell_profit_rounds) + " (Unlimited)";
-    DashLabel("BOT_DASH_ZRD", 8, 224, c_gray, 7, zone_rd_str);
+    DashLabel("BOT_DASH_ZRD", 8, 182, c_gray, 7, zone_rd_str);
 }
 
 // ==================================================================
 // LIFECYCLE
 // ==================================================================
 int OnInit() {
-    Print("DA NẠP ENGINE HEDGING v1.0!");
+    Print("DA NẠP ENGINE TLS BOT!");
     if(!LoadMatrixCSV()) return INIT_FAILED;
     Radar.Init(Inp_BotToken, Inp_ChatID, Inp_SendScreenshot);
     SMC_LTF.Init(_Symbol, _Period, "TLS_LTF_", false, true, false,
@@ -1489,18 +1074,14 @@ int OnInit() {
     SMC_TREND.Init(_Symbol, Trend_Timeframe, "TLS_TREND_", true, false, false,
         clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE,
         Trend_PeriodsInMajorSwing, Trend_PeriodsInMinorSwing, MaxZones, MaxBOSLines, MaxMinorBOSLines);
-    ReconstructHedgeGroupsOnInit();
     string s_trend = EnumToString(Trend_Timeframe); StringReplace(s_trend, "PERIOD_", "");
     string s_htf   = EnumToString(HTF_Timeframe);   StringReplace(s_htf,   "PERIOD_", "");
     string s_ltf   = EnumToString(_Period);          StringReplace(s_ltf,   "PERIOD_", "");
-    string msg = "🟢 <b>SYSTEM STARTED: TLS HEDGING BOT v1.0</b>\n━━━━━━━━━━━━━━━\n"
+    string msg = "🟢 <b>SYSTEM STARTED: TLS BOT v1.0</b>\n━━━━━━━━━━━━━━━\n"
                + "💰 <b>Balance:</b> " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + "$\n"
                + "⚙️ <b>T-L-S:</b> " + _Symbol + " | T=" + s_trend + " | L=" + s_htf + " | S=" + s_ltf + "\n"
                + "🛡️ <b>Mục tiêu:</b> " + DoubleToString(Inp_AutoPassTarget, 0)
-               + "$ | DD ngày: " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%\n"
-               + "🔀 <b>Hedge:</b> Trigger=" + DoubleToString(Inp_Hedge_Trigger_Pct, 1)
-               + "% | TP=" + DoubleToString(Inp_Hedge_TP_Profit_Pct, 1)
-               + "% | Max=" + IntegerToString(Inp_Hedge_Max_Per_Day) + "/ngày";
+               + "$ | DD ngày: " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%";
     Radar.SendMessage(msg);
     return(INIT_SUCCEEDED);
 }
@@ -1514,8 +1095,7 @@ void OnDeinit(const int reason) {
         "BOT_DASH_ACT","BOT_DASH_FLT","BOT_DASH_FLT2",
         "BOT_DASH_BUY_K","BOT_DASH_BUY_V","BOT_DASH_SLL_K","BOT_DASH_SLL_V",
         "BOT_DASH_SHD_K","BOT_DASH_SHD_V","BOT_DASH_RSK_K","BOT_DASH_RSK_V",
-        "BOT_DASH_SEP_H","BOT_DASH_HS_K","BOT_DASH_HS_V",
-        "BOT_DASH_HB_K","BOT_DASH_HB_V","BOT_DASH_HC","BOT_DASH_ZRD","BOT_DASH_SEP1","BOT_DASH_SEP2"
+        "BOT_DASH_GTE","BOT_DASH_ZRD","BOT_DASH_SEP1","BOT_DASH_SEP2"
     };
     for(int i = 0; i < ArraySize(dash); i++) ObjectDelete(0, dash[i]);
 }
@@ -1525,7 +1105,6 @@ void OnTick() {
     CleanPendingOrdersForNews();
     CheckFlexTP();
     ManageTrades_Tick();
-    ManageHedgeGroups();       // [HEDGE] sau ManageTrades_Tick, trước Gatekeeper
     UpdateZoneRoundTracking(); // [ZONE LIMIT] phát hiện tập lệnh normal vừa chốt lãi
     UpdateGatekeeperState();
     if(IsNewBar()) {

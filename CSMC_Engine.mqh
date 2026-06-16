@@ -67,6 +67,7 @@ private:
    int               MaxZones;
    int               MaxBOSLines;
    int               MaxMinorBOSLines;
+   int               m_max_bars;
 
    // === [RADAR SYSTEM - V6.0] ===
    // Major Confirmed Extreme (Weak High/Low)
@@ -76,6 +77,7 @@ private:
    bool              pending_prot_high_update, pending_prot_low_update;
    datetime          processed_prot_weak_high_time, processed_prot_weak_low_time;
    datetime          prot_anchor_time;
+   int               prot_anchor_idx;
    int               prot_breakout_idx;
    // Major Sweep Flags
    bool              is_maj_prot_high_sweep, is_maj_prot_low_sweep;
@@ -86,6 +88,7 @@ private:
    bool              min_pending_prot_high_update, min_pending_prot_low_update;
    datetime          min_processed_prot_weak_high_time, min_processed_prot_weak_low_time;
    datetime          min_prot_anchor_time;
+   int               min_prot_anchor_idx;
    int               min_prot_breakout_idx;
    // Minor Sweep Flags
    bool              is_min_prot_high_sweep, is_min_prot_low_sweep;
@@ -128,13 +131,15 @@ public:
 
    void Init(string sym, ENUM_TIMEFRAMES tf, string prefix, bool isHTF, bool showMinor, bool showGraphics,
              color bZone, color sZone, color kLevel, color bUp, color bDn, color mbUp, color mbDn,
-             int maj_swing, int min_swing, int max_zones, int max_bos, int max_mbos, bool showZone = true)
+             int maj_swing, int min_swing, int max_zones, int max_bos, int max_mbos, bool showZone = true,
+             int max_bars = 5000)
    {
       m_symbol = sym; m_tf = tf; m_prefix = prefix; m_isHTF = isHTF; m_showMinor = showMinor; m_showGraphics = showGraphics;
       c_BuyZone = bZone; c_SellZone = sZone; c_KeyLevel = kLevel;
       c_BOSUp = bUp; c_BOSDn = bDn; c_mBOSUp = mbUp; c_mBOSDn = mbDn;
       PeriodsInMajorSwing = maj_swing; PeriodsInMinorSwing = min_swing;
       MaxZones = max_zones; MaxBOSLines = max_bos; MaxMinorBOSLines = max_mbos;
+      m_max_bars = MathMax(1000, max_bars);
       m_prev_calculated = 0;
       m_showZone = showZone;
    }
@@ -181,14 +186,14 @@ public:
       maj_confirmed_extreme_high_time = 0; maj_confirmed_extreme_low_time = 0;
       pending_prot_high_update = false; pending_prot_low_update = false;
       processed_prot_weak_high_time = 0; processed_prot_weak_low_time = 0;
-      prot_anchor_time = 0; prot_breakout_idx = -1;
+      prot_anchor_time = 0; prot_anchor_idx = -1; prot_breakout_idx = -1;
       is_maj_prot_high_sweep = false; is_maj_prot_low_sweep = false;
 
       min_confirmed_extreme_high = EMPTY_VALUE; min_confirmed_extreme_low = EMPTY_VALUE;
       min_confirmed_extreme_high_time = 0; min_confirmed_extreme_low_time = 0;
       min_pending_prot_high_update = false; min_pending_prot_low_update = false;
       min_processed_prot_weak_high_time = 0; min_processed_prot_weak_low_time = 0;
-      min_prot_anchor_time = 0; min_prot_breakout_idx = -1;
+      min_prot_anchor_time = 0; min_prot_anchor_idx = -1; min_prot_breakout_idx = -1;
       is_min_prot_high_sweep = false; is_min_prot_low_sweep = false;
       current_choch_up_name = ""; current_choch_dn_name = "";
       current_minor_choch_up_name = ""; current_minor_choch_dn_name = "";
@@ -201,7 +206,7 @@ public:
       if(current_bars < 100) return;
 
       MqlRates rates[]; ArraySetAsSeries(rates, true);
-      int rates_total = CopyRates(m_symbol, m_tf, 0, 5000, rates);
+      int rates_total = CopyRates(m_symbol, m_tf, 0, m_max_bars, rates);
       if(rates_total < 100) return;
 
       ArrayResize(open, rates_total);  ArraySetAsSeries(open, true);
@@ -249,7 +254,9 @@ public:
             if(min_extreme_high_idx >= 0) min_extreme_high_idx += shift; if(min_extreme_low_idx >= 0) min_extreme_low_idx += shift;
             if(last_min_high_idx >= 0) last_min_high_idx += shift; if(last_min_low_idx >= 0) last_min_low_idx += shift;
             if(prot_breakout_idx >= 0) prot_breakout_idx += shift;
+            if(prot_anchor_idx >= 0) prot_anchor_idx += shift;
             if(min_prot_breakout_idx >= 0) min_prot_breakout_idx += shift;
+            if(min_prot_anchor_idx >= 0) min_prot_anchor_idx += shift;
 
             data_limit = rates_total - lookBack_max - 1;
          } else {
@@ -438,6 +445,7 @@ public:
                   else                  { maj_prot_low = imm_d4; maj_prot_low_time = imm_d4_t; maj_prot_low_idx = imm_d4_idx; is_maj_prot_low_sweep = false; }
                   pending_prot_low_update = true;
                   prot_anchor_time = last_maj_low_time;
+                  prot_anchor_idx = last_maj_low_idx;
                   prot_breakout_idx = i;
                }
             }
@@ -456,6 +464,7 @@ public:
                   else                  { maj_prot_high = imm_d4; maj_prot_high_time = imm_d4_t; maj_prot_high_idx = imm_d4_idx; is_maj_prot_high_sweep = false; }
                   pending_prot_high_update = true;
                   prot_anchor_time = last_maj_high_time;
+                  prot_anchor_idx = last_maj_high_idx;
                   prot_breakout_idx = i;
                }
             }
@@ -464,8 +473,7 @@ public:
             // MAJOR RADAR: THỰC THI D4/D5 (TÌM SWING + KIỂM TRA SWEEP)
             // =========================================================================
             if (major_trend == 1 && pending_prot_low_update && prot_breakout_idx != -1) {
-               int anchor_idx = -1;
-               for(int k = i; k < rates_total; k++) { if (time[k] == prot_anchor_time) { anchor_idx = k; break; } }
+               int anchor_idx = prot_anchor_idx;
                if (anchor_idx != -1 && prot_breakout_idx <= anchor_idx) {
                   double d4_val = EMPTY_VALUE; datetime d4_time = 0; int d4_idx = -1;
                   for(int k = prot_breakout_idx; k <= anchor_idx; k++) {
@@ -486,8 +494,7 @@ public:
             }
 
             if (major_trend == -1 && pending_prot_high_update && prot_breakout_idx != -1) {
-               int anchor_idx = -1;
-               for(int k = i; k < rates_total; k++) { if (time[k] == prot_anchor_time) { anchor_idx = k; break; } }
+               int anchor_idx = prot_anchor_idx;
                if (anchor_idx != -1 && prot_breakout_idx <= anchor_idx) {
                   double d4_val = EMPTY_VALUE; datetime d4_time = 0; int d4_idx = -1;
                   for(int k = prot_breakout_idx; k <= anchor_idx; k++) {
@@ -527,6 +534,7 @@ public:
                   else                  { min_prot_low = imm_d4; min_prot_low_time = imm_d4_t; min_prot_low_idx = imm_d4_idx; is_min_prot_low_sweep = false; }
                   min_pending_prot_low_update = true;
                   min_prot_anchor_time = last_min_low_time;
+                  min_prot_anchor_idx = last_min_low_idx;
                   min_prot_breakout_idx = i;
                }
             }
@@ -545,6 +553,7 @@ public:
                   else                  { min_prot_high = imm_d4; min_prot_high_time = imm_d4_t; min_prot_high_idx = imm_d4_idx; is_min_prot_high_sweep = false; }
                   min_pending_prot_high_update = true;
                   min_prot_anchor_time = last_min_high_time;
+                  min_prot_anchor_idx = last_min_high_idx;
                   min_prot_breakout_idx = i;
                }
             }
@@ -553,8 +562,7 @@ public:
             // MINOR RADAR: THỰC THI D4/D5
             // =========================================================================
             if (minor_trend == 1 && min_pending_prot_low_update && min_prot_breakout_idx != -1) {
-               int anchor_idx = -1;
-               for(int k = i; k < rates_total; k++) { if (time[k] == min_prot_anchor_time) { anchor_idx = k; break; } }
+               int anchor_idx = min_prot_anchor_idx;
                if (anchor_idx != -1 && min_prot_breakout_idx <= anchor_idx) {
                   double d4_val = EMPTY_VALUE; datetime d4_time = 0; int d4_idx = -1;
                   for(int k = min_prot_breakout_idx; k <= anchor_idx; k++) {
@@ -575,8 +583,7 @@ public:
             }
 
             if (minor_trend == -1 && min_pending_prot_high_update && min_prot_breakout_idx != -1) {
-               int anchor_idx = -1;
-               for(int k = i; k < rates_total; k++) { if (time[k] == min_prot_anchor_time) { anchor_idx = k; break; } }
+               int anchor_idx = min_prot_anchor_idx;
                if (anchor_idx != -1 && min_prot_breakout_idx <= anchor_idx) {
                   double d4_val = EMPTY_VALUE; datetime d4_time = 0; int d4_idx = -1;
                   for(int k = min_prot_breakout_idx; k <= anchor_idx; k++) {
@@ -653,6 +660,7 @@ public:
                   is_maj_prot_high_sweep = true;
                   pending_prot_high_update = true;
                   prot_anchor_time = actual_extreme_time;
+                  prot_anchor_idx = actual_extreme_idx;
                   prot_breakout_idx = i;
                   pending_prot_low_update = false;
                }
@@ -712,6 +720,7 @@ public:
                   is_maj_prot_low_sweep = true;
                   pending_prot_low_update = true;
                   prot_anchor_time = actual_extreme_time;
+                  prot_anchor_idx = actual_extreme_idx;
                   prot_breakout_idx = i;
                   pending_prot_high_update = false;
                }
@@ -822,6 +831,7 @@ public:
                      is_min_prot_high_sweep = true;
                      min_pending_prot_high_update = true;
                      min_prot_anchor_time = actual_extreme_time;
+                     min_prot_anchor_idx = actual_extreme_idx;
                      min_prot_breakout_idx = i;
                      min_pending_prot_low_update = false;
                   }
@@ -874,6 +884,7 @@ public:
                      is_min_prot_low_sweep = true;
                      min_pending_prot_low_update = true;
                      min_prot_anchor_time = actual_extreme_time;
+                     min_prot_anchor_idx = actual_extreme_idx;
                      min_prot_breakout_idx = i;
                      min_pending_prot_high_update = false;
                   }
@@ -1110,12 +1121,15 @@ private:
       if(!drawZone || !m_showGraphics || !m_showZone) return;
 
       datetime tStart = t[ext_idx];
-      datetime tEnd   = t[0] + PeriodSeconds() * 1000;
+      datetime tEnd   = t[0] + PeriodSeconds(m_tf) * 1000;
 
       if(ObjectFind(0, name) >= 0) {
          double old_zHigh = ObjectGetDouble(0, name, OBJPROP_PRICE, 0);
          double old_zLow  = ObjectGetDouble(0, name, OBJPROP_PRICE, 1);
-         if (MathAbs(old_zHigh - zHigh) < _Point && MathAbs(old_zLow - zLow) < _Point) return;
+         if (MathAbs(old_zHigh - zHigh) < _Point && MathAbs(old_zLow - zLow) < _Point) {
+            ObjectSetInteger(0, name, OBJPROP_TIME, 1, tEnd);
+            return;
+         }
          ObjectDelete(0, name);
       }
 

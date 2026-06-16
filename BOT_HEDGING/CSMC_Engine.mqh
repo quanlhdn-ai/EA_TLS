@@ -1121,12 +1121,15 @@ private:
       if(!drawZone || !m_showGraphics || !m_showZone) return;
 
       datetime tStart = t[ext_idx];
-      datetime tEnd   = t[0] + PeriodSeconds() * 1000;
+      datetime tEnd   = t[0] + PeriodSeconds(m_tf) * 1000;
 
       if(ObjectFind(0, name) >= 0) {
          double old_zHigh = ObjectGetDouble(0, name, OBJPROP_PRICE, 0);
          double old_zLow  = ObjectGetDouble(0, name, OBJPROP_PRICE, 1);
-         if (MathAbs(old_zHigh - zHigh) < _Point && MathAbs(old_zLow - zLow) < _Point) return;
+         if (MathAbs(old_zHigh - zHigh) < _Point && MathAbs(old_zLow - zLow) < _Point) {
+            ObjectSetInteger(0, name, OBJPROP_TIME, 1, tEnd);
+            return;
+         }
          ObjectDelete(0, name);
       }
 
