@@ -1402,9 +1402,11 @@ void UpdateDashboard() {
     string sell_val = g_gate_sell_open ? "OPEN" : "LOCK";
     string shd_val  = g_trading_stopped_today ? "STOPPED" : "ACTIVE";
     string rsk_val  = IntegerToString(risk_cnt) + "/" + IntegerToString(Inp_Max_Risk_Trades);
-    string flt_txt = (g_filter_text == "") ? " " : g_filter_text;
+    // g_cmd_paused đọc trực tiếp mỗi tick → hiện ngay khi /stop, không cần chờ bar mới như g_filter_text
+    string flt_txt = g_cmd_paused ? "⏸ BOT PAUSED — Gửi /start để tiếp tục" : ((g_filter_text == "") ? " " : g_filter_text);
     color  flt_clr = c_gray;
-    if(StringFind(flt_txt, "PASSED") >= 0) flt_clr = c_ok;
+    if(g_cmd_paused) flt_clr = c_bad;
+    else if(StringFind(flt_txt, "PASSED") >= 0) flt_clr = c_ok;
     else if(StringFind(flt_txt, "Blocked") >= 0 || StringFind(flt_txt, "[SHIELD]") >= 0) flt_clr = c_bad;
     ObjectDelete(0, "BOT_DASH_FLT");
     DashLabel("BOT_DASH_T",    8, 25, c_dark, 7, t_pad + ": " + SMC_TREND.current_market_phase);
