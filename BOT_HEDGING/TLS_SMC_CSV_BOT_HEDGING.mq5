@@ -211,6 +211,10 @@ bool     g_account_passed        = false;
 datetime g_last_day_checked      = 0;
 double   g_sod_balance           = 0;
 string   g_shield_stop_reason    = "";
+// Telegram remote commands
+bool     g_cmd_paused        = false;
+long     g_tg_last_update_id = 0;
+ulong    g_tg_last_poll_ms   = 0;
 
 // ==================================================================
 // HELPER: CSV & UTILITIES
@@ -286,6 +290,66 @@ bool IsNewBar() {
 // ==================================================================
 bool IsNormalMagic(long magic) {
     return (magic >= BaseMagicNumber && magic < BaseMagicNumber + 1000);
+}
+
+// ==================================================================
+// STATE PERSISTENCE (GlobalVariables)
+// ==================================================================
+string GVKey(string k) { return "TLSH_" + _Symbol + "_" + k; }
+
+void SaveState() {
+    GlobalVariableSet(GVKey("buy_entry_cnt"),   (double)g_zone_buy_entry_count);
+    GlobalVariableSet(GVKey("sell_entry_cnt"),  (double)g_zone_sell_entry_count);
+    GlobalVariableSet(GVKey("buy_rounds"),      (double)g_zone_buy_profit_rounds);
+    GlobalVariableSet(GVKey("sell_rounds"),     (double)g_zone_sell_profit_rounds);
+    GlobalVariableSet(GVKey("gate_buy_open"),   g_gate_buy_open  ? 1.0 : 0.0);
+    GlobalVariableSet(GVKey("gate_sell_open"),  g_gate_sell_open ? 1.0 : 0.0);
+    GlobalVariableSet(GVKey("gate_buy_entry"),  g_gate_buy_zone_entry);
+    GlobalVariableSet(GVKey("gate_buy_sl"),     g_gate_buy_zone_sl);
+    GlobalVariableSet(GVKey("gate_sell_entry"), g_gate_sell_zone_entry);
+    GlobalVariableSet(GVKey("gate_sell_sl"),    g_gate_sell_zone_sl);
+    GlobalVariableSet(GVKey("broken_buy_sl"),   g_last_broken_buy_zone_sl);
+    GlobalVariableSet(GVKey("broken_sell_sl"),  g_last_broken_sell_zone_sl);
+    GlobalVariableSet(GVKey("fresh_buy"),       g_need_fresh_buy_signal  ? 1.0 : 0.0);
+    GlobalVariableSet(GVKey("fresh_sell"),      g_need_fresh_sell_signal ? 1.0 : 0.0);
+    GlobalVariableSet(GVKey("stale_buy_ref"),   g_buy_stale_sl_ref);
+    GlobalVariableSet(GVKey("stale_sell_ref"),  g_sell_stale_sl_ref);
+    GlobalVariableSet(GVKey("stopped_today"),   g_trading_stopped_today ? 1.0 : 0.0);
+    GlobalVariableSet(GVKey("sod_balance"),     g_sod_balance);
+    GlobalVariableSet(GVKey("last_day"),        (double)g_last_day_checked);
+    GlobalVariableSet(GVKey("cmd_paused"),      g_cmd_paused ? 1.0 : 0.0);
+    GlobalVariableSet(GVKey("tg_last_uid"),     (double)g_tg_last_update_id);
+}
+
+void LoadState() {
+    if(!GlobalVariableCheck(GVKey("buy_entry_cnt"))) return;
+    g_zone_buy_entry_count    = (int)GlobalVariableGet(GVKey("buy_entry_cnt"));
+    g_zone_sell_entry_count   = (int)GlobalVariableGet(GVKey("sell_entry_cnt"));
+    g_zone_buy_profit_rounds  = (int)GlobalVariableGet(GVKey("buy_rounds"));
+    g_zone_sell_profit_rounds = (int)GlobalVariableGet(GVKey("sell_rounds"));
+    g_gate_buy_open           = GlobalVariableGet(GVKey("gate_buy_open"))  > 0.5;
+    g_gate_sell_open          = GlobalVariableGet(GVKey("gate_sell_open")) > 0.5;
+    g_gate_buy_zone_entry     = GlobalVariableGet(GVKey("gate_buy_entry"));
+    g_gate_buy_zone_sl        = GlobalVariableGet(GVKey("gate_buy_sl"));
+    g_gate_sell_zone_entry    = GlobalVariableGet(GVKey("gate_sell_entry"));
+    g_gate_sell_zone_sl       = GlobalVariableGet(GVKey("gate_sell_sl"));
+    g_last_broken_buy_zone_sl = GlobalVariableGet(GVKey("broken_buy_sl"));
+    g_last_broken_sell_zone_sl= GlobalVariableGet(GVKey("broken_sell_sl"));
+    g_need_fresh_buy_signal   = GlobalVariableGet(GVKey("fresh_buy"))  > 0.5;
+    g_need_fresh_sell_signal  = GlobalVariableGet(GVKey("fresh_sell")) > 0.5;
+    g_buy_stale_sl_ref        = GlobalVariableGet(GVKey("stale_buy_ref"));
+    g_sell_stale_sl_ref       = GlobalVariableGet(GVKey("stale_sell_ref"));
+    g_trading_stopped_today   = GlobalVariableGet(GVKey("stopped_today")) > 0.5;
+    g_sod_balance             = GlobalVariableGet(GVKey("sod_balance"));
+    g_last_day_checked        = (datetime)GlobalVariableGet(GVKey("last_day"));
+    if(GlobalVariableCheck(GVKey("cmd_paused")))  g_cmd_paused        = GlobalVariableGet(GVKey("cmd_paused"))  > 0.5;
+    if(GlobalVariableCheck(GVKey("tg_last_uid"))) g_tg_last_update_id = (long)GlobalVariableGet(GVKey("tg_last_uid"));
+    Print("[STATE RESTORED] buy_cnt=", g_zone_buy_entry_count,
+          " sell_cnt=", g_zone_sell_entry_count,
+          " buy_rounds=", g_zone_buy_profit_rounds,
+          " sell_rounds=", g_zone_sell_profit_rounds,
+          " gate_buy=", g_gate_buy_open, " gate_sell=", g_gate_sell_open,
+          " stopped=", g_trading_stopped_today);
 }
 
 // ==================================================================
@@ -480,17 +544,28 @@ void UpdateGatekeeperState() {
     // Đóng cổng nếu Zone đã kích hoạt cổng không còn tồn tại trên Zone Queue của HTF
     // (đã bị giá phá vỡ và bị xóa khỏi chart).
     if(g_gate_buy_open && g_gate_buy_zone_sl > 0) {
-        bool zone_still_exists = (g_gate_buy_zone_sl == SMC_HTF.current_buy_zone_sl) || (g_gate_buy_zone_sl == SMC_HTF.current_minor_buy_zone_sl);
+        bool zone_still_exists = (g_gate_buy_zone_sl == SMC_HTF.current_buy_zone_sl);
         if(!zone_still_exists) { g_gate_buy_open = false; g_last_broken_buy_zone_sl = g_gate_buy_zone_sl; }
     }
     if(g_gate_sell_open && g_gate_sell_zone_sl > 0) {
-        bool zone_still_exists = (g_gate_sell_zone_sl == SMC_HTF.current_sell_zone_sl) || (g_gate_sell_zone_sl == SMC_HTF.current_minor_sell_zone_sl);
+        bool zone_still_exists = (g_gate_sell_zone_sl == SMC_HTF.current_sell_zone_sl);
         if(!zone_still_exists) { g_gate_sell_open = false; g_last_broken_sell_zone_sl = g_gate_sell_zone_sl; }
+    }
+    // Kill-line: đóng cổng khi giá xuyên qua SL của zone (zone bị phá về giá dù H4 bar chưa đóng)
+    // Zone_Break_Tolerance_Pct = 0 → đóng ngay khi giá vượt SL; 50 → cho phép vượt thêm 50% chiều cao zone
+    if(g_gate_sell_open && g_gate_sell_zone_sl > 0 && g_gate_sell_zone_entry > 0) {
+        double zone_h   = g_gate_sell_zone_sl - g_gate_sell_zone_entry;
+        double kill_line = g_gate_sell_zone_sl + zone_h * (Zone_Break_Tolerance_Pct / 100.0);
+        if(ask > kill_line) { g_gate_sell_open = false; g_last_broken_sell_zone_sl = g_gate_sell_zone_sl; }
+    }
+    if(g_gate_buy_open && g_gate_buy_zone_sl > 0 && g_gate_buy_zone_entry > 0) {
+        double zone_h    = g_gate_buy_zone_entry - g_gate_buy_zone_sl;
+        double kill_line = g_gate_buy_zone_sl - zone_h * (Zone_Break_Tolerance_Pct / 100.0);
+        if(bid < kill_line) { g_gate_buy_open = false; g_last_broken_buy_zone_sl = g_gate_buy_zone_sl; }
     }
 
     if(!g_gate_buy_open) {
         double buy_e = SMC_HTF.current_buy_zone_entry, buy_s = SMC_HTF.current_buy_zone_sl;
-        if(buy_e == 0 || buy_s == 0) { buy_e = SMC_HTF.current_minor_buy_zone_entry; buy_s = SMC_HTF.current_minor_buy_zone_sl; }
         if(buy_e > 0 && buy_s > 0) {
             double w = MathAbs(buy_e - buy_s) / pip_size;
             double pct_buf = w * HTF_Zone_Buffer_Pct / 100.0;
@@ -513,7 +588,6 @@ void UpdateGatekeeperState() {
     }
     if(!g_gate_sell_open) {
         double sell_e = SMC_HTF.current_sell_zone_entry, sell_s = SMC_HTF.current_sell_zone_sl;
-        if(sell_e == 0 || sell_s == 0) { sell_e = SMC_HTF.current_minor_sell_zone_entry; sell_s = SMC_HTF.current_minor_sell_zone_sl; }
         if(sell_e > 0 && sell_s > 0) {
             double w = MathAbs(sell_s - sell_e) / pip_size;
             double pct_buf = w * HTF_Zone_Buffer_Pct / 100.0;
@@ -575,19 +649,21 @@ void UpdateZoneRoundTracking() {
         if(type == POSITION_TYPE_BUY) { buy_pnl += pnl; buy_cnt++; }
         else                          { sell_pnl += pnl; sell_cnt++; }
     }
-    if(g_zone_buy_prev_cnt > 0 && buy_cnt == 0 && g_zone_buy_last_pnl > 0) {
-        g_zone_buy_profit_rounds++;
-        g_zone_buy_entry_count   = 0;
-        g_need_fresh_buy_signal  = true;
-        g_buy_stale_sl_ref       = SMC_LTF.current_buy_zone_sl;
+    if(g_zone_buy_prev_cnt > 0 && buy_cnt == 0) {
+        // Reset entry_count + yêu cầu fresh signal khi tập lệnh buy đóng vì bất kỳ lý do gì (SL/TP/tay)
+        g_zone_buy_entry_count  = 0;
+        g_need_fresh_buy_signal = true;
+        g_buy_stale_sl_ref      = SMC_LTF.current_buy_zone_sl;
+        // Chỉ tính profit_round khi đóng có lãi (dùng cho giới hạn Inp_ZoneTP_MaxRounds)
+        if(g_zone_buy_last_pnl > 0) g_zone_buy_profit_rounds++;
     }
     if(buy_cnt > 0) g_zone_buy_last_pnl = buy_pnl;
     g_zone_buy_prev_cnt = buy_cnt;
-    if(g_zone_sell_prev_cnt > 0 && sell_cnt == 0 && g_zone_sell_last_pnl > 0) {
-        g_zone_sell_profit_rounds++;
+    if(g_zone_sell_prev_cnt > 0 && sell_cnt == 0) {
         g_zone_sell_entry_count  = 0;
         g_need_fresh_sell_signal = true;
         g_sell_stale_sl_ref      = SMC_LTF.current_sell_zone_sl;
+        if(g_zone_sell_last_pnl > 0) g_zone_sell_profit_rounds++;
     }
     if(sell_cnt > 0) g_zone_sell_last_pnl = sell_pnl;
     g_zone_sell_prev_cnt = sell_cnt;
@@ -766,6 +842,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
 // ENTRY LOGIC (giữ nguyên từ v5.0)
 // ==================================================================
 void ExecuteTradeLogic() {
+    if(g_cmd_paused) { g_filter_text = "⏸ BOT PAUSED — Gửi /start để tiếp tục"; return; }
     string htf = CleanString(SMC_HTF.current_market_phase);
     string maj = CleanString(SMC_LTF.current_market_phase);
     string min = CleanString(SMC_LTF.current_minor_phase);
@@ -806,6 +883,44 @@ void ExecuteTradeLogic() {
     if(loc_filter == "HTF_ZONE") {
         bool passed = (signal == 1 && g_gate_buy_open) || (signal == -1 && g_gate_sell_open);
         if(!passed) return;
+
+        // Re-validate zone với data MỚI NHẤT từ SMC_HTF.Update() vừa chạy
+        // (UpdateGatekeeperState chạy trước Update nên có thể stale trên bar HBOS)
+        if(signal == 1) {
+            bool zone_ok = (g_gate_buy_zone_sl > 0 && g_gate_buy_zone_sl == SMC_HTF.current_buy_zone_sl);
+            if(!zone_ok) {
+                g_gate_buy_open = false;
+                g_last_broken_buy_zone_sl = g_gate_buy_zone_sl;
+                g_filter_text = "Blocked: HTF Buy Zone vừa bị phá (HBOS/ChoCh trên bar này)";
+                return;
+            }
+        }
+        if(signal == -1) {
+            bool zone_ok = (g_gate_sell_zone_sl > 0 && g_gate_sell_zone_sl == SMC_HTF.current_sell_zone_sl);
+            if(!zone_ok) {
+                g_gate_sell_open = false;
+                g_last_broken_sell_zone_sl = g_gate_sell_zone_sl;
+                g_filter_text = "Blocked: HTF Sell Zone vừa bị phá (HBOS/ChoCh trên bar này)";
+                return;
+            }
+        }
+        // Kiểm tra entry price nằm trong zone (strict — không dùng tolerance, không đóng gate)
+        // Gate vẫn giữ nguyên → nếu giá quay lại zone thì setup tiếp theo vẫn vào được
+        if(signal == -1 && g_gate_sell_zone_sl > 0) {
+            double cur_ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            if(cur_ask > g_gate_sell_zone_sl) {
+                g_filter_text = "Blocked: Entry sell nằm ngoài biên trên HTF Sell Zone — chờ giá quay lại";
+                return;
+            }
+        }
+        if(signal == 1 && g_gate_buy_zone_sl > 0) {
+            double cur_bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            if(cur_bid < g_gate_buy_zone_sl) {
+                g_filter_text = "Blocked: Entry buy nằm ngoài biên dưới HTF Buy Zone — chờ giá quay lại";
+                return;
+            }
+        }
+
         if(Inp_ZoneTP_MaxRounds > 0) {
             int rounds = (signal == 1) ? g_zone_buy_profit_rounds : g_zone_sell_profit_rounds;
             if(rounds >= Inp_ZoneTP_MaxRounds) {
@@ -842,7 +957,11 @@ void ExecuteTradeLogic() {
             if(signal == 1  && g_gate_buy_zone_entry  > 0) dist = (SymbolInfoDouble(_Symbol, SYMBOL_BID) - g_gate_buy_zone_entry)  / ps;
             if(signal == -1 && g_gate_sell_zone_entry > 0) dist = (g_gate_sell_zone_entry - SymbolInfoDouble(_Symbol, SYMBOL_ASK)) / ps;
             if(dist > Inp_Gate_MaxPipsFromZone) {
-                g_filter_text = "Blocked: Giá xa Zone " + DoubleToString(dist, 0) + " pips (>" + DoubleToString(Inp_Gate_MaxPipsFromZone, 0) + ")";
+                // Đánh dấu signal này là stale — khi giá quay lại gần zone, signal cũ không được dùng
+                // Chỉ setup BOS/ChoCh M1 MỚI hình thành sau khi giá vào zone mới được vào
+                if(signal == 1)  { g_need_fresh_buy_signal  = true; g_buy_stale_sl_ref  = sl_price; }
+                else             { g_need_fresh_sell_signal = true; g_sell_stale_sl_ref = sl_price; }
+                g_filter_text = "Blocked: Giá xa Zone " + DoubleToString(dist, 0) + " pips (>" + DoubleToString(Inp_Gate_MaxPipsFromZone, 0) + ") — signal đánh dấu stale";
                 return;
             }
         }
@@ -1095,6 +1214,152 @@ void CheckPoolSL() {
 }
 
 // ==================================================================
+// TELEGRAM REMOTE COMMANDS
+// ==================================================================
+void SendStatusMessage() {
+    double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
+    double equity   = AccountInfoDouble(ACCOUNT_EQUITY);
+    double open_pnl = equity - balance;
+    double open_pct = (balance > 0) ? (open_pnl / balance * 100.0) : 0;
+    int buy_cnt = 0, sell_cnt = 0;
+    double buy_pnl = 0, sell_pnl = 0;
+    for(int i = 0; i < PositionsTotal(); i++) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+        double pnl = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP) + PositionGetDouble(POSITION_COMMISSION);
+        if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) { buy_cnt++; buy_pnl += pnl; }
+        else { sell_cnt++; sell_pnl += pnl; }
+    }
+    string bot_st  = g_cmd_paused ? "⏸ PAUSED" : (g_trading_stopped_today ? "🛑 STOPPED (DD)" : "✅ RUNNING");
+    string g_buy   = g_gate_buy_open  ? "🔓 OPEN" : "🔒 LOCK";
+    string g_sell  = g_gate_sell_open ? "🔓 OPEN" : "🔒 LOCK";
+    string r_lim   = (Inp_ZoneTP_MaxRounds > 0) ? ("/" + (string)Inp_ZoneTP_MaxRounds) : "";
+    string e_lim   = (Inp_Gate_MaxOrders   > 0) ? ("/" + (string)Inp_Gate_MaxOrders)   : "";
+    Radar.SendMessage(
+        "📊 <b>BOT STATUS — " + _Symbol + "</b>\n━━━━━━━━━━━━━━━\n"
+        + "🤖 <b>Trạng thái:</b> " + bot_st + "\n"
+        + "💰 <b>Balance:</b> "    + DoubleToString(balance,  2) + "$\n"
+        + "📈 <b>Equity:</b> "     + DoubleToString(equity,   2) + "$\n"
+        + "📊 <b>Open P&L:</b> "   + (open_pnl >= 0 ? "+" : "") + DoubleToString(open_pnl, 2)
+                                   + "$ (" + (open_pct >= 0 ? "+" : "") + DoubleToString(open_pct, 2) + "%)\n"
+        + "━━━━━━━━━━━━━━━\n"
+        + "🎯 <b>Gate:</b> Buy " + g_buy + " | Sell " + g_sell + "\n"
+        + "📦 <b>Lệnh mở:</b> Buy " + (string)buy_cnt  + " (" + (buy_pnl  >= 0 ? "+" : "") + DoubleToString(buy_pnl,  2) + "$)"
+                              + " | Sell " + (string)sell_cnt + " (" + (sell_pnl >= 0 ? "+" : "") + DoubleToString(sell_pnl, 2) + "$)\n"
+        + "🔄 <b>Rounds:</b> Buy " + (string)g_zone_buy_profit_rounds  + r_lim
+                             + " | Sell " + (string)g_zone_sell_profit_rounds + r_lim + "\n"
+        + "🚦 <b>Entries:</b> Buy " + (string)g_zone_buy_entry_count  + e_lim
+                              + " | Sell " + (string)g_zone_sell_entry_count + e_lim);
+}
+
+void ProcessBotCommand(string cmd) {
+    // Strip @BotName suffix (group chats)
+    int at = StringFind(cmd, "@");
+    if(at > 0) cmd = StringSubstr(cmd, 0, at);
+
+    if(cmd == "/start") {
+        g_cmd_paused = false;
+        Radar.SendMessage("✅ <b>BOT STARTED</b>\n🤖 Bot đã được bật lại, sẵn sàng vào lệnh bình thường.");
+    }
+    else if(cmd == "/stop") {
+        g_cmd_paused = true;
+        int cancelled = 0;
+        for(int i = OrdersTotal() - 1; i >= 0; i--) {
+            ulong tk = OrderGetTicket(i);
+            if(!tk || OrderGetString(ORDER_SYMBOL) != _Symbol || !IsNormalMagic(OrderGetInteger(ORDER_MAGIC))) continue;
+            if(trade.OrderDelete(tk)) cancelled++;
+        }
+        Radar.SendMessage("⏸ <b>BOT PAUSED</b>\n🚫 Không vào lệnh mới\n🗑️ Đã hủy <b>" + (string)cancelled
+            + "</b> lệnh chờ\n✅ Lệnh đang chạy vẫn được quản lý bình thường\n\n➡️ Gửi /start để tiếp tục");
+    }
+    else if(cmd == "/closeall") {
+        int closed_pos = 0, closed_ord = 0;
+        for(int i = PositionsTotal() - 1; i >= 0; i--) {
+            ulong tk = PositionGetTicket(i);
+            if(!PositionSelectByTicket(tk) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(!IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+            if(trade.PositionClose(tk)) closed_pos++;
+        }
+        for(int i = OrdersTotal() - 1; i >= 0; i--) {
+            ulong tk = OrderGetTicket(i);
+            if(!tk || OrderGetString(ORDER_SYMBOL) != _Symbol || !IsNormalMagic(OrderGetInteger(ORDER_MAGIC))) continue;
+            if(trade.OrderDelete(tk)) closed_ord++;
+        }
+        g_cmd_paused = true;
+        Radar.SendMessage("🔴 <b>CLOSE ALL EXECUTED</b>\n"
+            + "✅ Đã đóng <b>" + (string)closed_pos + "</b> lệnh\n"
+            + "🗑️ Đã hủy <b>" + (string)closed_ord + "</b> lệnh chờ\n"
+            + "⏸ Bot đang <b>PAUSED</b>\n"
+            + "💳 Balance: " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + "$\n\n"
+            + "➡️ Gửi /start để tiếp tục giao dịch");
+    }
+    else if(cmd == "/status") {
+        SendStatusMessage();
+    }
+}
+
+void CheckTelegramCommands() {
+    if(MQLInfoInteger(MQL_TESTER)) return;  // không chạy trong Strategy Tester
+    if(Inp_BotToken == "" || Inp_BotToken == "YOUR_BOT_TOKEN_HERE" || Inp_ChatID == "") return;
+    // Dùng GetTickCount64() (giờ hệ thống thực) thay vì TimeCurrent() (giờ theo tick giá)
+    // để polling đúng nhịp 3s kể cả khi thị trường ít tick, không lệ thuộc OnTick().
+    if(GetTickCount64() - g_tg_last_poll_ms < 3000) return;
+    g_tg_last_poll_ms = GetTickCount64();
+
+    string url = "https://api.telegram.org/bot" + Inp_BotToken
+               + "/getUpdates?offset=" + (string)(g_tg_last_update_id + 1) + "&limit=10&timeout=0";
+    char post[], result[];
+    string headers;
+    ResetLastError();
+    if(WebRequest("GET", url, "", 5000, post, result, headers) != 200) return;
+
+    string json = CharArrayToString(result);
+    if(StringFind(json, "\"ok\":true") < 0) return;
+
+    int pos = 0;
+    while(true) {
+        int uid_pos = StringFind(json, "\"update_id\":", pos);
+        if(uid_pos < 0) break;
+
+        // Extract update_id
+        int n = uid_pos + 12;
+        int n_end = n;
+        while(n_end < StringLen(json) && StringGetCharacter(json, n_end) >= '0' && StringGetCharacter(json, n_end) <= '9') n_end++;
+        long uid = (long)StringSubstr(json, n, n_end - n);
+        if(uid > g_tg_last_update_id) g_tg_last_update_id = uid;
+
+        // Isolate this update block
+        int next_uid = StringFind(json, "\"update_id\":", n_end);
+        int blk_end  = (next_uid > 0) ? next_uid : StringLen(json);
+        string blk   = StringSubstr(json, uid_pos, blk_end - uid_pos);
+
+        // Extract text
+        string text = "";
+        int tp = StringFind(blk, "\"text\":\"");
+        if(tp >= 0) {
+            int ts = tp + 8, te = StringFind(blk, "\"", ts);
+            if(te > ts) text = StringSubstr(blk, ts, te - ts);
+        }
+
+        // Extract chat id (handle negative group IDs)
+        string chat_id_str = "";
+        int cp = StringFind(blk, "\"chat\":{\"id\":");
+        if(cp >= 0) {
+            int cs = cp + 13, ce = cs;
+            if(StringGetCharacter(blk, ce) == '-') ce++;
+            while(ce < StringLen(blk) && StringGetCharacter(blk, ce) >= '0' && StringGetCharacter(blk, ce) <= '9') ce++;
+            chat_id_str = StringSubstr(blk, cs, ce - cs);
+        }
+
+        if(text != "" && chat_id_str == Inp_ChatID)
+            ProcessBotCommand(text);
+
+        pos = blk_end;
+    }
+}
+
+// ==================================================================
 // DASHBOARD
 // ==================================================================
 void DashLabel(string name, int x, int y, color clr, int fsz, string text) {
@@ -1200,11 +1465,19 @@ int OnInit() {
                + "⚙️ <b>T-L-S:</b> " + _Symbol + " | T=" + s_trend + " | L=" + s_htf + " | S=" + s_ltf + "\n"
                + "🛡️ <b>Mục tiêu:</b> " + DoubleToString(Inp_AutoPassTarget, 0)
                + "$ | DD ngày: " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%";
+    LoadState();
     Radar.SendMessage(msg);
+    EventSetTimer(3); // Polling Telegram theo giờ thực, không phụ thuộc tick giá
     return(INIT_SUCCEEDED);
 }
 
+void OnTimer() {
+    CheckTelegramCommands();
+}
+
 void OnDeinit(const int reason) {
+    EventKillTimer();
+    SaveState();
     ObjectsDeleteAll(0, "TLS_HTF_");
     ObjectsDeleteAll(0, "TLS_LTF_");
     ObjectsDeleteAll(0, "TLS_TREND_");
@@ -1219,6 +1492,7 @@ void OnDeinit(const int reason) {
 }
 
 void OnTick() {
+    CheckTelegramCommands();
     ManagePropFirmRules();
     CleanPendingOrdersForNews();
     CheckFlexTP();

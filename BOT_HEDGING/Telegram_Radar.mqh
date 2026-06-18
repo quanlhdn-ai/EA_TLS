@@ -35,25 +35,25 @@ public:
         m_send_photo = send_photo;
     }
 
-    // Hàm gửi tin nhắn văn bản (DÙNG PHƯƠNG THỨC 'GET' BẤT BẠI)
+    // Hàm gửi tin nhắn văn bản (DÙNG PHƯƠNG THỨC 'POST' — body không bị giới hạn độ dài như URL)
     void SendMessage(string message) {
        if(m_token == "" || m_token == "YOUR_BOT_TOKEN_HERE" || m_chat_id == "") return;
-       
-       // Đẩy thẳng mọi tham số vào thanh URL (Giống hệt gõ link trên trình duyệt Web)
-       string url = "https://api.telegram.org/bot" + m_token + 
-                    "/sendMessage?chat_id=" + m_chat_id + 
-                    "&text=" + UrlEncode(message) + 
-                    "&parse_mode=HTML";
-       
-       char data[], result[]; 
+
+       string url  = "https://api.telegram.org/bot" + m_token + "/sendMessage";
+       string body = "chat_id=" + m_chat_id + "&parse_mode=HTML&text=" + UrlEncode(message);
+
+       char data[], result[];
        string headers;
-       
+       int len = StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
+       ArrayResize(data, len - 1); // bỏ ký tự null cuối do StringToCharArray thêm vào
+
+       string req_headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+
        ResetLastError();
-       // Gọi lệnh GET, mảng data[] để trống. An toàn tuyệt đối!
-       int res = WebRequest("GET", url, "", 5000, data, result, headers);
-       
+       int res = WebRequest("POST", url, req_headers, 5000, data, result, headers);
+
        if(res != 200) {
-           Print("TELEGRAM GET ERROR: Code ", res, " | Error: ", GetLastError());
+           Print("TELEGRAM POST ERROR: Code ", res, " | Error: ", GetLastError());
            if(ArraySize(result) > 0) Print("Telegram Response: ", CharArrayToString(result));
        }
     }
