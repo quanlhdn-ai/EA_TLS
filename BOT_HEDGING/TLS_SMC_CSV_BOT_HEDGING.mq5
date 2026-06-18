@@ -1253,6 +1253,35 @@ void SendStatusMessage() {
                               + " | Sell " + (string)g_zone_sell_entry_count + e_lim);
 }
 
+void SendConfigMessage() {
+    string tf_t = EnumToString(Trend_Timeframe); StringReplace(tf_t, "PERIOD_", "");
+    string tf_h = EnumToString(HTF_Timeframe);   StringReplace(tf_h, "PERIOD_", "");
+    string risk_str = UseRiskPerTrade
+        ? (DoubleToString(RiskPercent, 2) + "%/lệnh")
+        : ("Fixed " + DoubleToString(FixedLotSize, 2) + " lot");
+    Radar.SendMessage(
+        "⚙️ <b>BOT CONFIG — " + _Symbol + "</b>\n━━━━━━━━━━━━━━━\n"
+        + "🔢 <b>Magic:</b> " + (string)BaseMagicNumber + "\n"
+        + "⏱ <b>T-L-S:</b> T=" + tf_t + " | L=" + tf_h + " | S=M1\n"
+        + "━━━━━━━━━━━━━━━\n"
+        + "💵 <b>Risk:</b> " + risk_str + "\n"
+        + "🛡 <b>Daily DD limit:</b> " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%\n"
+        + "🎯 <b>Profit limit/ngày:</b> " + (Inp_DailyProfitLimit > 0 ? DoubleToString(Inp_DailyProfitLimit, 1) + "%" : "Không giới hạn") + "\n"
+        + "🏆 <b>Auto-pass target:</b> " + DoubleToString(Inp_AutoPassTarget, 0) + "$\n"
+        + "🌀 <b>Pool SL:</b> " + (Inp_Pool_SL_Percent > 0 ? DoubleToString(Inp_Pool_SL_Percent, 1) + "%" : "Tắt") + "\n"
+        + "━━━━━━━━━━━━━━━\n"
+        + "🚪 <b>Zone Round Limit:</b> " + (string)Inp_ZoneTP_MaxRounds + "\n"
+        + "📦 <b>Gate Max Orders:</b> " + (string)Inp_Gate_MaxOrders + "\n"
+        + "📏 <b>Max Pips From Zone:</b> " + (Inp_Gate_MaxPipsFromZone > 0 ? DoubleToString(Inp_Gate_MaxPipsFromZone, 0) : "Không giới hạn") + "\n"
+        + "💥 <b>Zone Break Tolerance:</b> " + DoubleToString(Zone_Break_Tolerance_Pct, 0) + "%\n"
+        + "🙏 <b>Buddha's Palm:</b> " + (Inp_Buddha_Palm ? "ON" : "OFF") + "\n"
+        + "🚦 <b>H1 Gate Filter:</b> " + (Inp_Enable_H1_Gate_Filter ? "ON" : "OFF") + "\n"
+        + "━━━━━━━━━━━━━━━\n"
+        + "📐 <b>Entry Mode:</b> " + EnumToString(Inp_Entry_Mode) + "\n"
+        + "💹 <b>FlexTP:</b> " + (Inp_FlexTP_Enabled ? ("ON (" + DoubleToString(Inp_FlexTP_Percent, 1) + "%)") : "OFF") + "\n"
+        + "📸 <b>Auto Screenshot:</b> " + (Inp_SendScreenshot ? "ON" : "OFF"));
+}
+
 void ProcessBotCommand(string cmd) {
     // Strip @BotName suffix (group chats)
     int at = StringFind(cmd, "@");
@@ -1296,6 +1325,12 @@ void ProcessBotCommand(string cmd) {
     }
     else if(cmd == "/status") {
         SendStatusMessage();
+    }
+    else if(cmd == "/chart") {
+        Radar.SendPhoto("📸 <b>Chart hiện tại — " + _Symbol + "</b>\n🕐 " + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES));
+    }
+    else if(cmd == "/config") {
+        SendConfigMessage();
     }
 }
 

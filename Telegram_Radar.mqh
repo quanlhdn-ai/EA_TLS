@@ -58,15 +58,10 @@ public:
        }
     }
 
-    // Hàm gửi tin nhắn kèm ảnh (GIỮ NGUYÊN HÀM CHUẨN CỦA ANH)
-    bool SendMessageWithPhoto(string caption) {
-       if(!m_send_photo) { 
-           SendMessage(caption); 
-           return true; 
-       }
-       
+    // Chụp + gửi ảnh ngay, không phụ thuộc cờ m_send_photo (dùng cho lệnh /chart gọi tay)
+    bool SendPhoto(string caption) {
        if(m_token == "" || m_token == "YOUR_BOT_TOKEN_HERE" || m_chat_id == "") return false;
-       
+
        string filename = "TLS_Shot_" + IntegerToString(MathRand()) + ".png";
        ChartScreenShot(0, filename, 1280, 720, ALIGN_RIGHT); 
        Sleep(200);
@@ -118,6 +113,15 @@ public:
            SendMessage(caption); // Nếu ảnh gửi xịt, lùi về gửi Text
        }
        return (res == 200);
+    }
+
+    // Gửi thông báo tự động — tôn trọng cờ m_send_photo (lùi về gửi Text nếu tắt ảnh)
+    bool SendMessageWithPhoto(string caption) {
+       if(!m_send_photo) {
+           SendMessage(caption);
+           return true;
+       }
+       return SendPhoto(caption);
     }
 };
 //+------------------------------------------------------------------+
