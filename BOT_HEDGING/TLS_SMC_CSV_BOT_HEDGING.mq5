@@ -1332,6 +1332,19 @@ void ProcessBotCommand(string cmd) {
     else if(cmd == "/config") {
         SendConfigMessage();
     }
+    else if(cmd == "/resetshield") {
+        g_trading_stopped_today = false;
+        g_account_passed        = false;
+        g_shield_stop_reason    = "";
+        // Đặt lại mốc balance đầu ngày = balance hiện tại, để DD%/Profit% tính lại từ đây,
+        // tránh kích hoạt lại ngay nếu equity hiện tại vẫn đang thấp/cao hơn mốc cũ.
+        g_sod_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+        GlobalVariableSet(GVKey("stopped_today"), 0.0);
+        GlobalVariableSet(GVKey("sod_balance"),   g_sod_balance);
+        Radar.SendMessage("🔓 <b>SHIELD RESET</b>\n✅ Đã gỡ trạng thái STOPPED.\n"
+            + "🔄 Mốc Daily DD/Profit được tính lại từ balance hiện tại: " + DoubleToString(g_sod_balance, 2) + "$\n"
+            + "⚠️ Nếu Inp_AutoPassTarget vẫn thấp hơn balance hiện tại, Shield sẽ tự kích hoạt lại ngay.");
+    }
 }
 
 void CheckTelegramCommands() {
