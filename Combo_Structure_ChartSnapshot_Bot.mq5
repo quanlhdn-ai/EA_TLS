@@ -20,7 +20,7 @@ CTelegramChartBot Radar;
 
 input group "--- Telegram Settings ---"
 input string Inp_BotToken      = "8953133302:AAHnKSoe-PRHItjGb1MTugmBroeru3Ip0ds";
-input string Inp_ChatID        = "-5499770162";
+input string Inp_ChatID        = "-1004485122634"; // Group đã được Telegram nâng cấp thành supergroup -> chat_id cũ "-5499770162" không còn dùng được
 
 input group "--- Indicator Settings ---"
 // Tên file indicator tính theo thư mục MQL5\Indicators\ (KHÔNG kèm đuôi .ex5)

@@ -9,6 +9,20 @@ private:
     string m_token;
     string m_chat_id;
 
+    // Group/chat bị Telegram tự nâng cấp thành supergroup -> chat_id cũ bị đổi vĩnh viễn,
+    // API trả lỗi 400 kèm "migrate_to_chat_id" báo ID mới. In cảnh báo dễ hiểu thay vì để
+    // lỗi JSON khó đọc, tránh phải dò log thủ công như group AnhTuan_GuiChartMT5_Bot từng gặp.
+    void CheckMigratedChat(string response) {
+       int p = StringFind(response, "\"migrate_to_chat_id\":");
+       if(p < 0) return;
+       int s = p + 21, e = s;
+       if(StringGetCharacter(response, e) == '-') e++;
+       while(e < StringLen(response) && StringGetCharacter(response, e) >= '0' && StringGetCharacter(response, e) <= '9') e++;
+       string new_id = StringSubstr(response, s, e - s);
+       Print("[CẢNH BÁO] Group/chat đã được Telegram nâng cấp thành supergroup — chat_id cũ '", m_chat_id,
+             "' không còn dùng được nữa. Hãy đổi input Inp_ChatID thành chat_id mới: ", new_id);
+    }
+
     // Mã hóa URL chuẩn (Băm chuỗi sang UTF-8)
     string UrlEncode(string str) {
        string res = "";
@@ -57,7 +71,11 @@ public:
 
        if(res != 200) {
            Print("TELEGRAM SENDMESSAGE ERROR: Code ", res, " | Error: ", GetLastError());
-           if(ArraySize(result) > 0) Print("Telegram Response: ", CharArrayToString(result));
+           if(ArraySize(result) > 0) {
+               string resp = CharArrayToString(result);
+               Print("Telegram Response: ", resp);
+               CheckMigratedChat(resp);
+           }
        }
     }
 
@@ -130,6 +148,11 @@ public:
 
        if(res != 200) {
            Print("TELEGRAM PHOTO ERROR: Code ", res, " | Error: ", GetLastError());
+           if(ArraySize(result) > 0) {
+               string resp = CharArrayToString(result);
+               Print("Telegram Response: ", resp);
+               CheckMigratedChat(resp);
+           }
            SendMessage(caption);
        }
        return (res == 200);
