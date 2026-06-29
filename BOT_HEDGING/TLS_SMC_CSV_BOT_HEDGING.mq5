@@ -59,6 +59,8 @@ input double SL_Buffer_Pips            = 30.0;
 input bool   Inp_No_SL                 = false;
 // Inp_Pool_SL_Percent (Tỷ lệ % thua lỗ tối đa cho tập lệnh cùng hướng; khi tổng lỗ của pool Buy hoặc pool Sell chạm mức này thì đóng toàn bộ tập lệnh đó, pool còn lại vẫn chạy bình thường - để 0 = tắt)
 input double Inp_Pool_SL_Percent       = 0.0;
+// Inp_Slippage_Points (Độ trượt giá tối đa (points) cho phép khi vào/đóng lệnh; quá thấp dễ bị requote từ chối lúc giá biến động nhanh, đặc biệt với Gold)
+input int    Inp_Slippage_Points       = 30;
 
 input group "--- Flexible Take Profit ---"
 // Inp_FlexTP_Enabled (Bật cơ chế chốt lãi linh hoạt FlexTP, tự đóng toàn bộ pool lệnh khi đạt ngưỡng lợi nhuận)
@@ -374,7 +376,8 @@ void CloseAll_PropFirm(string reason) {
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         if(IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) {
-            trade.PositionClose(ticket);
+            if(!trade.PositionClose(ticket))
+                Print("[PROP_SHIELD] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
             action_taken = true;
         }
     }
@@ -820,8 +823,9 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
                                           ? (total_pnl / g_trackers[j].initial_risk_money) : 0;
                         long reason = HistoryDealGetInteger(deal_ticket, DEAL_REASON);
                         string reason_str = "👤 ĐÓNG TAY / FORCE CLOSE";
-                        if(reason == DEAL_REASON_SL) reason_str = "🔴 CẮN STOP LOSS";
-                        if(reason == DEAL_REASON_TP) reason_str = "✅ CHẠM TAKE PROFIT";
+                        if(reason == DEAL_REASON_SL)     reason_str = "🔴 CẮN STOP LOSS";
+                        if(reason == DEAL_REASON_TP)     reason_str = "✅ CHẠM TAKE PROFIT";
+                        if(reason == DEAL_REASON_EXPERT) reason_str = "🤖 BOT TỰ ĐÓNG (FlexTP/PoolSL/Shield)";
                         string msg = "🏁 <b>TRADE CLOSED</b>\n━━━━━━━━━━━━━━━\n"
                                    + "📝 <b>Lý do:</b> " + reason_str + "\n"
                                    + "📊 <b>RR:</b> " + DoubleToString(final_rr, 2) + "R\n"
@@ -1131,7 +1135,10 @@ void CheckFlexTP() {
         bool do_close = close_all
                      || (close_buy  && type == POSITION_TYPE_BUY)
                      || (close_sell && type == POSITION_TYPE_SELL);
-        if(do_close && trade.PositionClose(ticket)) any_closed = true;
+        if(do_close) {
+            if(trade.PositionClose(ticket)) any_closed = true;
+            else Print("[FLEX_TP] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+        }
     }
     for(int i = OrdersTotal() - 1; i >= 0; i--) {
         ulong ticket = OrderGetTicket(i);
@@ -1180,8 +1187,14 @@ void CheckPoolSL() {
         if(!PositionSelectByTicket(ticket) || PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
         if(!IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) continue;
         long type = PositionGetInteger(POSITION_TYPE);
-        if(close_buy  && type == POSITION_TYPE_BUY  && trade.PositionClose(ticket)) closed_buy  = true;
-        if(close_sell && type == POSITION_TYPE_SELL && trade.PositionClose(ticket)) closed_sell = true;
+        if(close_buy && type == POSITION_TYPE_BUY) {
+            if(trade.PositionClose(ticket)) closed_buy = true;
+            else Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+        }
+        if(close_sell && type == POSITION_TYPE_SELL) {
+            if(trade.PositionClose(ticket)) closed_sell = true;
+            else Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+        }
     }
     for(int i = OrdersTotal() - 1; i >= 0; i--) {
         ulong ticket = OrderGetTicket(i);
@@ -1497,6 +1510,7 @@ void UpdateDashboard() {
 int OnInit() {
     Print("DA NẠP ENGINE TLS BOT!");
     if(!LoadMatrixCSV()) return INIT_FAILED;
+    trade.SetDeviationInPoints(Inp_Slippage_Points); // tránh requote bị từ chối khi giá biến động nhanh lúc đóng/mở lệnh
     Radar.Init(Inp_BotToken, Inp_ChatID, Inp_SendScreenshot);
     SMC_LTF.Init(_Symbol, _Period, "TLS_LTF_", false, true, false,
         clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE,
