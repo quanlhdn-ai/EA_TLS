@@ -218,6 +218,113 @@ bool     g_cmd_paused        = false;
 long     g_tg_last_update_id = 0;
 ulong    g_tg_last_poll_ms   = 0;
 
+// Close Retry Queue — lưu các ticket PositionClose() thất bại để retry qua OnTimer
+struct SCloseRetry {
+    ulong  ticket;
+    int    retries;
+    ulong  next_ms;
+    string source;  // "FLEX_TP", "POOL_SL", "PROP_SHIELD"
+};
+SCloseRetry g_retry_queue[];
+int         g_retry_count = 0;
+
+// ==================================================================
+// CLOSE RETRY HELPERS
+// ==================================================================
+bool IsRetryableRetcode(uint rc) {
+    return (rc == TRADE_RETCODE_REQUOTE        ||
+            rc == TRADE_RETCODE_PRICE_OFF      ||
+            rc == TRADE_RETCODE_CONNECTION     ||
+            rc == TRADE_RETCODE_TIMEOUT        ||
+            rc == TRADE_RETCODE_PRICE_CHANGED);
+}
+
+void QueueCloseRetry(ulong ticket, string source) {
+    for(int i = 0; i < g_retry_count; i++)
+        if(g_retry_queue[i].ticket == ticket) return; // tránh trùng
+    ArrayResize(g_retry_queue, g_retry_count + 1);
+    g_retry_queue[g_retry_count].ticket  = ticket;
+    g_retry_queue[g_retry_count].retries = 0;
+    g_retry_queue[g_retry_count].next_ms = GetTickCount64() + 300;
+    g_retry_queue[g_retry_count].source  = source;
+    g_retry_count++;
+    Print("[RETRY] Queue ticket=", ticket, " source=", source);
+}
+
+void ProcessCloseRetryQueue() {
+    if(g_retry_count == 0) return;
+    ulong now = GetTickCount64();
+    for(int i = g_retry_count - 1; i >= 0; i--) {
+        if(now < g_retry_queue[i].next_ms) continue;
+        ulong ticket = g_retry_queue[i].ticket;
+        if(!PositionSelectByTicket(ticket)) {
+            Print("[RETRY] ticket=", ticket, " đã đóng, xóa queue");
+            ArrayRemove(g_retry_queue, i, 1);
+            g_retry_count--;
+            continue;
+        }
+        if(g_retry_queue[i].retries >= 5) {
+            Print("[RETRY] ticket=", ticket, " [", g_retry_queue[i].source, "] hết 5 lần retry, bỏ qua");
+            ArrayRemove(g_retry_queue, i, 1);
+            g_retry_count--;
+            continue;
+        }
+        g_retry_queue[i].retries++;
+        if(trade.PositionClose(ticket)) {
+            Print("[RETRY] ticket=", ticket, " [", g_retry_queue[i].source, "] đóng thành công lần ", g_retry_queue[i].retries);
+            ArrayRemove(g_retry_queue, i, 1);
+            g_retry_count--;
+        } else {
+            uint rc = trade.ResultRetcode();
+            if(IsRetryableRetcode(rc)) {
+                g_retry_queue[i].next_ms = GetTickCount64() + 300;
+                Print("[RETRY] ticket=", ticket, " lần ", g_retry_queue[i].retries, " retcode=", rc, " → retry 300ms");
+            } else {
+                Print("[RETRY] ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ") không thể retry");
+                ArrayRemove(g_retry_queue, i, 1);
+                g_retry_count--;
+            }
+        }
+    }
+}
+
+// Sau khi EA restart (crash hoặc remove/add lại), đọc lại toàn bộ vị thế đang mở
+// và tạo entry mặc định trong g_trackers để ManageTrades() tiếp tục quản lý chúng.
+// partial_done = true (an toàn: bỏ qua partial đã có thể thực hiện rồi).
+// initial_sl = SL hiện tại (có thể đã dịch về BE); nếu SL == 0 hoặc == open thì
+// initial_risk = 0 → ManageTrades() sẽ tự bỏ qua, không gây sự cố.
+void RebuildTrackers() {
+    for(int i = 0; i < PositionsTotal(); i++) {
+        ulong ticket = PositionGetTicket(i);
+        if(!PositionSelectByTicket(ticket)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+        bool found = false;
+        for(int j = 0; j < ArraySize(g_trackers); j++) { if(g_trackers[j].ticket == ticket) { found = true; break; } }
+        if(found) continue;
+        int sz = ArraySize(g_trackers);
+        ArrayResize(g_trackers, sz + 1);
+        g_trackers[sz].ticket           = ticket;
+        g_trackers[sz].initial_open     = PositionGetDouble(POSITION_PRICE_OPEN);
+        g_trackers[sz].initial_sl       = PositionGetDouble(POSITION_SL);
+        g_trackers[sz].initial_risk     = MathAbs(g_trackers[sz].initial_open - g_trackers[sz].initial_sl);
+        g_trackers[sz].initial_vol      = PositionGetDouble(POSITION_VOLUME);
+        g_trackers[sz].partial_done     = true;  // giả định partial đã xong để tránh chốt nhầm
+        g_trackers[sz].trail_r_watermark = 0.0;
+        g_trackers[sz].realized_pnl     = 0.0;
+        g_trackers[sz].be_notified      = true;
+        double pip = GetPipSize(_Symbol);
+        double lots = g_trackers[sz].initial_vol;
+        double pip_val = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE)
+                       / SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE) * pip;
+        g_trackers[sz].initial_risk_money = g_trackers[sz].initial_risk / pip * pip_val * lots;
+        Print("[RESTART] Tracker rebuilt: ticket=", ticket,
+              " open=", g_trackers[sz].initial_open,
+              " sl=", g_trackers[sz].initial_sl,
+              " risk_pips=", DoubleToString(g_trackers[sz].initial_risk / pip, 1));
+    }
+}
+
 // ==================================================================
 // HELPER: CSV & UTILITIES
 // ==================================================================
@@ -376,8 +483,11 @@ void CloseAll_PropFirm(string reason) {
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         if(IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) {
-            if(!trade.PositionClose(ticket))
-                Print("[PROP_SHIELD] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+            if(!trade.PositionClose(ticket)) {
+                uint rc = trade.ResultRetcode();
+                Print("[PROP_SHIELD] Close FAILED ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ")");
+                if(IsRetryableRetcode(rc)) QueueCloseRetry(ticket, "PROP_SHIELD");
+            }
             action_taken = true;
         }
     }
@@ -1137,7 +1247,11 @@ void CheckFlexTP() {
                      || (close_sell && type == POSITION_TYPE_SELL);
         if(do_close) {
             if(trade.PositionClose(ticket)) any_closed = true;
-            else Print("[FLEX_TP] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+            else {
+                uint rc = trade.ResultRetcode();
+                Print("[FLEX_TP] Close FAILED ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ")");
+                if(IsRetryableRetcode(rc)) QueueCloseRetry(ticket, "FLEX_TP");
+            }
         }
     }
     for(int i = OrdersTotal() - 1; i >= 0; i--) {
@@ -1189,11 +1303,19 @@ void CheckPoolSL() {
         long type = PositionGetInteger(POSITION_TYPE);
         if(close_buy && type == POSITION_TYPE_BUY) {
             if(trade.PositionClose(ticket)) closed_buy = true;
-            else Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+            else {
+                uint rc = trade.ResultRetcode();
+                Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ")");
+                if(IsRetryableRetcode(rc)) QueueCloseRetry(ticket, "POOL_SL");
+            }
         }
         if(close_sell && type == POSITION_TYPE_SELL) {
             if(trade.PositionClose(ticket)) closed_sell = true;
-            else Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", trade.ResultRetcode(), " (", trade.ResultRetcodeDescription(), ")");
+            else {
+                uint rc = trade.ResultRetcode();
+                Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ")");
+                if(IsRetryableRetcode(rc)) QueueCloseRetry(ticket, "POOL_SL");
+            }
         }
     }
     for(int i = OrdersTotal() - 1; i >= 0; i--) {
@@ -1530,12 +1652,14 @@ int OnInit() {
                + "🛡️ <b>Mục tiêu:</b> " + DoubleToString(Inp_AutoPassTarget, 0)
                + "$ | DD ngày: " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%";
     LoadState();
+    RebuildTrackers();
     Radar.SendMessage(msg);
-    EventSetTimer(3); // Polling Telegram theo giờ thực, không phụ thuộc tick giá
+    EventSetMillisecondTimer(100); // 100ms: retry queue nhanh + Telegram polling (rate-limited 3s riêng)
     return(INIT_SUCCEEDED);
 }
 
 void OnTimer() {
+    ProcessCloseRetryQueue();
     CheckTelegramCommands();
 }
 

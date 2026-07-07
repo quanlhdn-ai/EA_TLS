@@ -258,6 +258,32 @@ public:
             if(min_prot_breakout_idx >= 0) min_prot_breakout_idx += shift;
             if(min_prot_anchor_idx >= 0) min_prot_anchor_idx += shift;
 
+            // Clamp: bar quá cũ bị đẩy ra ngoài cửa sổ lịch sử m_max_bars sau shift → vô hiệu hóa
+            // để tránh "array out of range" crash (các index này sẽ được tính lại khi có BOS/ChoCh mới)
+            int mx = rates_total - 1;
+            if(ActiveHigh.idx > mx)      { ActiveHigh.idx = -1; ActiveHigh.isActive = false; }
+            if(ActiveLow.idx > mx)       { ActiveLow.idx = -1; ActiveLow.isActive = false; }
+            if(ActiveMinorHigh.idx > mx) { ActiveMinorHigh.idx = -1; ActiveMinorHigh.isActive = false; }
+            if(ActiveMinorLow.idx > mx)  { ActiveMinorLow.idx = -1; ActiveMinorLow.isActive = false; }
+            if(maj_prot_high_idx > mx)   { maj_prot_high_idx = -1; maj_prot_high = EMPTY_VALUE; }
+            if(maj_prot_low_idx > mx)    { maj_prot_low_idx = -1; maj_prot_low = EMPTY_VALUE; }
+            if(maj_extreme_high_idx > mx){ maj_extreme_high_idx = -1; maj_extreme_high = EMPTY_VALUE; }
+            if(maj_extreme_low_idx > mx) { maj_extreme_low_idx = -1; maj_extreme_low = EMPTY_VALUE; }
+            if(last_maj_high_idx > mx)   { last_maj_high_idx = -1; last_maj_high = EMPTY_VALUE; }
+            if(last_maj_low_idx > mx)    { last_maj_low_idx = -1; last_maj_low = EMPTY_VALUE; }
+            if(latest_break_up_idx > mx)   { latest_break_up_idx = -1; }
+            if(latest_break_down_idx > mx) { latest_break_down_idx = -1; }
+            if(min_prot_high_idx > mx)   { min_prot_high_idx = -1; min_prot_high = EMPTY_VALUE; }
+            if(min_prot_low_idx > mx)    { min_prot_low_idx = -1; min_prot_low = EMPTY_VALUE; }
+            if(min_extreme_high_idx > mx){ min_extreme_high_idx = -1; min_extreme_high = EMPTY_VALUE; }
+            if(min_extreme_low_idx > mx) { min_extreme_low_idx = -1; min_extreme_low = EMPTY_VALUE; }
+            if(last_min_high_idx > mx)   { last_min_high_idx = -1; last_min_high = EMPTY_VALUE; }
+            if(last_min_low_idx > mx)    { last_min_low_idx = -1; last_min_low = EMPTY_VALUE; }
+            if(prot_breakout_idx > mx || prot_anchor_idx > mx)
+               { prot_breakout_idx = -1; prot_anchor_idx = -1; pending_prot_high_update = false; pending_prot_low_update = false; }
+            if(min_prot_breakout_idx > mx || min_prot_anchor_idx > mx)
+               { min_prot_breakout_idx = -1; min_prot_anchor_idx = -1; min_pending_prot_high_update = false; min_pending_prot_low_update = false; }
+
             data_limit = rates_total - lookBack_max - 1;
          } else {
             data_limit = lookBack_max;
