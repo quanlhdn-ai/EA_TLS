@@ -50,6 +50,7 @@ input bool  ShowMinorSwingPoints  = true;        // Minor Swing High/Low
 input bool  ShowMinorBOSCHOCH     = true;        // Đường mBOS/mCHOCH (Minor)
 input bool  ShowTrackingLines     = true;        // Đường Tracking (Active High/Low)
 input bool  ShowWeakHighLow       = true;        // Đường Weak High/Low
+input bool  ShowLastMajorHighLow  = true;        // Đường mốc Đỉnh/Đáy Major gần nhất (cố định, không đổi theo BOS/CHOCH)
 
 input group "--- Major Swing Settings ---"
 input color MajorSwingColor       = C'80,80,80';
@@ -58,6 +59,7 @@ input int   PeriodsInMajorSwing   = 9;
 
 input group "--- Structure Tracking Graphics (RAY) ---"
 input color TrackingLineColor     = clrMagenta;
+input color LastMajorLineColor    = clrBlue;     // Màu đường mốc Đỉnh/Đáy Major gần nhất
 
 input group "--- Structure Settings (BOS/CHOCH) ---"
 input int   MaxBOSLines           = 5;
@@ -105,6 +107,7 @@ int lookBackMajor, lookBackMinor;
 
 struct TSwing { double price; datetime time; bool isActive; int idx; };
 struct TZone  { string name; double entryPrice; double stopPrice; };
+struct TLevelSrc { double price; datetime time; string text; color clr; string objName; bool enabled; };
 
 TSwing ActiveHigh = {EMPTY_VALUE, 0, false, -1}; TSwing ActiveLow  = {EMPTY_VALUE, 0, false, -1};
 TSwing ActiveMinorHigh = {EMPTY_VALUE, 0, false, -1}; TSwing ActiveMinorLow  = {EMPTY_VALUE, 0, false, -1};
@@ -188,6 +191,8 @@ void ClearZoneQueue(TZone &queue[]);
 void PushZone(TZone &queue[], string name, double entry, double stop, int max_count);
 void CreateTrackingRayWithLabel(string name, datetime t1, double p1, color clr, string text, bool isDown, datetime current_time);
 datetime GetRightEdgeTime(datetime current_time);
+void DrawLevelGroup(TLevelSrc &src[], datetime current_time, bool isDown);
+void UpdateLevelLabels(datetime current_time);
 
 int OnInit()
 {
@@ -1012,33 +1017,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
       if (i == 0) {
          if (major_trend == -1 && maj_prot_high != EMPTY_VALUE) { g_high_lvl = maj_prot_high; g_high_time = maj_prot_high_time; g_high_text = "Protected High"; } else if (ActiveHigh.isActive) { g_high_lvl = ActiveHigh.price; g_high_time = ActiveHigh.time; g_high_text = "Active High"; } else { g_high_lvl = EMPTY_VALUE; }
          if (major_trend == 1 && maj_prot_low != EMPTY_VALUE) { g_low_lvl = maj_prot_low; g_low_time = maj_prot_low_time; g_low_text = "Protected Low"; } else if (ActiveLow.isActive) { g_low_lvl = ActiveLow.price; g_low_time = ActiveLow.time; g_low_text = "Active Low"; } else { g_low_lvl = EMPTY_VALUE; }
-         
-         if (ShowTrackingLines) {
-            CreateTrackingRayWithLabel("IND_SMC_TRACK_HIGH", g_high_time, g_high_lvl, TrackingLineColor, g_high_text, true, time[0]);
-            CreateTrackingRayWithLabel("IND_SMC_TRACK_LOW", g_low_time, g_low_lvl, TrackingLineColor, g_low_text, false, time[0]);
-         } else {
-            ObjectDelete(ChartID(), "IND_SMC_TRACK_HIGH_ray"); ObjectDelete(ChartID(), "IND_SMC_TRACK_HIGH_lbl");
-            ObjectDelete(ChartID(), "IND_SMC_TRACK_LOW_ray");  ObjectDelete(ChartID(), "IND_SMC_TRACK_LOW_lbl");
-         }
 
-         if (ShowWeakHighLow) {
-            if(major_trend == 1 && maj_confirmed_extreme_high != EMPTY_VALUE) {
-               CreateTrackingRayWithLabel("IND_SMC_EXTREME_HIGH", maj_confirmed_extreme_high_time, maj_confirmed_extreme_high, clrOrange, "Weak High", false, time[0]);
-            } else {
-               ObjectDelete(ChartID(), "IND_SMC_EXTREME_HIGH_ray"); ObjectDelete(ChartID(), "IND_SMC_EXTREME_HIGH_lbl");
-            }
+         UpdateLevelLabels(time[0]);
 
-            if(major_trend == -1 && maj_confirmed_extreme_low != EMPTY_VALUE) {
-               CreateTrackingRayWithLabel("IND_SMC_EXTREME_LOW", maj_confirmed_extreme_low_time, maj_confirmed_extreme_low, clrOrange, "Weak Low", true, time[0]);
-            } else {
-               ObjectDelete(ChartID(), "IND_SMC_EXTREME_LOW_ray"); ObjectDelete(ChartID(), "IND_SMC_EXTREME_LOW_lbl");
-            }
-         } else {
-            ObjectDelete(ChartID(), "IND_SMC_EXTREME_HIGH_ray"); ObjectDelete(ChartID(), "IND_SMC_EXTREME_HIGH_lbl");
-            ObjectDelete(ChartID(), "IND_SMC_EXTREME_LOW_ray");  ObjectDelete(ChartID(), "IND_SMC_EXTREME_LOW_lbl");
-         }
-
-         if ((ShowTrackingLines || ShowWeakHighLow) && MQLInfoInteger(MQL_TESTER)) ChartRedraw(ChartID());
+         if ((ShowTrackingLines || ShowWeakHighLow || ShowLastMajorHighLow) && MQLInfoInteger(MQL_TESTER)) ChartRedraw(ChartID());
       }
    }
    return(rates_total);
@@ -1046,21 +1028,10 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam) {
    if (id == CHARTEVENT_CHART_CHANGE) {
-       if (ShowTrackingLines || ShowWeakHighLow) {
+       if (ShowTrackingLines || ShowWeakHighLow || ShowLastMajorHighLow) {
            datetime t[];
            if (CopyTime(_Symbol, _Period, 0, 1, t) > 0) {
-               if (ShowTrackingLines) {
-                   CreateTrackingRayWithLabel("IND_SMC_TRACK_HIGH", g_high_time, g_high_lvl, TrackingLineColor, g_high_text, true, t[0]);
-                   CreateTrackingRayWithLabel("IND_SMC_TRACK_LOW", g_low_time, g_low_lvl, TrackingLineColor, g_low_text, false, t[0]);
-               }
-
-               if (ShowWeakHighLow) {
-                   if(major_trend == 1 && maj_confirmed_extreme_high != EMPTY_VALUE)
-                      CreateTrackingRayWithLabel("IND_SMC_EXTREME_HIGH", maj_confirmed_extreme_high_time, maj_confirmed_extreme_high, clrOrange, "Weak High", false, t[0]);
-                   if(major_trend == -1 && maj_confirmed_extreme_low != EMPTY_VALUE)
-                      CreateTrackingRayWithLabel("IND_SMC_EXTREME_LOW", maj_confirmed_extreme_low_time, maj_confirmed_extreme_low, clrOrange, "Weak Low", true, t[0]);
-               }
-
+               UpdateLevelLabels(t[0]);
                ChartRedraw(ChartID());
            }
        }
@@ -1075,13 +1046,55 @@ datetime GetRightEdgeTime(datetime current_time) {
     return current_time + future_offset * PeriodSeconds();
 }
 
-void CreateTrackingRayWithLabel(string name, datetime t1, double p1, color clr, string text, bool isDown, datetime current_time) { 
+void CreateTrackingRayWithLabel(string name, datetime t1, double p1, color clr, string text, bool isDown, datetime current_time) {
    if (p1 == EMPTY_VALUE || t1 == 0) { ObjectDelete(ChartID(), name + "_ray"); ObjectDelete(ChartID(), name + "_lbl"); return; }
    string ray_name = name + "_ray";
    if(ObjectFind(ChartID(), ray_name) < 0) { ObjectCreate(ChartID(), ray_name, OBJ_TREND, 0, t1, p1, current_time + PeriodSeconds(), p1); ObjectSetInteger(ChartID(), ray_name, OBJPROP_COLOR, clr); ObjectSetInteger(ChartID(), ray_name, OBJPROP_STYLE, STYLE_DOT); ObjectSetInteger(ChartID(), ray_name, OBJPROP_WIDTH, 1); ObjectSetInteger(ChartID(), ray_name, OBJPROP_RAY_RIGHT, true); ObjectSetInteger(ChartID(), ray_name, OBJPROP_BACK, false); } else { ObjectSetInteger(ChartID(), ray_name, OBJPROP_TIME, 0, t1); ObjectSetDouble(ChartID(), ray_name, OBJPROP_PRICE, 0, p1); ObjectSetInteger(ChartID(), ray_name, OBJPROP_TIME, 1, current_time + PeriodSeconds()); ObjectSetDouble(ChartID(), ray_name, OBJPROP_PRICE, 1, p1); }
-   string lbl_name = name + "_lbl"; datetime label_time = GetRightEdgeTime(current_time); 
-   if(ObjectFind(ChartID(), lbl_name) < 0) { ObjectCreate(ChartID(), lbl_name, OBJ_TEXT, 0, label_time, p1); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_COLOR, clr); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_FONTSIZE, 8); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_BACK, false); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_SELECTABLE, false); } else { ObjectSetInteger(ChartID(), lbl_name, OBJPROP_TIME, 0, label_time); ObjectSetDouble(ChartID(), lbl_name, OBJPROP_PRICE, 0, p1); }
-   ObjectSetString(ChartID(), lbl_name, OBJPROP_TEXT, text + "  "); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_ANCHOR, isDown ? ANCHOR_RIGHT_UPPER : ANCHOR_RIGHT_LOWER); 
+   // Nhãn luôn xoá-và-tạo-lại (thay vì ObjectSetInteger cập nhật tại chỗ) để đảm bảo vị trí/nội dung luôn khớp lần tính mới nhất,
+   // tránh trường hợp nhãn "kẹt" ở toạ độ cũ khi text đổi độ dài (do gộp nhãn) hoặc khi cập nhật object OBJ_TEXT không refresh vị trí trên một số bản MT5.
+   string lbl_name = name + "_lbl"; datetime label_time = GetRightEdgeTime(current_time);
+   ObjectDelete(ChartID(), lbl_name);
+   ObjectCreate(ChartID(), lbl_name, OBJ_TEXT, 0, label_time, p1);
+   ObjectSetInteger(ChartID(), lbl_name, OBJPROP_COLOR, clr); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_FONTSIZE, 8); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_BACK, false); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_SELECTABLE, false);
+   ObjectSetString(ChartID(), lbl_name, OBJPROP_TEXT, text + "  "); ObjectSetInteger(ChartID(), lbl_name, OBJPROP_ANCHOR, isDown ? ANCHOR_RIGHT_UPPER : ANCHOR_RIGHT_LOWER);
+}
+
+void DrawLevelGroup(TLevelSrc &src[], datetime current_time, bool isDown) {
+   int n = ArraySize(src);
+   bool used[]; ArrayResize(used, n); ArrayInitialize(used, false);
+   for(int a = 0; a < n; a++) {
+      bool valid_a = src[a].enabled && src[a].price != EMPTY_VALUE;
+      if(!valid_a || used[a]) {
+         if(!valid_a) { ObjectDelete(ChartID(), src[a].objName + "_ray"); ObjectDelete(ChartID(), src[a].objName + "_lbl"); }
+         continue;
+      }
+      string txt = src[a].text;
+      for(int b = a + 1; b < n; b++) {
+         bool valid_b = src[b].enabled && src[b].price != EMPTY_VALUE;
+         if(!valid_b || used[b]) continue;
+         if(MathAbs(src[b].price - src[a].price) < _Point) {
+            txt += " | " + src[b].text; used[b] = true;
+            ObjectDelete(ChartID(), src[b].objName + "_ray"); ObjectDelete(ChartID(), src[b].objName + "_lbl");
+         }
+      }
+      CreateTrackingRayWithLabel(src[a].objName, src[a].time, src[a].price, src[a].clr, txt, isDown, current_time);
+   }
+}
+
+// Gom 3 nhóm mốc Đỉnh/Đáy Major (Active/Protected, Weak/Extreme, Last Major) theo từng phía High/Low.
+// Nếu 2+ mốc trùng giá (cùng 1 điểm Swing) thì gộp chung 1 đường + 1 nhãn "TextA | TextB" thay vì vẽ chồng nhiều object.
+void UpdateLevelLabels(datetime current_time) {
+   TLevelSrc highSrc[3];
+   highSrc[0].price = g_high_lvl; highSrc[0].time = g_high_time; highSrc[0].text = g_high_text; highSrc[0].clr = TrackingLineColor; highSrc[0].objName = "IND_SMC_TRACK_HIGH"; highSrc[0].enabled = ShowTrackingLines;
+   highSrc[1].price = (major_trend == 1) ? maj_confirmed_extreme_high : EMPTY_VALUE; highSrc[1].time = maj_confirmed_extreme_high_time; highSrc[1].text = "Weak High"; highSrc[1].clr = clrOrange; highSrc[1].objName = "IND_SMC_EXTREME_HIGH"; highSrc[1].enabled = ShowWeakHighLow;
+   highSrc[2].price = last_maj_high; highSrc[2].time = last_maj_high_time; highSrc[2].text = "Last Major High"; highSrc[2].clr = LastMajorLineColor; highSrc[2].objName = "IND_SMC_LASTMAJOR_HIGH"; highSrc[2].enabled = ShowLastMajorHighLow;
+   DrawLevelGroup(highSrc, current_time, true);
+
+   TLevelSrc lowSrc[3];
+   lowSrc[0].price = g_low_lvl; lowSrc[0].time = g_low_time; lowSrc[0].text = g_low_text; lowSrc[0].clr = TrackingLineColor; lowSrc[0].objName = "IND_SMC_TRACK_LOW"; lowSrc[0].enabled = ShowTrackingLines;
+   lowSrc[1].price = (major_trend == -1) ? maj_confirmed_extreme_low : EMPTY_VALUE; lowSrc[1].time = maj_confirmed_extreme_low_time; lowSrc[1].text = "Weak Low"; lowSrc[1].clr = clrOrange; lowSrc[1].objName = "IND_SMC_EXTREME_LOW"; lowSrc[1].enabled = ShowWeakHighLow;
+   lowSrc[2].price = last_maj_low; lowSrc[2].time = last_maj_low_time; lowSrc[2].text = "Last Major Low"; lowSrc[2].clr = LastMajorLineColor; lowSrc[2].objName = "IND_SMC_LASTMAJOR_LOW"; lowSrc[2].enabled = ShowLastMajorHighLow;
+   DrawLevelGroup(lowSrc, current_time, false);
 }
 
 void ClearQueue(string &queue[]) { for(int i=0; i<ArraySize(queue); i++) { ObjectDelete(ChartID(), queue[i]); ObjectDelete(ChartID(), queue[i] + "_lbl"); } ArrayResize(queue, 0); }
