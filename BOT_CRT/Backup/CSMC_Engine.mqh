@@ -131,7 +131,7 @@ public:
 
    // Last Major High/Low: đỉnh/đáy Major Swing gần nhất, cố định theo điểm Swing vừa xác nhận,
    // không bị "tắt" khi giá phá qua như current_maj_active_high/low (đồng bộ với đường hiển thị
-   // "Last Major High/Low" trên Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5).
+   // "Last Major High/Low" trên TLS_SMC_Indicator.mq5).
    double   current_maj_last_high, current_maj_last_low;
    datetime current_maj_last_high_time, current_maj_last_low_time;
 

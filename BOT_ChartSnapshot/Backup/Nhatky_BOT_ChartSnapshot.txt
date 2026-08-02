@@ -30,3 +30,18 @@ Nhật ký 2026-08-02 — BOT_ChartSnapshot
 - Quy tắc từ nay: Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5
   dùng chung giữa BOT_TLS/ và BOT_ChartSnapshot/ — sửa ở bot nào cũng phải
   đồng bộ sang bot còn lại.
+
+[Đổi tên chỉ báo]
+1. Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5 →
+   TLS_SMC_Indicator.mq5 (tên cũ quá dài, rút gọn theo quy ước đặt tên đang
+   dùng trong repo). Đã cập nhật đồng bộ:
+   - Combo_Structure_ChartSnapshot_Bot.mq5: input Inp_IndicatorPath mặc định
+     và 2 đoạn StringFind() so khớp tên indicator đã gắn/cần gỡ trên chart.
+   - config_botgetchart.set: giá trị Inp_IndicatorPath.
+   - Header comment trong chính file indicator (đồng bộ từ BOT_TLS).
+   Trước đó, giá trị mặc định trong source (Inp_IndicatorPath =
+   "Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor", KHÔNG có hậu tố
+   "_forBotChart") thực ra không khớp với bản indicator đang thật sự dùng
+   (theo .set là bản forBotChart) — nhân dịp đổi tên, giờ cả source default
+   lẫn .set đều thống nhất trỏ đúng 1 tên "TLS_SMC_Indicator", không còn
+   lệch nhau nữa.

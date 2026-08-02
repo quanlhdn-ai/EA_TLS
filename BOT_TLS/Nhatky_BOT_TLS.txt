@@ -60,6 +60,18 @@ Nhật ký 2026-08-02 — BOT_TLS
   forBotChart.mq5) phải đồng bộ sang mọi bot khác đang giữ bản copy của file
   đó (BOT_CRT cho CSMC_Engine.mqh; BOT_ChartSnapshot cho indicator).
 
+[Đổi tên chỉ báo]
+1. Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5 →
+   TLS_SMC_Indicator.mq5. Lý do: tên cũ quá dài (59 ký tự), rút gọn theo
+   đúng quy ước đặt tên đang dùng trong repo (TLS_SMC_CSV_BOT_TLS.mq5,
+   CSMC_Engine.mqh). Đã cập nhật đồng bộ mọi nơi tham chiếu tới tên cũ:
+   header comment trong chính file indicator, comment trong CSMC_Engine.mqh
+   (cả BOT_TLS lẫn BOT_CRT), input Inp_IndicatorPath mặc định + đoạn so khớp
+   chuỗi StringFind() trong BOT_ChartSnapshot/Combo_Structure_ChartSnapshot_
+   Bot.mq5, và giá trị Inp_IndicatorPath trong config_botgetchart.set. Đã
+   kiểm tra riêng exness_trieudo*.set và chibao_fotbotchart.set — không có
+   tham chiếu tên file indicator, không cần sửa.
+
 Nhật ký 2026-07-07 — BOT_HEDGING
 
 [CSMC_Engine.mqh]

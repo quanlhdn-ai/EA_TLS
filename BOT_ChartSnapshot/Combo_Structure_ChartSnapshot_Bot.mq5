@@ -24,7 +24,7 @@ input string Inp_ChatID        = "-1004485122634"; // Group đã được Telegr
 
 input group "--- Indicator Settings ---"
 // Tên file indicator tính theo thư mục MQL5\Indicators\ (KHÔNG kèm đuôi .ex5)
-input string Inp_IndicatorPath = "Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor";
+input string Inp_IndicatorPath = "TLS_SMC_Indicator";
 
 input group "--- Screenshot Settings ---"
 input int    Inp_ScreenshotWidth  = 1280;
@@ -72,7 +72,7 @@ void WaitChartReady(ENUM_TIMEFRAMES tf) {
 void EnsureIndicatorOnChart(long chart_id, ENUM_TIMEFRAMES tf) {
    int total = ChartIndicatorsTotal(chart_id, 0);
    for(int i = 0; i < total; i++) {
-      if(StringFind(ChartIndicatorName(chart_id, 0, i), "Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor") >= 0) return;
+      if(StringFind(ChartIndicatorName(chart_id, 0, i), "TLS_SMC_Indicator") >= 0) return;
    }
    int handle = iCustom(_Symbol, tf, Inp_IndicatorPath);
    if(handle == INVALID_HANDLE) {
@@ -85,7 +85,7 @@ void EnsureIndicatorOnChart(long chart_id, ENUM_TIMEFRAMES tf) {
 void RemoveSMCIndicatorFromChart(long chart_id) {
    for(int i = ChartIndicatorsTotal(chart_id, 0) - 1; i >= 0; i--) {
       string nm = ChartIndicatorName(chart_id, 0, i);
-      if(StringFind(nm, "Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor") >= 0) ChartIndicatorDelete(chart_id, 0, nm);
+      if(StringFind(nm, "TLS_SMC_Indicator") >= 0) ChartIndicatorDelete(chart_id, 0, nm);
    }
 }
 

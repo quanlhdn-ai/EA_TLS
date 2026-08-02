@@ -1,5 +1,7 @@
 ﻿//+------------------------------------------------------------------+
-//|                                  Combo_MajorSwing_HA_BOS_Zone_V96|
+//|                                          TLS_SMC_Indicator.mq5   |
+//|          (đổi tên từ Combo_Structure_MajorSwing_HA_BOS_Zone_     |
+//|                                  Anchor_forBotChart.mq5, 08/2026)|
 //|                                  Focus: Protected Sweep Promotion|
 //|                                  Status: Ultimate SMC Master     |
 //+------------------------------------------------------------------+
