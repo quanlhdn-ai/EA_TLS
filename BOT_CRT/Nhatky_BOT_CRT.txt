@@ -16,3 +16,6 @@ Nhật ký 2026-08-02 — BOT_CRT
   — tự chứa đủ để copy dùng ngay, không cần lấy thêm file từ nơi khác.
 - Quy tắc từ nay: CSMC_Engine.mqh dùng chung giữa BOT_CRT/ và BOT_TLS/ — sửa
   ở bot nào cũng phải đồng bộ sang bot còn lại.
+  [Cập nhật cùng ngày] Buổi chiều, BOT_OB_Radar/ được gom thêm và cũng nhận
+  bản CSMC_Engine.mqh chuẩn này — CSMC_Engine.mqh từ nay dùng chung 3 bot:
+  BOT_CRT, BOT_TLS, BOT_OB_Radar (xem Nhatky_BOT_OB_Radar.txt).

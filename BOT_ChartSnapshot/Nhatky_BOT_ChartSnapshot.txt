@@ -1,6 +1,8 @@
 Nhật ký 2026-08-02 — BOT_ChartSnapshot
 
-[Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5]
+[TLS_SMC_Indicator.mq5 — TÊN HIỆN TẠI (đã đổi tên trong ngày hôm nay, xem
+ mục "Đổi tên chỉ báo" bên dưới; lúc thực hiện các mục dưới đây file còn
+ tên cũ Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5)]
 1. Thêm ShowLastMajorHighLow + LastMajorLineColor — đường mốc "Last Major
    High/Low" mới: luôn bám theo đỉnh/đáy Major Swing gần nhất, độc lập với
    trạng thái Active/Protected (BOS/CHOCH) — không bị "tắt" khi giá phá qua.
@@ -27,9 +29,9 @@ Nhật ký 2026-08-02 — BOT_ChartSnapshot
   preset mới nếu muốn tuỳ chỉnh đường Last Major).
 
 [Tái cấu trúc thư mục]
-- Quy tắc từ nay: Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5
-  dùng chung giữa BOT_TLS/ và BOT_ChartSnapshot/ — sửa ở bot nào cũng phải
-  đồng bộ sang bot còn lại.
+- Quy tắc từ nay: TLS_SMC_Indicator.mq5 (tên hiện tại — xem mục "Đổi tên
+  chỉ báo" bên dưới) dùng chung giữa BOT_TLS/ và BOT_ChartSnapshot/ — sửa
+  ở bot nào cũng phải đồng bộ sang bot còn lại.
 
 [Đổi tên chỉ báo]
 1. Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5 →
