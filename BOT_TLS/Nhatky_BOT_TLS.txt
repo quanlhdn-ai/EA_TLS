@@ -1,3 +1,65 @@
+Nhật ký 2026-08-02 — BOT_TLS
+
+[Đổi tên bot]
+1. TLS_SMC_CSV_BOT_HEDGING.mq5 → TLS_SMC_CSV_BOT_TLS.mq5. Lý do: tên cũ và
+   header comment ("Add-on: Hedging Protection Module") gây hiểu lầm là bot có
+   cơ chế hedge (lệnh ngược bảo hiểm) — grep toàn file xác nhận không có logic
+   hedge thật nào. Header sửa lại mô tả đúng: Pool SL, Telegram Remote Control,
+   Crash Recovery, Close-Retry Queue. Đổi tên an toàn, không ảnh hưởng trạng
+   thái đã lưu: GVKey() dùng prefix cứng "TLSH_" + _Symbol, không phụ thuộc
+   tên file/tên chương trình.
+2. Quyết định chốt dùng bản này (nhánh kế thừa từ TLS_SMC_CSV_BOT_TREND.mq5,
+   nay lưu trong OlderVersion/) làm bot chuẩn duy nhất, không dùng
+   TLS_SMC_CSV_BOT_TREND.mq5 / TLS_SMC_CSV_BOT.mq5 (bản 2TF cũ) nữa.
+
+[Quyết định giữ nguyên — không phải bug]
+- Bot KHÔNG có "FIX-2" (fallback Minor Zone khi HTF Major Zone trống ở
+  UpdateGatekeeperState) — vốn đã bị bỏ từ 18/06 (xem mục "Bỏ Minor Zone
+  fallback ở HTF Gatekeeper" bên dưới). Đã rà lại toàn bộ lý do + ví dụ minh
+  họa cụ thể (tình huống Major Zone bị quét mất do pullback sâu giữa trend)
+  và xác nhận lại: giữ nguyên không port FIX-2 từ BOT_TREND sang, chỉ tin
+  tưởng cấu trúc Major Zone.
+
+[CSMC_Engine.mqh]
+1. Thêm current_maj_last_high/low (+ *_time) — public getter cho "Đỉnh/Đáy
+   Major Swing gần nhất" (last_maj_high/low vốn đã tính nội bộ, nay expose ra
+   để bot đọc được), đồng bộ với đường "Last Major High/Low" mới thêm vào
+   indicator forBotChart bên dưới.
+2. Phát hiện 2 bản CSMC_Engine.mqh (từng ở EA_TLS/ và EA_TLS/BOT_HEDGING/)
+   đã lệch nhau: 1 bản thiếu khối "Clamp" chống crash "array out of range"
+   (bounds-check index sau shift, xem chi tiết ở mục 07/07 bên dưới) — đã vá
+   để 2 bản khớp lại 100%.
+
+[Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5]
+1. Thêm ShowLastMajorHighLow + LastMajorLineColor — đường mốc "Last Major
+   High/Low" mới: luôn bám theo đỉnh/đáy Major Swing gần nhất (last_maj_high/
+   low), độc lập với trạng thái Active/Protected (BOS/CHOCH) — không bị "tắt"
+   khi giá phá qua như đường Active/Protected hiện có.
+2. Thêm DrawLevelGroup()/UpdateLevelLabels() — gom nhãn của 3 nhóm mốc
+   (Active/Protected, Weak High/Low, Last Major) theo từng phía High/Low;
+   khi 2+ mốc trùng giá (cùng 1 điểm Swing) thì gộp chung 1 đường + 1 nhãn
+   "TextA | TextB" thay vì vẽ chồng nhiều object đè lên nhau.
+3. Sửa CreateTrackingRayWithLabel(): nhãn luôn xoá-và-tạo-lại thay vì
+   ObjectSetInteger cập nhật tại chỗ — tránh nhãn bị "kẹt" ở toạ độ cũ khi độ
+   dài text đổi (do gộp nhãn) hoặc khi update OBJ_TEXT không refresh vị trí.
+4. Lưu ý đã biết: trong Strategy Tester Visualization, nhãn dùng offset cố
+   định +15 nến thay vì bám động theo mép phải khung nhìn như chart sống —
+   hành vi có chủ đích từ bản gốc (né lỗi CHART_WIDTH_IN_BARS/
+   CHART_FIRST_VISIBLE_BAR không ổn định trong Tester), giữ nguyên.
+
+[Tái cấu trúc thư mục]
+- Gom toàn bộ EA_TLS/ thành các thư mục tự chứa theo bot/chỉ báo: BOT_CRT/,
+  BOT_TLS/ (bot này), BOT_ChartSnapshot/, Indicator_TradingView/, Docs/
+  (tài liệu tham khảo), OlderVersion/ (bot/bản cũ không dùng).
+- BOT_TLS/ chứa: TLS_SMC_CSV_BOT_TLS.mq5, CSMC_Engine.mqh, Telegram_Radar.mqh,
+  Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5,
+  ORG_TLS_Matrix_by Trend.xlsx (đối chiếu cached formula value xác nhận đúng
+  là file nguồn xuất ra TLS_Matrix_Trend.csv, không phải ORG_TLS_Matrix.xlsx
+  còn lại — file đó giữ trong Docs/), TLS_Matrix_Trend.csv, 2 file .set preset.
+- Quy tắc từ nay: mọi thay đổi ở file dùng chung (CSMC_Engine.mqh, indicator
+  forBotChart.mq5) phải đồng bộ sang mọi bot khác đang giữ bản copy của file
+  đó (BOT_CRT cho CSMC_Engine.mqh; BOT_ChartSnapshot cho indicator).
+
 Nhật ký 2026-07-07 — BOT_HEDGING
 
 [CSMC_Engine.mqh]

@@ -1,0 +1,150 @@
+//@version=6
+indicator("CRT | 3-Candle PO3 (AnhTuan)", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ==============================================================================
+// CRT 3 NẾN ĐƠN (Power of Three - PO3) — dựa theo tài liệu CRT_Ebook/
+// (CRT & TS Guide.pdf, CRT Unlocked.pdf, CRT TBS ebook.pdf)
+//
+// KHÁC với "CRT | Turtle Soup (Rebuild)": đây là mô hình ĐÚNG 3 NẾN CỐ ĐỊNH,
+// không mở rộng/lặp lại theo kiểu container như bản Turtle Soup.
+//
+//   Nến 1 (Accumulation)  — định nghĩa CRT High / CRT Low. Phải là "nến CRT"
+//                            (thân > tổng râu) nếu bật bộ lọc.
+//   Nến 2 (Manipulation)  — quét (wick) qua CRT High (Bearish) hoặc CRT Low
+//                            (Bullish) của nến 1. Đây là cú "Turtle Soup".
+//   Nến 3 (Distribution)  — nến ngay sau nến 2. Vùng entry = 50% range của
+//                            nến 2. Hợp lệ khi mức 50% đó nằm trên Open nến 3
+//                            (Bearish/Sell) hoặc dưới Open nến 3 (Bullish/Buy).
+//
+// Phạm vi bản này: CHỈ nhận diện & vẽ pattern (CRT High/Low, vùng entry 50%),
+// CHƯA vẽ Entry/SL/TP — sẽ bổ sung sau khi xác nhận logic nhận diện đã đúng.
+// ==============================================================================
+
+// ---------------- BỘ LỌC ----------------
+grp_filter = "BỘ LỌC"
+requireCrtCandle = input.bool(true, "Nến 1 phải là 'nến CRT' (thân > râu)", group=grp_filter)
+
+// ---------------- HIỂN THỊ ----------------
+grp_style     = "HIỂN THỊ"
+bullColor     = input.color(color.new(#2962FF, 0), "Màu Bullish", group=grp_style)
+bearColor     = input.color(color.new(#000000, 0), "Màu Bearish", group=grp_style)
+lineExt       = input.int(10, "Số nến kéo dài line", minval=0, group=grp_style)
+showOnlyLast  = input.bool(true, "Chỉ hiện pattern gần nhất (tắt = giữ toàn bộ lịch sử)", group=grp_style)
+showCrtBox    = input.bool(true, "Tô vùng CRT range (nến 1)", group=grp_style)
+
+// ---------------- ALERT ----------------
+grp_alert   = "ALERT"
+// (alertcondition tự thêm sẵn Inputs; không cần input bật/tắt riêng)
+
+// ==============================================================================
+// PHÁT HIỆN PATTERN — cửa sổ trượt 3 nến: [2]=Accumulation, [1]=Manipulation, [0]=Distribution
+// Ghi chú: KHÔNG bị repaint — mọi giá trị dùng đều từ nến đã đóng ([1],[2]) hoặc
+// Open của nến hiện tại (cố định ngay khi nến mở, không đổi trong phiên).
+// ==============================================================================
+body1  = math.abs(close[2] - open[2])
+range1 = high[2] - low[2]
+wick1  = range1 - body1
+isCrtCandle1 = not requireCrtCandle or body1 > wick1
+
+crtHigh = high[2]
+crtLow  = low[2]
+
+bearishManip = high[1] > crtHigh
+bullishManip = low[1]  < crtLow
+
+entry50 = (high[1] + low[1]) / 2
+
+bearishSetup = isCrtCandle1 and bearishManip and entry50 > open
+bullishSetup = isCrtCandle1 and bullishManip and entry50 < open
+
+alertcondition(bearishSetup, title="CRT Bearish Setup", message="CRT 3-Candle: phát hiện setup Bearish (Sell tại 50% nến Manipulation)")
+alertcondition(bullishSetup, title="CRT Bullish Setup", message="CRT 3-Candle: phát hiện setup Bullish (Buy tại 50% nến Manipulation)")
+
+// ==============================================================================
+// VẼ PATTERN
+// ==============================================================================
+createPatternDraw(isBearish, c1BarIdx, c2BarIdx, c3BarIdx, crtHighV, crtLowV, entryV, col) =>
+    endBarIdx = c3BarIdx + lineExt
+    hLine = line.new(c1BarIdx, crtHighV, endBarIdx, crtHighV, xloc.bar_index, extend=extend.none, color=col, style=line.style_solid, width=2)
+    lLine = line.new(c1BarIdx, crtLowV, endBarIdx, crtLowV, xloc.bar_index, extend=extend.none, color=col, style=line.style_solid, width=2)
+    eLine = line.new(c2BarIdx, entryV, endBarIdx, entryV, xloc.bar_index, extend=extend.none, color=color.new(col, 40), style=line.style_dashed, width=1)
+    lbl   = label.new(c3BarIdx, isBearish ? crtHighV : crtLowV, isBearish ? "CRT Bearish" : "CRT Bullish",
+         style=isBearish ? label.style_label_down : label.style_label_up,
+         color=color.new(col, 85), textcolor=col, size=size.small)
+    bx = showCrtBox ? box.new(c1BarIdx, crtHighV, c3BarIdx, crtLowV, border_color=color.new(col, 60), bgcolor=color.new(col, 90)) : na
+    [hLine, lLine, eLine, lbl, bx]
+
+var line  crtHighLine = na
+var line  crtLowLine  = na
+var line  entryLine   = na
+var label dirLabel    = na
+var box   crtBox      = na
+
+// Theo dõi biên của pattern đang active, để kiểm tra "đóng cửa hẳn ra ngoài" mỗi bar
+var float activeCrtHigh = na
+var float activeCrtLow  = na
+var bool  patternActive = false
+
+// ==============================================================================
+// VÔ HIỆU HÓA PATTERN — XÁC NHẬN qua đối chiếu bản gốc (09/07): nếu có nến ĐÓNG CỬA
+// hẳn ra ngoài (vượt qua) CRT High hoặc CRT Low, pattern coi như không còn giá trị
+// (đã phá vỡ thật, không còn là manipulation/turtle soup nữa) -> xoá khỏi chart.
+// ==============================================================================
+invalidatedNow = patternActive and (close > activeCrtHigh or close < activeCrtLow)
+
+if invalidatedNow
+    if not na(crtHighLine)
+        line.delete(crtHighLine)
+    if not na(crtLowLine)
+        line.delete(crtLowLine)
+    if not na(entryLine)
+        line.delete(entryLine)
+    if not na(dirLabel)
+        label.delete(dirLabel)
+    if not na(crtBox)
+        box.delete(crtBox)
+    crtHighLine := na
+    crtLowLine  := na
+    entryLine   := na
+    dirLabel    := na
+    crtBox      := na
+    patternActive := false
+    activeCrtHigh := na
+    activeCrtLow  := na
+
+if bearishSetup or bullishSetup
+    if showOnlyLast
+        if not na(crtHighLine)
+            line.delete(crtHighLine)
+        if not na(crtLowLine)
+            line.delete(crtLowLine)
+        if not na(entryLine)
+            line.delete(entryLine)
+        if not na(dirLabel)
+            label.delete(dirLabel)
+        if not na(crtBox)
+            box.delete(crtBox)
+
+    col = bearishSetup ? bearColor : bullColor
+    [hLine, lLine, eLine, lbl, bx] = createPatternDraw(bearishSetup, bar_index[2], bar_index[1], bar_index, crtHigh, crtLow, entry50, col)
+    crtHighLine := hLine
+    crtLowLine  := lLine
+    entryLine   := eLine
+    dirLabel    := lbl
+    crtBox      := bx
+    patternActive := true
+    activeCrtHigh := crtHigh
+    activeCrtLow  := crtLow
+
+// ==============================================================================
+// CẬP NHẬT ĐỘ DÀI LINE/BOX MỖI BAR — line luôn vươn tới bar_index + lineExt
+// ==============================================================================
+if patternActive
+    if not na(crtHighLine)
+        line.set_x2(crtHighLine, bar_index + lineExt)
+    if not na(crtLowLine)
+        line.set_x2(crtLowLine, bar_index + lineExt)
+    if not na(entryLine)
+        line.set_x2(entryLine, bar_index + lineExt)
+    if not na(crtBox)
+        box.set_right(crtBox, bar_index)
