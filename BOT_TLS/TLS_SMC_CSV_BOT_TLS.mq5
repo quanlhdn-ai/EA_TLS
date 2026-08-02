@@ -1,7 +1,8 @@
 //+------------------------------------------------------------------+
-//|                                  TLS_SMC_CSV_BOT_HEDGING.mq5    |
+//|                                     TLS_SMC_CSV_BOT_TLS.mq5      |
 //|                    Base: TLS_SMC_CSV_BOT_TREND v5.0              |
-//|                    Add-on: Hedging Protection Module             |
+//|                    Add-on: Pool SL, Telegram Remote Control,     |
+//|                    Crash Recovery, Close-Retry Queue             |
 //+------------------------------------------------------------------+
 #property copyright "Jay Davis & anhtuan02t1"
 #property version   "1.0"
