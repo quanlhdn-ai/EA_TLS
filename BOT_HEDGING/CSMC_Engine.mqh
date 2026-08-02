@@ -129,6 +129,12 @@ public:
    double   current_bos_up_level;   // Swing high vừa bị phá lên (BOS Up / ChoCh Up)
    double   current_bos_dn_level;   // Swing low vừa bị phá xuống (BOS Down / ChoCh Down)
 
+   // Last Major High/Low: đỉnh/đáy Major Swing gần nhất, cố định theo điểm Swing vừa xác nhận,
+   // không bị "tắt" khi giá phá qua như current_maj_active_high/low (đồng bộ với đường hiển thị
+   // "Last Major High/Low" trên Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5).
+   double   current_maj_last_high, current_maj_last_low;
+   datetime current_maj_last_high_time, current_maj_last_low_time;
+
    void Init(string sym, ENUM_TIMEFRAMES tf, string prefix, bool isHTF, bool showMinor, bool showGraphics,
              color bZone, color sZone, color kLevel, color bUp, color bDn, color mbUp, color mbDn,
              int maj_swing, int min_swing, int max_zones, int max_bos, int max_mbos, bool showZone = true,
@@ -992,6 +998,8 @@ public:
       current_maj_active_low  = ActiveLow.isActive  ? ActiveLow.price  : 0;
       current_maj_confirmed_extreme_high = maj_confirmed_extreme_high;
       current_maj_confirmed_extreme_low  = maj_confirmed_extreme_low;
+      current_maj_last_high = last_maj_high; current_maj_last_high_time = last_maj_high_time;
+      current_maj_last_low  = last_maj_low;  current_maj_last_low_time  = last_maj_low_time;
 
       if(ArraySize(BuyZonesQueue) > 0)       { current_buy_zone_entry        = BuyZonesQueue[0].entryPrice;       current_buy_zone_sl        = BuyZonesQueue[0].stopPrice;       } else { current_buy_zone_entry        = 0; current_buy_zone_sl        = 0; }
       if(ArraySize(SellZonesQueue) > 0)      { current_sell_zone_entry       = SellZonesQueue[0].entryPrice;      current_sell_zone_sl       = SellZonesQueue[0].stopPrice;      } else { current_sell_zone_entry       = 0; current_sell_zone_sl       = 0; }

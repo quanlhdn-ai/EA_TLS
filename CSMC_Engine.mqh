@@ -129,6 +129,12 @@ public:
    double   current_bos_up_level;   // Swing high vừa bị phá lên (BOS Up / ChoCh Up)
    double   current_bos_dn_level;   // Swing low vừa bị phá xuống (BOS Down / ChoCh Down)
 
+   // Last Major High/Low: đỉnh/đáy Major Swing gần nhất, cố định theo điểm Swing vừa xác nhận,
+   // không bị "tắt" khi giá phá qua như current_maj_active_high/low (đồng bộ với đường hiển thị
+   // "Last Major High/Low" trên Combo_Structure_MajorSwing_HA_BOS_Zone_Anchor_forBotChart.mq5).
+   double   current_maj_last_high, current_maj_last_low;
+   datetime current_maj_last_high_time, current_maj_last_low_time;
+
    void Init(string sym, ENUM_TIMEFRAMES tf, string prefix, bool isHTF, bool showMinor, bool showGraphics,
              color bZone, color sZone, color kLevel, color bUp, color bDn, color mbUp, color mbDn,
              int maj_swing, int min_swing, int max_zones, int max_bos, int max_mbos, bool showZone = true,
@@ -257,6 +263,32 @@ public:
             if(prot_anchor_idx >= 0) prot_anchor_idx += shift;
             if(min_prot_breakout_idx >= 0) min_prot_breakout_idx += shift;
             if(min_prot_anchor_idx >= 0) min_prot_anchor_idx += shift;
+
+            // Clamp: bar quá cũ bị đẩy ra ngoài cửa sổ lịch sử m_max_bars sau shift → vô hiệu hóa
+            // để tránh "array out of range" crash (các index này sẽ được tính lại khi có BOS/ChoCh mới)
+            int mx = rates_total - 1;
+            if(ActiveHigh.idx > mx)      { ActiveHigh.idx = -1; ActiveHigh.isActive = false; }
+            if(ActiveLow.idx > mx)       { ActiveLow.idx = -1; ActiveLow.isActive = false; }
+            if(ActiveMinorHigh.idx > mx) { ActiveMinorHigh.idx = -1; ActiveMinorHigh.isActive = false; }
+            if(ActiveMinorLow.idx > mx)  { ActiveMinorLow.idx = -1; ActiveMinorLow.isActive = false; }
+            if(maj_prot_high_idx > mx)   { maj_prot_high_idx = -1; maj_prot_high = EMPTY_VALUE; }
+            if(maj_prot_low_idx > mx)    { maj_prot_low_idx = -1; maj_prot_low = EMPTY_VALUE; }
+            if(maj_extreme_high_idx > mx){ maj_extreme_high_idx = -1; maj_extreme_high = EMPTY_VALUE; }
+            if(maj_extreme_low_idx > mx) { maj_extreme_low_idx = -1; maj_extreme_low = EMPTY_VALUE; }
+            if(last_maj_high_idx > mx)   { last_maj_high_idx = -1; last_maj_high = EMPTY_VALUE; }
+            if(last_maj_low_idx > mx)    { last_maj_low_idx = -1; last_maj_low = EMPTY_VALUE; }
+            if(latest_break_up_idx > mx)   { latest_break_up_idx = -1; }
+            if(latest_break_down_idx > mx) { latest_break_down_idx = -1; }
+            if(min_prot_high_idx > mx)   { min_prot_high_idx = -1; min_prot_high = EMPTY_VALUE; }
+            if(min_prot_low_idx > mx)    { min_prot_low_idx = -1; min_prot_low = EMPTY_VALUE; }
+            if(min_extreme_high_idx > mx){ min_extreme_high_idx = -1; min_extreme_high = EMPTY_VALUE; }
+            if(min_extreme_low_idx > mx) { min_extreme_low_idx = -1; min_extreme_low = EMPTY_VALUE; }
+            if(last_min_high_idx > mx)   { last_min_high_idx = -1; last_min_high = EMPTY_VALUE; }
+            if(last_min_low_idx > mx)    { last_min_low_idx = -1; last_min_low = EMPTY_VALUE; }
+            if(prot_breakout_idx > mx || prot_anchor_idx > mx)
+               { prot_breakout_idx = -1; prot_anchor_idx = -1; pending_prot_high_update = false; pending_prot_low_update = false; }
+            if(min_prot_breakout_idx > mx || min_prot_anchor_idx > mx)
+               { min_prot_breakout_idx = -1; min_prot_anchor_idx = -1; min_pending_prot_high_update = false; min_pending_prot_low_update = false; }
 
             data_limit = rates_total - lookBack_max - 1;
          } else {
@@ -966,6 +998,8 @@ public:
       current_maj_active_low  = ActiveLow.isActive  ? ActiveLow.price  : 0;
       current_maj_confirmed_extreme_high = maj_confirmed_extreme_high;
       current_maj_confirmed_extreme_low  = maj_confirmed_extreme_low;
+      current_maj_last_high = last_maj_high; current_maj_last_high_time = last_maj_high_time;
+      current_maj_last_low  = last_maj_low;  current_maj_last_low_time  = last_maj_low_time;
 
       if(ArraySize(BuyZonesQueue) > 0)       { current_buy_zone_entry        = BuyZonesQueue[0].entryPrice;       current_buy_zone_sl        = BuyZonesQueue[0].stopPrice;       } else { current_buy_zone_entry        = 0; current_buy_zone_sl        = 0; }
       if(ArraySize(SellZonesQueue) > 0)      { current_sell_zone_entry       = SellZonesQueue[0].entryPrice;      current_sell_zone_sl       = SellZonesQueue[0].stopPrice;      } else { current_sell_zone_entry       = 0; current_sell_zone_sl       = 0; }
