@@ -72,6 +72,15 @@ Nhật ký 2026-08-02 — BOT_TLS
    kiểm tra riêng exness_trieudo*.set và chibao_fotbotchart.set — không có
    tham chiếu tên file indicator, không cần sửa.
 
+[Đổi tên bot]
+1. TLS_SMC_CSV_BOT_TLS.mq5 → TLS_SMC_CSV_Bot.mq5. Lý do: tên cũ lặp chữ
+   "TLS" 2 lần (đầu và cuối) do lần đổi tên trước chỉ thay "HEDGING" bằng
+   "TLS" mà không rút gọn lại toàn bộ. Chỉ có đúng 1 chỗ tự tham chiếu tên
+   trong file (header comment) — đã sửa; không file/bot nào khác tham chiếu
+   tới tên file này (khác với indicator, không cần sửa .set hay file nào
+   khác). An toàn tương tự lần đổi tên bot trước: GVKey() dùng prefix cứng
+   "TLSH_" + _Symbol, không phụ thuộc tên file.
+
 Nhật ký 2026-07-07 — BOT_HEDGING
 
 [CSMC_Engine.mqh]
