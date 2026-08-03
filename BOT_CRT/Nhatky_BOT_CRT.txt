@@ -1,3 +1,161 @@
+Nhật ký 2026-08-03/04 — BOT_CRT  (CRT_MultiTF_EA v1.05 -> v1.35)
+
+=====================================================================
+A. TÍNH NĂNG MỚI
+=====================================================================
+
+[Nguồn biên H4 — 2 nguồn chạy song song]  v1.06
+- Thêm đường "Last Major High/Low" của H4, đọc current_maj_last_high/low từ
+  CSMC_Engine (instance thứ 2 chạy trên khung H4). Khác với biên nến H4 liền
+  kề: chỉ đổi khi có điểm Major Swing mới, có thể giữ nguyên qua nhiều nến H4.
+- Refactor toàn bộ chuỗi quét râu -> arm -> disarm -> vào lệnh thành struct
+  SCRTSource, dùng chung cho 2 nguồn độc lập (magic riêng: LiềnKề = Magic,
+  Swing = Magic+1). Inp_EntrySource chọn: H4_LienKe / H4_Swing /
+  Ca2_LienKe_Va_Swing (chạy song song, KHÔNG loại trừ nhau, kể cả ngược hướng).
+- Hiển thị chart + dashboard đi theo Inp_EntrySource, không có toggle riêng —
+  tránh hiện cùng lúc 4 đường khi chỉ dùng 1 nguồn.  v1.07
+
+[Chế độ vào lệnh]  v1.30, v1.34
+- Inp_Entry_Mode: EntryMode_Market (khớp ngay) / EntryMode_LimitTaiH4 (chờ tại
+  biên H4) / EntryMode_LimitTaiZoneM1 (chờ tại mép Zone M1).
+- LÝ DO có mode thứ 3: LimitTaiH4 lấy giá = biên H4 vốn CỐ ĐỊNH, nên khi M1 có
+  nhiều BOS/CHOCH liên tiếp bot đặt nhiều lệnh CHỒNG NHAU cùng một giá (thực
+  tế backtest: 5 sell limit đều tại 4063.437) — vô nghĩa. Mép Zone M1 đổi theo
+  từng BOS/CHOCH nên các lệnh được rải ở giá khác nhau.
+- KÈM THEO: MaxZones của engine entry đổi 5 -> 1. Bắt buộc, vì hàng đợi zone
+  đẩy phần tử cũ nhất lên queue[0] mà current_*_zone_entry lại đọc queue[0];
+  giữ 5 zone thì biến đó trỏ vào zone CŨ NHẤT (BOT_TLS cũng dùng 1).
+
+[Chế độ đặt SL]  v1.29
+- Inp_SL_Mode: SLMode_RauQuet (SL = râu quét ± Inp_SL_BufferPips) /
+  SLMode_KhongDatSL (gửi SL=0 lên sàn, giao cắt lỗ cho Pool SL / Account SL /
+  Daily DD — tương đương Inp_No_SL của BOT_TLS).
+- SL "ảo" LUÔN được tính ở cả 2 chế độ vì còn dùng để tính lot theo risk %,
+  tính TP theo R:R và lọc Inp_MaxSL_Pips.
+- ĐỔI ĐƠN VỊ: Inp_SL_BufferPoints (point) -> Inp_SL_BufferPips (pip). Vàng
+  1 pip = $0.1 = 100 point, nên số cũ 20 point ($0.02) tương đương 0.2 pip.
+
+[Chế độ tính TP]  v1.21, v1.22
+- Inp_TP_Mode: TPMode_MidBienH4 (Middle/biên của ĐÚNG nguồn đã vào lệnh) /
+  TPMode_RR (entry + RR x khoảng SL) / TPMode_Pips (số pip cố định).
+- Quy đổi pip vàng: 1 pip = $0.1 = 100 x point. Broker này quote 3 chữ số thập
+  phân nhưng pip thực tế vẫn là $0.1 như broker 2 chữ số (đã xác nhận bằng
+  backtest: entry 4000.xxx + 50 pip = 4005.xxx).
+
+[Port cơ chế quản trị từ BOT_TLS]  v1.23
+- Hạn mức: Inp_MaxOrders_LienKe / Inp_MaxOrders_Swing (số lệnh mỗi VÒNG, reset
+  khi nhóm lệnh đóng hết) + Inp_MaxRoundsPerSignal (số vòng CÓ LÃI mỗi TÍN
+  HIỆU, reset khi có tín hiệu quét râu mới). Counter nằm trong SCRTSource nên
+  mỗi nguồn đếm riêng.
+- Inp_MaxSL_Pips: bỏ qua lệnh nếu SL quá xa.
+- Inp_MaxDistFromLine_Pips: giá chạy quá xa đường tín hiệu -> ngừng arming.
+- Inp_Pool_SL_Percent: tổng lỗ nhóm lệnh CÙNG HƯỚNG (gộp cả 2 nguồn) chạm
+  ngưỡng thì đóng cả nhóm, nhóm ngược hướng vẫn chạy.
+- SHIELD: Inp_UseMarginLimit/MaxMarginPercent (cắt lot theo margin),
+  DailyDrawdownLimit / DailyProfitLimit (mốc balance ĐẦU NGÀY, tự reset mỗi
+  ngày — khác Inp_AccountSL_Percent vốn tính từ balance lúc khởi động EA),
+  AutoPassTarget, NewsTimes/NewsBufferMinutes.
+- Inp_UseRiskPercent + Inp_FixedLotSize: vol theo % tài khoản hay lot cố định.
+  Đổi hành vi: risk/margin không đủ cho lot tối thiểu thì BỎ lệnh (return 0)
+  thay vì ép vào lot min — giống BOT_TLS.
+- Inp_MaxSpreadPoints: chặn vào lệnh khi spread giãn. KHÔNG đánh dấu break đã
+  act khi bị chặn, để bar sau tự thử lại.  v1.16
+
+[Telegram]  v1.23
+- Dùng chung Telegram_Radar.mqh với BOT_TLS (copy nguyên xi, MD5 khớp 100%).
+- Chế độ CHỈ THEO DÕI (Inp_EnableTrading=false): chỉ gửi NotifySignal khi quét
+  râu xác nhận, kèm ảnh chart, ghi đủ biên/râu quét/SL dự kiến để vào tay.
+- Chế độ VÀO LỆNH: thêm NotifyOrderPlaced (lệnh đã khớp/đặt chờ),
+  OnTradeTransaction (lệnh đóng), cảnh báo Pool SL / Shield.
+- Đã điền sẵn token + ChatID channel -1003976929485, Inp_EnableTelegram=true.
+  LƯU Ý BẢO MẬT: token nằm trong source, mà EA_TLS/ là git repo — không push
+  lên remote công khai.
+
+=====================================================================
+B. LỖI ĐÃ VÁ
+=====================================================================
+
+[v1.25] Cấu trúc hạn mức SAI CẤP BẬC (bản 1.23)
+  Cả 2 counter đều gắn vào "tín hiệu" nên chồng lấn — đốt hết quota lệnh trong
+  vòng 1 là không bao giờ sang được vòng 2. Sửa thành đúng cấp bậc:
+  1 tín hiệu -> nhiều vòng -> mỗi vòng nhiều lệnh (giống BOT_TLS).
+
+[v1.27] Inp_MaxTrades chồng lấn với hạn mức số lệnh mỗi vòng
+  Vòng chỉ kết thúc khi ĐÓNG HẾT lệnh, nên số lệnh mở cùng lúc vốn đã không
+  thể vượt hạn mức mỗi vòng -> 2 input Inp_MaxTrades/Inp_MaxTrades_LastMajor
+  là thừa, đã bỏ. CẢNH BÁO: đặt Inp_MaxOrders_* = 0 giờ nghĩa là KHÔNG còn
+  trần nào cho số lệnh mở cùng lúc — nên luôn đặt số cụ thể.
+
+[v1.35] (a) Setup CRT đã chết mà bot vẫn nhồi lệnh
+  Giá quét râu dưới rồi QUAY ĐẦU thủng xuống dưới H4 Low: CheckDisarmSource chỉ
+  hủy arm khi chạm biên ĐỐI DIỆN (H4 High) — thủng xuống là cùng phía nên không
+  kích hoạt. Chốt duy nhất là Inp_MaxDistFromLine_Pips = 100 pip = $10, quá
+  rộng: giá thủng biên gần $10 mà bot vẫn mua tiếp mỗi lần M1 có BOS up.
+  VÁ: thêm luật hủy arm khi nến LTF đóng vượt ngược qua mốc râu quét (BUY: đóng
+  dưới sweptLow). Đặt ở ĐẦU ProcessSourceSweep, trước phần dò quét, để cùng cây
+  nến đó vẫn mở được cụm quét MỚI.
+
+[v1.35] (b) Lệnh có SL nằm SAI PHÍA entry vẫn lọt
+  slDist dùng MathAbs() nên khi giá đã rơi dưới sweptLow, lệnh BUY có sl > entry
+  vẫn qua được filter MaxSL_Pips và tính lot từ khoảng cách vô nghĩa. Với
+  SLMode_RauQuet sàn trả lỗi 130, nhưng với SLMode_KhongDatSL (slOrder=0) thì
+  LỆNH VÀO THẬT với rủi ro đảo ngược. VÁ: chặn ở ExecuteEntry.
+
+=====================================================================
+C. DỌN GIAO DIỆN / INPUT
+=====================================================================
+
+- v1.08-v1.13: gom toàn bộ màu / độ dày / kiểu nét / vị trí dashboard / các
+  toggle Label thành const cố định, không hiện trên màn hình Input. Muốn đổi
+  phải sửa code + compile lại.
+- v1.14: sắp xếp lại nhóm Input theo ưu tiên: (1) VẬN HÀNH (Bot/Risk/TP),
+  (2) tham số theo khung H4 -> M15 -> M1, (3) HIỂN THỊ (ít đụng đến).
+- v1.17-v1.20: đổi tên enum cho dễ hiểu (CRT_SRC_ADJACENT -> H4_LienKe,
+  CRT_TP_MIDDLE -> TP_Middle...). Lưu ý: tên enum trong MQL5 KHÔNG thể có dấu
+  tiếng Việt hay khoảng trắng — đó là giới hạn ngôn ngữ, không phải lựa chọn.
+- v1.24: rút gọn mô tả input cho vừa cột hiển thị của MT5.
+- v1.31-v1.32: ẩn Inp_Slippage khỏi Input -> const SLIPPAGE_POINTS = 300
+  ($0.30 vàng). Lý do: dễ nhầm với bộ lọc spread, và trên tài khoản Market
+  Execution thì server BỎ QUA nên chỉnh cũng không đổi gì. CẢNH BÁO cho người
+  sửa sau: KHÔNG được xoá dòng SetDeviationInPoints() — CTrade mặc định 10
+  point, chặt hơn nhiều, xoá đi sẽ bị từ chối khớp NHIỀU hơn.
+  LỆCH VỚI BOT_TLS: TLS vẫn để Inp_Slippage_Points = 30 dạng input (cố ý).
+- v1.33: Inp_ShowStructure giờ CHỈ vẽ đường BOS/CHOCH. Trước đây cờ showGraphics
+  của CSMC_Engine kéo theo cả ray "LTF Protected/Active High-Low" và "LTF Major
+  Key Level". Vì engine là file DÙNG CHUNG nên KHÔNG sửa engine để tách cờ;
+  thay vào đó hàm StripNonBosObjects() xoá 6 object đó ngay sau mỗi Update().
+
+=====================================================================
+D. FILE .SET
+=====================================================================
+
+- CRT_MultiTF_EA.set được tạo lại nhiều lần cho khớp code (UTF-16LE, 45 input).
+- Giá trị mặc định TRONG CODE đã đồng bộ theo .set người dùng lưu, để mỗi lần
+  cập nhật code không phải set tay lại: EntrySource=Ca2_LienKe_Va_Swing,
+  MaxSpreadPoints=15, UseRiskPercent=false, FixedLotSize=0.1,
+  AccountSL_Percent=0, SL_BufferPips=0, TP_Mode=TPMode_Pips, MaxSL_Pips=200,
+  MaxMarginPercent=30, HTF_SwingMajor/Minor=1, EntrySwingMajor/Minor=9.
+- QUY TẮC: mỗi lần đổi default trong code phải cập nhật cả .set (hoặc ngược
+  lại), nếu không bấm Load .set cũ sẽ ghi đè ngược giá trị trong code.
+
+=====================================================================
+E. GHI CHÚ VẬN HÀNH
+=====================================================================
+
+- CẦN COPY vào <MT5 data folder>/MQL5/Include/: CSMC_Engine.mqh VÀ
+  Telegram_Radar.mqh (bot #include bằng <> nên tìm ở Include, không phải cùng
+  thư mục .mq5).
+- Cho phép WebRequest tới https://api.telegram.org, và bot Telegram phải là
+  ADMIN của channel (-100...) mới post được.
+- Trong Strategy Tester, ChartScreenShot() thường thất bại -> Telegram tự lùi
+  về gửi text không kèm ảnh. Đó là hành vi dự phòng có chủ đích.
+- Inp_HTF_SwingMajor = 1: mọi đỉnh/đáy cục bộ H4 đều thành Major Swing, nên 2
+  đường Last Major nhảy rất thường xuyên; mỗi lần nhảy sẽ reset trạng thái quét
+  râu + hủy arm của nguồn Swing. Nếu thấy nguồn Swing ít vào lệnh, kiểm tra
+  tham số này trước.
+
+=====================================================================
+
 Nhật ký 2026-08-02 — BOT_CRT
 
 [CSMC_Engine.mqh]
