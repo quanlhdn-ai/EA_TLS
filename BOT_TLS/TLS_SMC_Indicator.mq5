@@ -40,54 +40,48 @@
 #property indicator_type17  DRAW_NONE
 #property indicator_type18  DRAW_NONE
 
-input group "--- Cài đặt hiển thị (Hiện/Ẩn từng đối tượng) ---"
-input bool  ShowMajorSwingPoints  = true;        // Major Swing High/Low
-input bool  ShowEMALine           = true;        // Đường EMA
-input bool  ShowHACandles         = true;        // Nến Heikin Ashi
-input bool  ShowMajorBOS          = true;        // Đường BOS (Major)
-input bool  ShowMajorCHOCH        = true;        // Đường CHOCH (Major)
-input bool  ShowKeyLevel          = true;        // Đường Key Level (Major)
-input bool  ShowSDZones           = true;        // Vùng Supply/Demand Zone (Major)
-input bool  ShowMinorSwingPoints  = true;        // Minor Swing High/Low
-input bool  ShowMinorBOSCHOCH     = true;        // Đường mBOS/mCHOCH (Minor)
-input bool  ShowTrackingLines     = true;        // Đường Tracking (Active High/Low)
-input bool  ShowWeakHighLow       = true;        // Đường Weak High/Low
-input bool  ShowLastMajorHighLow  = true;        // Đường mốc Đỉnh/Đáy Major gần nhất (cố định, không đổi theo BOS/CHOCH)
+input group "--- Hiển thị Major (Hiện/Ẩn) ---"
+input bool  ShowEMALine           = true;        // Major_Đường EMA (21)
+input bool  ShowHACandles         = true;        // Major_Nến Heikin Ashi
+input bool  ShowMajorSwingPoints  = true;        // Major_Điểm Swing High/Low
+input bool  ShowMajorBOS          = true;        // Major_Đường BOS
+input bool  ShowMajorCHOCH        = true;        // Major_Đường CHOCH
+input bool  ShowKeyLevel          = true;        // Major_Đường Key Level
+input bool  ShowSDZones           = true;        // Major_Vùng Supply/Demand Zone
+input bool  ShowTrackingLines     = true;        // Major_Đường Tracking (Active High/Low)
+input bool  ShowWeakHighLow       = true;        // Major_Đường Weak High/Low
+input bool  ShowLastMajorHighLow  = false;       // Major_Đường mốc Đỉnh/Đáy gần nhất
 
-input group "--- Major Swing Settings ---"
-input color MajorSwingColor       = C'80,80,80';
-input int   MajorSwingSize        = 5;
-input int   PeriodsInMajorSwing   = 9;
+input group "--- Hiển thị Minor (Hiện/Ẩn) ---"
+input bool  ShowMinorSwingPoints  = true;        // Minor_Điểm Swing High/Low
+input bool  ShowMinorBOSCHOCH     = true;        // Minor_Đường BOS/CHOCH
 
-input group "--- Structure Tracking Graphics (RAY) ---"
-input color TrackingLineColor     = clrMagenta;
-input color LastMajorLineColor    = clrBlue;     // Màu đường mốc Đỉnh/Đáy Major gần nhất
+input group "--- Swing Settings (Major & Minor) ---"
+input int   PeriodsInMajorSwing   = 9;           // Số nến Swing Major
+input int   PeriodsInMinorSwing   = 5;           // Số nến Swing Minor
 
-input group "--- Structure Settings (BOS/CHOCH) ---"
-input int   MaxBOSLines           = 5;
-input color BOS_Up_Color          = clrDodgerBlue;
-input color BOS_Down_Color        = clrRed;
-input color KeyLevel_Color        = clrOrange;
-
-input group "--- SD Zone Settings ---"
-input int   MaxZones              = 1;
-input color BuyZoneColor          = C'190,235,210';
-input color SellZoneColor         = C'255,200,200';
-
-input group "--- Minor Swing Settings (Trigger) ---"
-input int   PeriodsInMinorSwing   = 5;
-input int   MinorSwingSize        = 1;          
-input int   MaxMinorBOSLines      = 3;          
-input color Minor_BOS_Up_Color    = C'120,220,220'; 
-input color Minor_BOS_Down_Color  = C'255,180,180'; 
-
-input group "--- Moving Average ---"
-input int   MovingAveragePeriods  = 21;
-input color MovingAvergeColor     = C'80,80,80';
-
-input group "--- Heiken Ashi (TV Colors) ---"
-input color InpBullColor          = C'8,153,129'; 
-input color InpBearColor          = C'242,54,69'; 
+// --- Cố định (gỡ khỏi Inputs cho gọn, giữ nguyên giá trị mặc định cũ) ---
+// Lưu ý: MovingAveragePeriods đổi giá trị thì phải sửa luôn số "(21)" trong
+// comment của ShowEMALine ở trên cho khớp (không tự động liên kết được).
+const int   MaxBOSLines           = 5;
+const int   MaxMinorBOSLines      = 3;
+const int   MaxZones              = 1;
+const int   MovingAveragePeriods  = 21;
+const color MajorSwingColor       = C'80,80,80';
+const int   MajorSwingSize        = 5;
+const color TrackingLineColor     = clrMagenta;
+const color LastMajorLineColor    = clrBlue;
+const color BOS_Up_Color          = clrDodgerBlue;
+const color BOS_Down_Color        = clrRed;
+const color KeyLevel_Color        = clrOrange;
+const color BuyZoneColor          = C'190,235,210';
+const color SellZoneColor         = C'255,200,200';
+const int   MinorSwingSize        = 1;
+const color Minor_BOS_Up_Color    = C'120,220,220';
+const color Minor_BOS_Down_Color  = C'255,180,180';
+const color MovingAvergeColor     = C'80,80,80';
+const color InpBullColor          = C'8,153,129';
+const color InpBearColor          = C'242,54,69';
 
 double majorSwingHigh[], majorSwingLow[], EMA_Buffer[];
 double HAOpen[], HAHigh[], HALow[], HAClose[], HAColor[];
