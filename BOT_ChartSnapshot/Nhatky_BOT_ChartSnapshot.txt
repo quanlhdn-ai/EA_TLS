@@ -1,3 +1,35 @@
+Nhật ký 2026-08-06 — BOT_ChartSnapshot
+
+[Combo_Structure_ChartSnapshot_Bot.mq5]
+1. Thêm input Inp_EnabledTF (group "Timeframe Filter") — danh sách TF (vd
+   "M5,H4") bot này được phép lấy chart/phản hồi lệnh /chart_xx; để trống =
+   tất cả 7 TF như cũ. Lý do: khi tích hợp cho 1 bot giao dịch chỉ chạy 2 TF
+   (vd H4+M5), bot Chart không cần mở/giữ chart cho các TF không dùng.
+2. Thêm BuildEnabledTFList() (parse Inp_EnabledTF, chuẩn hoá + loại trùng),
+   IsTFEnabled(), và dựng lại bàn phím Telegram + nội dung /help động
+   (BuildKeyboardJson(), SendHelp()) — chỉ hiện nút của các TF đang bật,
+   thay cho hằng số KEYBOARD_JSON cố định 7 nút như trước.
+3. ProcessCommand(): lệnh /chart_xx không nằm trong Inp_EnabledTF bị từ
+   chối kèm cảnh báo, không còn mở chart.
+4. Sửa comment mô tả Inp_ChatID: "Group đã được Telegram nâng cấp..." →
+   "Group Telegram đã được nâng cấp..." (theo yêu cầu, khôi phục thứ tự
+   chữ như bản gốc).
+5. Rút gọn mô tả input Inp_EnabledTF — bản đầy đủ quá dài, MT5 Inputs
+   dialog không hiển thị hết được.
+6. Thêm tính năng Zone Alert (input Inp_EnableZoneAlert, mặc định bật):
+   mỗi 3s (trong OnTimer, dùng chung timer với poll Telegram), với từng TF
+   trong Inp_EnabledTF, đọc buffer 18/19 (Buy Zone Entry/SL) và 20/21 (Sell
+   Zone SL/Entry) của TLS_SMC_Indicator qua handle iCustom riêng
+   (GetOrCreateZoneHandle — KHÔNG mở chart, chỉ CopyBuffer, nhẹ hơn nhiều
+   so với luồng chụp ảnh vốn phải ChartOpen). Khi giá Bid nằm trong khoảng
+   [min(Entry,SL), max(Entry,SL)] lần đầu tiên kể từ khi Zone đó hình
+   thành, gửi Telegram "Chạm Zone Buy/Sell <TF>". Trạng thái theo dõi
+   (g_zone_buy/sell_entry/stop/alerted[]) song song index với
+   g_enabled_tf, tự reset cờ đã báo khi Zone đổi hoặc bị xoá (tránh spam
+   mỗi lần timer chạy trong lúc giá còn nằm trong Zone).
+7. Giải phóng handle Zone (ReleaseZoneHandles(), IndicatorRelease) trong
+   OnDeinit — các chart chụp ảnh vẫn giữ nguyên như quy ước cũ (không đóng).
+
 Nhật ký 2026-08-02 — BOT_ChartSnapshot
 
 [TLS_SMC_Indicator.mq5 — TÊN HIỆN TẠI (đã đổi tên trong ngày hôm nay, xem

@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                          Combo_Structure_ChartSnapshot_Bot.mq5   |
-//| Mục đích duy nhất: gửi ảnh chụp chart (kèm chỉ báo Combo_Structure|
-//| _MajorSwing_HA_BOS_Zone_Anchor) về Telegram theo lệnh /chart_XX  |
-//| (M1/M5/M15/M30/H1/H4/D). Bot này KHÔNG đặt lệnh, KHÔNG quản lý   |
-//| vị thế — chỉ lấy chart.                                          |
+//| Mục đích: gửi ảnh chụp chart (kèm chỉ báo TLS_SMC_Indicator) về  |
+//| Telegram theo lệnh /chart_XX, và tự động báo khi giá chạm Zone   |
+//| Buy/Sell (Inp_EnableZoneAlert). Bot này KHÔNG đặt lệnh, KHÔNG    |
+//| quản lý vị thế.                                                  |
 //|                                                                   |
 //| Lưu ý kiến trúc: KHÔNG đổi timeframe của chart đang chạy EA này, |
 //| vì MT5 sẽ coi đó là đổi timeframe thủ công và tự unload/reload   |
@@ -20,7 +20,7 @@ CTelegramChartBot Radar;
 
 input group "--- Telegram Settings ---"
 input string Inp_BotToken      = "8953133302:AAHnKSoe-PRHItjGb1MTugmBroeru3Ip0ds";
-input string Inp_ChatID        = "-1004485122634"; // Group đã được Telegram nâng cấp thành supergroup -> chat_id cũ "-5499770162" không còn dùng được
+input string Inp_ChatID        = "-1004485122634"; // Group Telegram đã được nâng cấp thành supergroup -> chat_id cũ "-5499770162" không còn dùng được
 
 input group "--- Indicator Settings ---"
 // Tên file indicator tính theo thư mục MQL5\Indicators\ (KHÔNG kèm đuôi .ex5)
@@ -31,6 +31,12 @@ input int    Inp_ScreenshotWidth  = 1280;
 input int    Inp_ScreenshotHeight = 720;
 input int    Inp_ChartReadyWaitMs = 3000; // thời gian tối đa chờ nạp dữ liệu khi mở chart mới
 
+input group "--- Timeframe Filter ---"
+input string Inp_EnabledTF = "M1,M5,M15,M30,H1,H4,D1"; // TF được phép lấy chart (vd "M5,H4"). Trống = tất cả
+
+input group "--- Zone Alert Settings ---"
+input bool   Inp_EnableZoneAlert = true; // Tự động báo Telegram khi giá chạm Zone Buy/Sell (áp dụng cho các TF trong Inp_EnabledTF)
+
 // ==================================================================
 // STATE
 // ==================================================================
@@ -40,6 +46,26 @@ ulong g_tg_last_poll_ms   = 0;
 // Cache: 1 chart riêng cho mỗi timeframe, mở 1 lần và giữ nguyên
 ENUM_TIMEFRAMES g_cache_tf[];
 long            g_cache_chart_id[];
+
+// Danh sách TF được bật (parse từ Inp_EnabledTF) + bàn phím Telegram dựng theo đó
+ENUM_TIMEFRAMES g_enabled_tf[];
+string          g_enabled_label[];
+string          g_keyboard_json;
+
+// Handle indicator riêng cho Zone Alert — chỉ để CopyBuffer, KHÔNG cần mở chart
+// (khác với g_cache_chart_id vốn phải mở chart thật để chụp ảnh).
+ENUM_TIMEFRAMES g_zone_handle_tf[];
+int             g_zone_handle[];
+
+// Trạng thái Zone theo từng phần tử của g_enabled_tf (song song index) — lưu Entry/SL
+// của Zone hiện tại để phát hiện khi Zone đổi (reset cờ đã báo) và cờ "đã báo" để
+// mỗi Zone chỉ báo 1 lần, tránh spam Telegram mỗi khi timer chạy trong lúc giá còn nằm trong Zone.
+bool   g_zone_buy_alerted[];
+double g_zone_buy_entry[];
+double g_zone_buy_stop[];
+bool   g_zone_sell_alerted[];
+double g_zone_sell_entry[];
+double g_zone_sell_stop[];
 
 // ==================================================================
 // CHART / INDICATOR HELPERS
@@ -144,6 +170,184 @@ bool MapCommandToTF(string cmd, ENUM_TIMEFRAMES &tf, string &label) {
    return false;
 }
 
+// ==================================================================
+// TIMEFRAME FILTER (Inp_EnabledTF)
+// ==================================================================
+bool LabelToTF(string label, ENUM_TIMEFRAMES &tf) {
+   if(label == "M1")  { tf = PERIOD_M1;  return true; }
+   if(label == "M5")  { tf = PERIOD_M5;  return true; }
+   if(label == "M15") { tf = PERIOD_M15; return true; }
+   if(label == "M30") { tf = PERIOD_M30; return true; }
+   if(label == "H1")  { tf = PERIOD_H1;  return true; }
+   if(label == "H4")  { tf = PERIOD_H4;  return true; }
+   if(label == "D" || label == "D1") { tf = PERIOD_D1; return true; }
+   return false;
+}
+
+// Parse Inp_EnabledTF ("M5,H4") -> g_enabled_tf[]/g_enabled_label[]. Rỗng = cho phép tất cả
+// (giữ hành vi cũ cho các bot chưa cấu hình input này).
+void BuildEnabledTFList() {
+   ArrayFree(g_enabled_tf);
+   ArrayFree(g_enabled_label);
+
+   string src = Inp_EnabledTF;
+   StringTrimLeft(src);
+   StringTrimRight(src);
+   if(src == "") src = "M1,M5,M15,M30,H1,H4,D1";
+
+   string parts[];
+   int n = StringSplit(src, ',', parts);
+   for(int i = 0; i < n; i++) {
+      string tok = parts[i];
+      StringTrimLeft(tok);
+      StringTrimRight(tok);
+      StringToUpper(tok);
+      if(tok == "") continue;
+
+      ENUM_TIMEFRAMES tf;
+      if(!LabelToTF(tok, tf)) {
+         Print("[ChartSnapshotBot] Bỏ qua TF không hợp lệ trong Inp_EnabledTF: '", tok, "'");
+         continue;
+      }
+      string label = (tok == "D") ? "D1" : tok;
+
+      bool dup = false;
+      for(int j = 0; j < ArraySize(g_enabled_tf); j++) if(g_enabled_tf[j] == tf) { dup = true; break; }
+      if(dup) continue;
+
+      int m = ArraySize(g_enabled_tf);
+      ArrayResize(g_enabled_tf, m + 1);
+      ArrayResize(g_enabled_label, m + 1);
+      g_enabled_tf[m]    = tf;
+      g_enabled_label[m] = label;
+   }
+
+   if(ArraySize(g_enabled_tf) == 0)
+      Print("[ChartSnapshotBot] CẢNH BÁO: Inp_EnabledTF không có TF hợp lệ nào — bot sẽ không phản hồi lệnh /chart_xx nào.");
+
+   // Zone Alert dùng chung danh sách TF này — reset trạng thái theo dõi song song với g_enabled_tf.
+   int cnt = ArraySize(g_enabled_tf);
+   ArrayResize(g_zone_buy_alerted, cnt);  ArrayResize(g_zone_buy_entry, cnt);  ArrayResize(g_zone_buy_stop, cnt);
+   ArrayResize(g_zone_sell_alerted, cnt); ArrayResize(g_zone_sell_entry, cnt); ArrayResize(g_zone_sell_stop, cnt);
+   for(int i = 0; i < cnt; i++) {
+      g_zone_buy_alerted[i]  = false; g_zone_buy_entry[i]  = EMPTY_VALUE; g_zone_buy_stop[i]  = EMPTY_VALUE;
+      g_zone_sell_alerted[i] = false; g_zone_sell_entry[i] = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE;
+   }
+}
+
+// ==================================================================
+// ZONE ALERT (báo Telegram khi giá chạm Zone Buy/Sell của Combo_Structure)
+// ==================================================================
+// Handle riêng, không mở chart — CopyBuffer đọc được giá trị buffer bất kể chart
+// có tồn tại hay không, nên không cần trả giá tài nguyên của việc mở cả cửa sổ chart.
+int GetOrCreateZoneHandle(ENUM_TIMEFRAMES tf) {
+   for(int i = 0; i < ArraySize(g_zone_handle_tf); i++)
+      if(g_zone_handle_tf[i] == tf) return g_zone_handle[i];
+
+   int handle = iCustom(_Symbol, tf, Inp_IndicatorPath);
+   if(handle == INVALID_HANDLE) {
+      Print("[ChartSnapshotBot] Không tạo được handle Zone cho khung ", EnumToString(tf), " | Error: ", GetLastError());
+      return INVALID_HANDLE;
+   }
+   int n = ArraySize(g_zone_handle_tf);
+   ArrayResize(g_zone_handle_tf, n + 1);
+   ArrayResize(g_zone_handle, n + 1);
+   g_zone_handle_tf[n] = tf;
+   g_zone_handle[n]    = handle;
+   return handle;
+}
+
+void ReleaseZoneHandles() {
+   for(int i = 0; i < ArraySize(g_zone_handle); i++)
+      if(g_zone_handle[i] != INVALID_HANDLE) IndicatorRelease(g_zone_handle[i]);
+   ArrayFree(g_zone_handle_tf);
+   ArrayFree(g_zone_handle);
+}
+
+// Buffer 18/19 = Buy Zone Entry/SL, buffer 20/21 = Sell Zone SL/Entry (xem SetIndexBuffer
+// trong TLS_SMC_Indicator.mq5). "Chạm Zone" = giá nằm trong khoảng [min(Entry,SL), max(Entry,SL)].
+void CheckZoneTouches() {
+   if(!Inp_EnableZoneAlert) return;
+
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double buf[1];
+
+   for(int i = 0; i < ArraySize(g_enabled_tf); i++) {
+      int handle = GetOrCreateZoneHandle(g_enabled_tf[i]);
+      if(handle == INVALID_HANDLE) continue;
+
+      double buyEntry = EMPTY_VALUE, buyStop = EMPTY_VALUE, sellStop = EMPTY_VALUE, sellEntry = EMPTY_VALUE;
+      if(CopyBuffer(handle, 18, 0, 1, buf) > 0) buyEntry  = buf[0];
+      if(CopyBuffer(handle, 19, 0, 1, buf) > 0) buyStop   = buf[0];
+      if(CopyBuffer(handle, 20, 0, 1, buf) > 0) sellStop  = buf[0];
+      if(CopyBuffer(handle, 21, 0, 1, buf) > 0) sellEntry = buf[0];
+
+      // Buy zone
+      if(buyEntry != EMPTY_VALUE && buyStop != EMPTY_VALUE) {
+         if(g_zone_buy_entry[i] != buyEntry || g_zone_buy_stop[i] != buyStop) {
+            // Zone đổi (mới hình thành) -> reset cờ để cho phép báo lại lần chạm đầu tiên của Zone mới.
+            g_zone_buy_entry[i] = buyEntry; g_zone_buy_stop[i] = buyStop; g_zone_buy_alerted[i] = false;
+         }
+         double lo = MathMin(buyEntry, buyStop), hi = MathMax(buyEntry, buyStop);
+         if(!g_zone_buy_alerted[i] && bid >= lo && bid <= hi) {
+            Radar.SendMessage("🔔 <b>Chạm Zone Buy " + g_enabled_label[i] + "</b> — " + _Symbol
+                             + "\nGiá: " + DoubleToString(bid, _Digits));
+            g_zone_buy_alerted[i] = true;
+         }
+      } else {
+         g_zone_buy_entry[i] = EMPTY_VALUE; g_zone_buy_stop[i] = EMPTY_VALUE; g_zone_buy_alerted[i] = false;
+      }
+
+      // Sell zone
+      if(sellEntry != EMPTY_VALUE && sellStop != EMPTY_VALUE) {
+         if(g_zone_sell_entry[i] != sellEntry || g_zone_sell_stop[i] != sellStop) {
+            g_zone_sell_entry[i] = sellEntry; g_zone_sell_stop[i] = sellStop; g_zone_sell_alerted[i] = false;
+         }
+         double lo = MathMin(sellEntry, sellStop), hi = MathMax(sellEntry, sellStop);
+         if(!g_zone_sell_alerted[i] && bid >= lo && bid <= hi) {
+            Radar.SendMessage("🔔 <b>Chạm Zone Sell " + g_enabled_label[i] + "</b> — " + _Symbol
+                             + "\nGiá: " + DoubleToString(bid, _Digits));
+            g_zone_sell_alerted[i] = true;
+         }
+      } else {
+         g_zone_sell_entry[i] = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE; g_zone_sell_alerted[i] = false;
+      }
+   }
+}
+
+bool IsTFEnabled(ENUM_TIMEFRAMES tf) {
+   for(int i = 0; i < ArraySize(g_enabled_tf); i++) if(g_enabled_tf[i] == tf) return true;
+   return false;
+}
+
+// Dựng bàn phím custom + tối đa 4 nút/hàng, chỉ gồm các TF đang bật.
+string BuildKeyboardJson() {
+   int n = ArraySize(g_enabled_label);
+   string json = "{\"keyboard\":[";
+   if(n == 0) {
+      json += "[\"/help\"]";
+   } else {
+      int per_row = 4;
+      int i = 0;
+      bool first_row = true;
+      while(i < n) {
+         if(!first_row) json += ",";
+         json += "[";
+         int row_end = MathMin(i + per_row, n);
+         for(int k = i; k < row_end; k++) {
+            if(k > i) json += ",";
+            json += "\"/chart_" + g_enabled_label[k] + "\"";
+         }
+         json += "]";
+         first_row = false;
+         i = row_end;
+      }
+      json += ",[\"/help\"]";
+   }
+   json += "],\"resize_keyboard\":true,\"is_persistent\":true}";
+   return json;
+}
+
 void SendChartForTF(ENUM_TIMEFRAMES tf, string label) {
    long chart_id = GetOrCreateChartForTF(tf);
    if(chart_id == 0) {
@@ -158,19 +362,16 @@ void SendChartForTF(ENUM_TIMEFRAMES tf, string label) {
    Radar.SendPhoto(chart_id, caption, Inp_ScreenshotWidth, Inp_ScreenshotHeight);
 }
 
-// Custom keyboard: hiện sẵn nút bấm dưới khung chat, bấm là gửi đúng lệnh — khỏi gõ tay.
-const string KEYBOARD_JSON =
-   "{\"keyboard\":["
-   "[\"/chart_M1\",\"/chart_M5\",\"/chart_M15\",\"/chart_M30\"],"
-   "[\"/chart_H1\",\"/chart_H4\",\"/chart_D\",\"/help\"]"
-   "],\"resize_keyboard\":true,\"is_persistent\":true}";
+// Bàn phím custom (nút bấm dưới khung chat) — dựng động theo Inp_EnabledTF
+// lúc OnInit, lưu vào g_keyboard_json, chỉ hiện nút của các TF bot này hỗ trợ.
 
 void SendHelp() {
-   Radar.SendMessage(
-      "📋 <b>Lệnh lấy chart:</b>\n"
-      "/chart_M1\n/chart_M5\n/chart_M15\n/chart_M30\n/chart_H1\n/chart_H4\n/chart_D"
-      , KEYBOARD_JSON
-   );
+   string txt = "📋 <b>Lệnh lấy chart:</b>\n";
+   int n = ArraySize(g_enabled_label);
+   if(n == 0) txt += "(Chưa có TF nào được bật — kiểm tra input Inp_EnabledTF)";
+   else for(int i = 0; i < n; i++) txt += "/chart_" + g_enabled_label[i] + "\n";
+
+   Radar.SendMessage(txt, g_keyboard_json);
 }
 
 void ProcessCommand(string cmd) {
@@ -179,7 +380,14 @@ void ProcessCommand(string cmd) {
    StringToLower(cmd);
 
    ENUM_TIMEFRAMES tf; string label;
-   if(MapCommandToTF(cmd, tf, label)) { SendChartForTF(tf, label); return; }
+   if(MapCommandToTF(cmd, tf, label)) {
+      if(!IsTFEnabled(tf)) {
+         Radar.SendMessage("⚠️ Bot này không hỗ trợ khung " + label + " (xem input Inp_EnabledTF).");
+         return;
+      }
+      SendChartForTF(tf, label);
+      return;
+   }
 
    if(cmd == "/start" || cmd == "/help") SendHelp();
 }
@@ -276,14 +484,17 @@ void SkipPendingTelegramUpdates() {
 
 int OnInit() {
    Radar.Init(Inp_BotToken, Inp_ChatID);
+   BuildEnabledTFList();
+   g_keyboard_json = BuildKeyboardJson();
    SkipPendingTelegramUpdates();
    EventSetTimer(3);
-   Radar.SendMessage("🟢 <b>Chart Snapshot Bot đã khởi động</b>\n" + _Symbol + " | Chỉ dùng để lấy chart, không giao dịch.\nBấm nút bên dưới để chọn khung thời gian.", KEYBOARD_JSON);
+   Radar.SendMessage("🟢 <b>Chart Snapshot Bot đã khởi động</b>\n" + _Symbol + " | Chỉ dùng để lấy chart, không giao dịch.\nBấm nút bên dưới để chọn khung thời gian.", g_keyboard_json);
    return(INIT_SUCCEEDED);
 }
 
 void OnDeinit(const int reason) {
    EventKillTimer();
+   ReleaseZoneHandles();
    // Không đóng các chart đã mở cho từng timeframe — giữ lại để xem tay
    // hoặc để lần sau gắn EA lại không phải tải lịch sử từ đầu.
 }
@@ -294,5 +505,6 @@ void OnTick() {
 
 void OnTimer() {
    CheckTelegramCommands();
+   CheckZoneTouches();
 }
 //+------------------------------------------------------------------+
