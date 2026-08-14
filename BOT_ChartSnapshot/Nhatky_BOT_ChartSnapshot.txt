@@ -1,3 +1,21 @@
+Nhật ký 2026-08-15 — BOT_ChartSnapshot
+
+[Combo_Structure_ChartSnapshot_Bot.mq5]
+1. Sửa AdoptExistingCharts(): điều kiện loại trừ trước đó chỉ so sánh
+   id == ChartID() (chỉ loại trừ đúng chart đang chạy chính EA này) — không
+   đủ, vì chart đang chạy 1 EA KHÁC (vd BOT_TLS gắn trên M5 để giao dịch
+   thật) vẫn bị nhận nhầm làm "chart mồi" nếu trùng TF với Inp_EnabledTF.
+   Hậu quả: lệnh /chart_M5 gắn/gỡ chỉ báo và ChartScreenShot ngay trên chart
+   M5 đang giao dịch thật, có nguy cơ gây giật/lag ảnh hưởng bot đó. Sửa lại
+   dùng ChartGetString(id, CHART_EXPERT_NAME) != "" — bỏ qua MỌI chart đang
+   có bất kỳ EA nào gắn sẵn (bao gồm cả EA này lẫn EA khác), chỉ nhận các
+   chart "mồi" trống thật sự (không gắn EA) làm cache. Người dùng cần tự gỡ
+   tay chỉ báo bị gắn nhầm trước đó khỏi chart M5 đang chạy BOT_TLS vì bot
+   không được phép động vào chart đó nữa để dọn.
+2. SendZoneFormedSignal(): đổi dòng "📐 Zone Buy/Sell mới hình thành" thành
+   "👉 Tín hiệu BUY/SELL xuất hiện" — đồng bộ văn phong với dòng "👉 Tín hiệu
+   BUY/SELL" của SendZoneSignal (chạm Zone), theo yêu cầu người dùng.
+
 Nhật ký 2026-08-14 — BOT_ChartSnapshot
 
 [Combo_Structure_ChartSnapshot_Bot.mq5]

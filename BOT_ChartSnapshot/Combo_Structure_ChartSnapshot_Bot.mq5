@@ -405,7 +405,7 @@ void SendZoneFormedSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double e
    double slShow = ComputeAdjustedSL(isBuy, entry, stop);
    string caption = "<b>" + _Symbol + " — " + label + "</b>"
                    + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
-                   + "\n📐 Zone " + (isBuy ? "Buy" : "Sell") + " mới hình thành"
+                   + "\n👉 Tín hiệu " + (isBuy ? "BUY" : "SELL") + " xuất hiện"
                    + "\n📍 Đặt Limit tại: " + DoubleToString(entry, _Digits)
                    + "\n🆘 SL: " + DoubleToString(slShow, 0)
                    + "\n💰 TP: 10-20-30 giá";
@@ -541,10 +541,12 @@ bool IsTFEnabled(ENUM_TIMEFRAMES tf) {
 void AdoptExistingCharts() {
    long id = ChartFirst();
    while(id >= 0) {
-      // Bỏ qua chính chart đang chạy EA này — dù trùng TF (thường là M1) vẫn KHÔNG nhận làm chart
-      // mồi, vì đây là chart sống của người dùng (có thể chỉnh template/indicator khác chuẩn chụp
-      // ảnh). Luôn để GetOrCreateChartForTF tự mở 1 tab mồi riêng, giống hệt các TF khác.
-      if(id == ChartID()) { id = ChartNext(id); continue; }
+      // Bỏ qua MỌI chart đang có EA khác gắn sẵn — không chỉ chính chart đang chạy EA này
+      // (ChartID()) mà cả chart đang chạy BOT GIAO DỊCH khác (vd BOT_TLS trên M5): gắn/gỡ
+      // indicator, ChartRedraw, ChartScreenShot lên 1 chart đang giao dịch thật có thể gây giật/
+      // lag ảnh hưởng tới bot đó. CHART_EXPERT_NAME khác rỗng nghĩa là đang có EA nào đó chạy trên
+      // chart này — luôn bỏ qua, để GetOrCreateChartForTF tự mở 1 tab mồi RIÊNG, không đụng EA nào.
+      if(ChartGetString(id, CHART_EXPERT_NAME) != "") { id = ChartNext(id); continue; }
       if(ChartSymbol(id) == _Symbol) {
          ENUM_TIMEFRAMES tf = (ENUM_TIMEFRAMES)ChartPeriod(id);
          if(IsTFEnabled(tf) && GetCachedChartId(tf) == 0) {
