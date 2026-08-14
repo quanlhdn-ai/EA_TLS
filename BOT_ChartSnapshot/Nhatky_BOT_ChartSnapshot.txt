@@ -1,3 +1,52 @@
+Nhật ký 2026-08-14 — BOT_ChartSnapshot
+
+[Combo_Structure_ChartSnapshot_Bot.mq5]
+1. SendZoneSignal(): đổi nội dung cảnh báo chạm Zone từ 1 dòng text đơn giản
+   ("Chạm Zone Buy/Sell <TF> — SYMBOL\nGiá: ...") sang định dạng tín hiệu đầy
+   đủ: "<b>SYMBOL — TF</b>\n🕐 giờ\n👉 Tín hiệu BUY/SELL\n🆘 SL: <giá SL thật
+   lấy từ buffer Zone>\n💰 TP: 10-20-30 giá" — dòng TP cố định theo yêu cầu
+   người dùng, không tính toán gì thêm.
+2. Tách GetCachedChartId() ra khỏi GetOrCreateChartForTF() — chỉ kiểm tra
+   chart của 1 TF đã mở sẵn hay chưa, KHÔNG tự mở mới. SendZoneSignal() dùng
+   hàm này: nếu chart TF đó đã mở sẵn (do trước đó có ai bấm /chart_xx) thì
+   kèm luôn ảnh chụp (Radar.SendPhoto); nếu chưa mở thì CHỦ Ý không tự mở
+   chart mới trong luồng cảnh báo Zone (luồng mở chart tốn 3x Sleep(1500) và
+   chặn toàn bộ EA vì MQL5 đơn luồng) — lùi về gửi text-only (Radar.
+   SendMessage), tránh lag/treo VPS khi nhiều Zone ở nhiều TF chạm gần nhau.
+3. Sửa điều kiện "chạm Zone" trong CheckZoneTouches(): trước đó báo khi giá
+   nằm bất kỳ đâu trong khoảng [min(Entry,SL), max(Entry,SL)] — tức báo cả
+   khi giá đã lọt sâu tới gần mép SL, không đúng ý nghĩa "chạm Entry". Sửa
+   lại: chỉ báo khi giá chạm ĐÚNG mép Entry — mép TRÊN (BuyZoneEntryBuffer,
+   đỉnh zone) cho Zone Buy, mép DƯỚI (SellZoneEntryBuffer, đáy zone) cho Zone
+   Sell — và chưa xuyên thủng mép SL phía đối diện (coi như Zone đã hỏng).
+4. Thêm cờ g_zone_buy_armed[]/g_zone_sell_armed[] ("lên đạn"): chỉ báo khi
+   giá đã từng ở NGOÀI Zone (phía ngoài mép Entry) kể từ khi Zone hiện tại
+   xuất hiện/vừa đổi, sau đó quay lại chạm mép Entry mới báo — tránh bắn
+   khống lúc EA vừa khởi động/reload trong khi giá đang nằm sẵn giữa Zone;
+   đồng thời cho phép báo lại nếu giá thoát hẳn ra ngoài rồi chạm lại lần
+   nữa (tái vũ trang, không chỉ báo đúng 1 lần duy nhất cho cả vòng đời Zone).
+5. Thêm VNNow() (= TimeGMT() + 7 giờ) thay cho TimeCurrent() khi hiển thị
+   timestamp — TimeCurrent() trả về giờ SERVER của sàn (không phải giờ máy
+   VPS, và không chắc là giờ VN vì tuỳ broker đặt múi giờ khác nhau).
+   TimeGMT() tự quy đổi giờ server -> GMT chuẩn dựa theo offset broker công
+   bố nên cộng thêm 7 tiếng ra đúng giờ VN mà không cần biết trước broker
+   lệch bao nhiêu. Áp dụng cho cả caption ảnh /chart_xx lẫn tin nhắn tín
+   hiệu Zone, có ghi chú "(giờ VN)" cho rõ.
+6. Thêm AdoptExistingCharts(), chạy trong OnInit: quét lại các chart đang mở
+   sẵn từ phiên trước (cache g_cache_tf/g_cache_chart_id trong RAM bị mất
+   mỗi khi EA reload dù chart vẫn còn mở trên terminal) để nhận lại vào
+   cache — không ChartOpen, không Sleep nên gần như miễn phí. Nhờ đó cảnh
+   báo Zone có thể kèm ảnh ngay từ đầu thay vì phải đợi người dùng bấm lại
+   /chart_xx sau mỗi lần EA reload, đồng thời tránh mở chart trùng lặp.
+7. Sửa AdoptExistingCharts(): loại trừ chính chart đang chạy EA này (so
+   sánh id == ChartID()). Trước đó nếu chart host trùng TF với 1 mục trong
+   Inp_EnabledTF (thường là M1, vì EA hay được gắn trên chart M1) thì bị
+   nhận nhầm làm "chart mồi" cho TF đó — khiến /chart_M1 và cảnh báo Zone M1
+   dùng luôn chart sống đang chạy EA (có thể thiết lập hiển thị/template
+   khác chuẩn chụp ảnh) thay vì mở 1 tab mồi riêng như các TF khác. Từ giờ
+   M1 cũng luôn được ChartOpen riêng, đi qua đúng luồng thiết lập chuẩn
+   giống mọi TF khác.
+
 Nhật ký 2026-08-06 — BOT_ChartSnapshot
 
 [Combo_Structure_ChartSnapshot_Bot.mq5]

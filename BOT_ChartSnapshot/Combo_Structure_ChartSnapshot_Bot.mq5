@@ -60,12 +60,28 @@ int             g_zone_handle[];
 // Trạng thái Zone theo từng phần tử của g_enabled_tf (song song index) — lưu Entry/SL
 // của Zone hiện tại để phát hiện khi Zone đổi (reset cờ đã báo) và cờ "đã báo" để
 // mỗi Zone chỉ báo 1 lần, tránh spam Telegram mỗi khi timer chạy trong lúc giá còn nằm trong Zone.
+// Cờ "armed" = giá đã từng ở NGOÀI Zone kể từ khi Zone này xuất hiện. Chỉ khi armed mới được
+// báo, nhờ đó tín hiệu chỉ bắn khi giá THẬT SỰ đi từ ngoài vào chạm mép Entry — không bắn khống
+// lúc EA khởi động trong khi giá đang nằm sẵn giữa Zone.
 bool   g_zone_buy_alerted[];
+bool   g_zone_buy_armed[];
 double g_zone_buy_entry[];
 double g_zone_buy_stop[];
 bool   g_zone_sell_alerted[];
+bool   g_zone_sell_armed[];
 double g_zone_sell_entry[];
 double g_zone_sell_stop[];
+
+// ==================================================================
+// TIME HELPER
+// ==================================================================
+// TimeCurrent() trả về giờ SERVER của sàn (không phải giờ máy VPS, và sàn có thể lệch múi giờ
+// tuỳ broker/DST) — quy đổi sang giờ Việt Nam (UTC+7, không có DST) để hiển thị trong thông báo.
+// TimeGMT() đã tự quy đổi giờ server -> GMT chuẩn (dựa trên offset broker công bố), nên cộng
+// thêm 7 tiếng là ra giờ VN mà không cần biết trước broker đang lệch GMT bao nhiêu.
+datetime VNNow() {
+   return TimeGMT() + 7 * 3600;
+}
 
 // ==================================================================
 // CHART / INDICATOR HELPERS
@@ -115,13 +131,22 @@ void RemoveSMCIndicatorFromChart(long chart_id) {
    }
 }
 
+// Trả về chart_id nếu TF này đã có sẵn chart mở từ trước (do đã có ai bấm /chart_xx) — không
+// tự mở mới. Dùng để quyết định có kèm ảnh vào cảnh báo Zone hay không mà không tốn chi phí
+// mở chart mới (xem SendZoneSignal).
+long GetCachedChartId(ENUM_TIMEFRAMES tf) {
+   for(int i = 0; i < ArraySize(g_cache_tf); i++) {
+      if(g_cache_tf[i] == tf && ChartSymbol(g_cache_chart_id[i]) != "") return g_cache_chart_id[i];
+   }
+   return 0;
+}
+
 // Lấy chart riêng cho 1 timeframe — mở mới nếu chưa có, dùng lại nếu đã mở.
 long GetOrCreateChartForTF(ENUM_TIMEFRAMES tf) {
-   for(int i = 0; i < ArraySize(g_cache_tf); i++) {
-      if(g_cache_tf[i] == tf && ChartSymbol(g_cache_chart_id[i]) != "") {
-         EnsureIndicatorOnChart(g_cache_chart_id[i], tf);
-         return g_cache_chart_id[i];
-      }
+   long cached = GetCachedChartId(tf);
+   if(cached != 0) {
+      EnsureIndicatorOnChart(cached, tf);
+      return cached;
    }
 
    long id = ChartOpen(_Symbol, tf);
@@ -227,11 +252,15 @@ void BuildEnabledTFList() {
 
    // Zone Alert dùng chung danh sách TF này — reset trạng thái theo dõi song song với g_enabled_tf.
    int cnt = ArraySize(g_enabled_tf);
-   ArrayResize(g_zone_buy_alerted, cnt);  ArrayResize(g_zone_buy_entry, cnt);  ArrayResize(g_zone_buy_stop, cnt);
-   ArrayResize(g_zone_sell_alerted, cnt); ArrayResize(g_zone_sell_entry, cnt); ArrayResize(g_zone_sell_stop, cnt);
+   ArrayResize(g_zone_buy_alerted, cnt);  ArrayResize(g_zone_buy_armed, cnt);
+   ArrayResize(g_zone_buy_entry, cnt);    ArrayResize(g_zone_buy_stop, cnt);
+   ArrayResize(g_zone_sell_alerted, cnt); ArrayResize(g_zone_sell_armed, cnt);
+   ArrayResize(g_zone_sell_entry, cnt);   ArrayResize(g_zone_sell_stop, cnt);
    for(int i = 0; i < cnt; i++) {
-      g_zone_buy_alerted[i]  = false; g_zone_buy_entry[i]  = EMPTY_VALUE; g_zone_buy_stop[i]  = EMPTY_VALUE;
-      g_zone_sell_alerted[i] = false; g_zone_sell_entry[i] = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE;
+      g_zone_buy_alerted[i]  = false; g_zone_buy_armed[i]  = false;
+      g_zone_buy_entry[i]    = EMPTY_VALUE; g_zone_buy_stop[i]  = EMPTY_VALUE;
+      g_zone_sell_alerted[i] = false; g_zone_sell_armed[i] = false;
+      g_zone_sell_entry[i]   = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE;
    }
 }
 
@@ -264,8 +293,31 @@ void ReleaseZoneHandles() {
    ArrayFree(g_zone_handle);
 }
 
+// Gửi tín hiệu chạm Zone. Nếu chart của TF này đã mở sẵn (người dùng từng bấm /chart_xx) thì
+// kèm luôn ảnh chụp — gần như miễn phí vì không phải mở chart mới. Nếu chưa mở, CHỦ Ý không tự
+// mở chart mới ở đây (luồng ChartOpen tốn 3x Sleep(1500) và chặn toàn bộ EA vì MQL5 đơn luồng)
+// — lùi về gửi text để tránh nhiều Zone chạm gần nhau dồn delay, dễ làm treo/lag VPS.
+void SendZoneSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double slPrice) {
+   string caption = "<b>" + _Symbol + " — " + label + "</b>"
+                   + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
+                   + "\n👉 Tín hiệu " + (isBuy ? "BUY" : "SELL")
+                   + "\n🆘 SL: " + DoubleToString(slPrice, _Digits)
+                   + "\n💰 TP: 10-20-30 giá";
+
+   long chart_id = GetCachedChartId(tf);
+   if(chart_id != 0) {
+      ChartRedraw(chart_id);
+      Sleep(200);
+      Radar.SendPhoto(chart_id, "📸 " + caption, Inp_ScreenshotWidth, Inp_ScreenshotHeight);
+   } else {
+      Radar.SendMessage("🔔 " + caption);
+   }
+}
+
 // Buffer 18/19 = Buy Zone Entry/SL, buffer 20/21 = Sell Zone SL/Entry (xem SetIndexBuffer
-// trong TLS_SMC_Indicator.mq5). "Chạm Zone" = giá nằm trong khoảng [min(Entry,SL), max(Entry,SL)].
+// trong TLS_SMC_Indicator.mq5). "Chạm Zone" = giá chạm ĐÚNG mép Entry — mép TRÊN của Zone Buy
+// (BuyZoneEntryBuffer = đỉnh zone) hoặc mép DƯỚI của Zone Sell (SellZoneEntryBuffer = đáy zone),
+// KHÔNG phải chạm bất kỳ đâu trong khoảng Entry-SL (nếu vậy sẽ báo cả khi giá đã lọt sâu tới mép SL).
 void CheckZoneTouches() {
    if(!Inp_EnableZoneAlert) return;
 
@@ -285,32 +337,44 @@ void CheckZoneTouches() {
       // Buy zone
       if(buyEntry != EMPTY_VALUE && buyStop != EMPTY_VALUE) {
          if(g_zone_buy_entry[i] != buyEntry || g_zone_buy_stop[i] != buyStop) {
-            // Zone đổi (mới hình thành) -> reset cờ để cho phép báo lại lần chạm đầu tiên của Zone mới.
-            g_zone_buy_entry[i] = buyEntry; g_zone_buy_stop[i] = buyStop; g_zone_buy_alerted[i] = false;
+            // Zone đổi (mới hình thành) hoặc EA vừa khởi động -> reset cờ đã báo, và chỉ "lên đạn"
+            // nếu giá đang ở NGOÀI Zone (phía trên mép Entry). Giá đang nằm sẵn trong Zone thì
+            // im lặng, chờ nó thoát ra rồi quay lại chạm mới báo.
+            g_zone_buy_entry[i] = buyEntry; g_zone_buy_stop[i] = buyStop;
+            g_zone_buy_alerted[i] = false;
+            g_zone_buy_armed[i]   = (bid > buyEntry);
          }
-         double lo = MathMin(buyEntry, buyStop), hi = MathMax(buyEntry, buyStop);
-         if(!g_zone_buy_alerted[i] && bid >= lo && bid <= hi) {
-            Radar.SendMessage("🔔 <b>Chạm Zone Buy " + g_enabled_label[i] + "</b> — " + _Symbol
-                             + "\nGiá: " + DoubleToString(bid, _Digits));
+         if(bid > buyEntry) g_zone_buy_armed[i] = true;  // giá thoát ra ngoài -> nạp lại đạn
+         // Mép trên = BuyZoneEntryBuffer (đỉnh zone) — chỉ báo khi giá ĐI TỪ TRÊN XUỐNG cắt mép này
+         // và chưa xuyên thủng mép SL (buyStop) — xuyên rồi thì Zone coi như đã hỏng, không báo.
+         if(g_zone_buy_armed[i] && !g_zone_buy_alerted[i] && bid <= buyEntry && bid > buyStop) {
+            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], true, buyStop);
             g_zone_buy_alerted[i] = true;
+            g_zone_buy_armed[i]   = false;
          }
       } else {
-         g_zone_buy_entry[i] = EMPTY_VALUE; g_zone_buy_stop[i] = EMPTY_VALUE; g_zone_buy_alerted[i] = false;
+         g_zone_buy_entry[i] = EMPTY_VALUE; g_zone_buy_stop[i] = EMPTY_VALUE;
+         g_zone_buy_alerted[i] = false; g_zone_buy_armed[i] = false;
       }
 
       // Sell zone
       if(sellEntry != EMPTY_VALUE && sellStop != EMPTY_VALUE) {
          if(g_zone_sell_entry[i] != sellEntry || g_zone_sell_stop[i] != sellStop) {
-            g_zone_sell_entry[i] = sellEntry; g_zone_sell_stop[i] = sellStop; g_zone_sell_alerted[i] = false;
+            g_zone_sell_entry[i] = sellEntry; g_zone_sell_stop[i] = sellStop;
+            g_zone_sell_alerted[i] = false;
+            g_zone_sell_armed[i]   = (bid < sellEntry);
          }
-         double lo = MathMin(sellEntry, sellStop), hi = MathMax(sellEntry, sellStop);
-         if(!g_zone_sell_alerted[i] && bid >= lo && bid <= hi) {
-            Radar.SendMessage("🔔 <b>Chạm Zone Sell " + g_enabled_label[i] + "</b> — " + _Symbol
-                             + "\nGiá: " + DoubleToString(bid, _Digits));
+         if(bid < sellEntry) g_zone_sell_armed[i] = true;
+         // Mép dưới = SellZoneEntryBuffer (đáy zone) — chỉ báo khi giá ĐI TỪ DƯỚI LÊN cắt mép này
+         // và chưa xuyên thủng mép SL (sellStop) phía trên.
+         if(g_zone_sell_armed[i] && !g_zone_sell_alerted[i] && bid >= sellEntry && bid < sellStop) {
+            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], false, sellStop);
             g_zone_sell_alerted[i] = true;
+            g_zone_sell_armed[i]   = false;
          }
       } else {
-         g_zone_sell_entry[i] = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE; g_zone_sell_alerted[i] = false;
+         g_zone_sell_entry[i] = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE;
+         g_zone_sell_alerted[i] = false; g_zone_sell_armed[i] = false;
       }
    }
 }
@@ -318,6 +382,34 @@ void CheckZoneTouches() {
 bool IsTFEnabled(ENUM_TIMEFRAMES tf) {
    for(int i = 0; i < ArraySize(g_enabled_tf); i++) if(g_enabled_tf[i] == tf) return true;
    return false;
+}
+
+// Khi EA reload (compile lại, đổi input, restart terminal) thì cache chart trong RAM mất sạch,
+// nhưng các chart mở từ phiên trước vẫn còn nguyên trên terminal. Quét lại một lần lúc OnInit để
+// nhận chúng vào cache — KHÔNG ChartOpen, KHÔNG Sleep nên gần như miễn phí. Nhờ đó cảnh báo Zone
+// kèm được ảnh ngay từ đầu, thay vì phải chờ người dùng bấm /chart_xx một lần nữa (và tránh mở
+// thêm chart trùng lặp cho cùng một khung).
+void AdoptExistingCharts() {
+   long id = ChartFirst();
+   while(id >= 0) {
+      // Bỏ qua chính chart đang chạy EA này — dù trùng TF (thường là M1) vẫn KHÔNG nhận làm chart
+      // mồi, vì đây là chart sống của người dùng (có thể chỉnh template/indicator khác chuẩn chụp
+      // ảnh). Luôn để GetOrCreateChartForTF tự mở 1 tab mồi riêng, giống hệt các TF khác.
+      if(id == ChartID()) { id = ChartNext(id); continue; }
+      if(ChartSymbol(id) == _Symbol) {
+         ENUM_TIMEFRAMES tf = (ENUM_TIMEFRAMES)ChartPeriod(id);
+         if(IsTFEnabled(tf) && GetCachedChartId(tf) == 0) {
+            EnsureIndicatorOnChart(id, tf);  // chart đã có indicator thì thoát ngay, không tốn gì
+            int n = ArraySize(g_cache_tf);
+            ArrayResize(g_cache_tf, n + 1);
+            ArrayResize(g_cache_chart_id, n + 1);
+            g_cache_tf[n]       = tf;
+            g_cache_chart_id[n] = id;
+            Print("[ChartSnapshotBot] Nhận lại chart có sẵn: ", EnumToString(tf), " (chart_id=", id, ")");
+         }
+      }
+      id = ChartNext(id);
+   }
 }
 
 // Dựng bàn phím custom + tối đa 4 nút/hàng, chỉ gồm các TF đang bật.
@@ -358,7 +450,7 @@ void SendChartForTF(ENUM_TIMEFRAMES tf, string label) {
    ChartRedraw(chart_id);
    Sleep(300);
 
-   string caption = "📸 <b>" + _Symbol + " — " + label + "</b>\n🕐 " + TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES);
+   string caption = "📸 <b>" + _Symbol + " — " + label + "</b>\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)";
    Radar.SendPhoto(chart_id, caption, Inp_ScreenshotWidth, Inp_ScreenshotHeight);
 }
 
@@ -485,6 +577,7 @@ void SkipPendingTelegramUpdates() {
 int OnInit() {
    Radar.Init(Inp_BotToken, Inp_ChatID);
    BuildEnabledTFList();
+   AdoptExistingCharts();
    g_keyboard_json = BuildKeyboardJson();
    SkipPendingTelegramUpdates();
    EventSetTimer(3);
