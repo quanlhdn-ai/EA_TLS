@@ -46,6 +46,46 @@ Nhật ký 2026-08-14 — BOT_ChartSnapshot
    khác chuẩn chụp ảnh) thay vì mở 1 tab mồi riêng như các TF khác. Từ giờ
    M1 cũng luôn được ChartOpen riêng, đi qua đúng luồng thiết lập chuẩn
    giống mọi TF khác.
+8. Thêm tính năng Zone Formed (Limit) Alert: input Inp_EnableZoneFormedAlert
+   (bật/tắt) + Inp_ZoneFormedTF (danh sách TF, định dạng giống Inp_EnabledTF
+   nhưng ĐỘC LẬP hoàn toàn — có thể khác danh sách TF lấy chart).
+   CheckZoneFormed()/CheckOneZoneFormed() phát hiện Entry/SL của Zone (Buy,
+   Sell riêng biệt) đổi khác lần đọc trước để báo "Zone mới hình thành - đặt
+   Limit tại...". Lần đọc đầu tiên sau khi EA khởi động/reload chỉ ghi nhận
+   Zone hiện có làm mốc, KHÔNG báo (không rõ Zone đó đã hình thành từ bao
+   lâu trước khi EA chạy).
+9. Thêm GetPipSize() — sao y quy ước từ BOT_TLS/TLS_SMC_CSV_Bot.mq5 (vàng/
+   gold = 0.1, JPY = 0.01, 5/4-digit = 0.0001, 3/2-digit = 0.01, còn lại
+   Point*10) để đồng bộ đơn vị pip toàn repo. Thêm ComputeSLPadPips(): chia
+   độ rộng Zone (pips) thành 5 phần bằng nhau, lấy 1 phần so với thang
+   30-35-40-45-50 pips, chọn mốc đầu tiên ≥ giá trị đó làm khoảng đệm (Zone
+   càng rộng đệm càng nhiều, tối đa 50 pips) — theo đúng công thức người
+   dùng yêu cầu, đã đối chiếu khớp ví dụ họ đưa ra (biên 4000 + 40 pips ×
+   $0.1 = 4004). Thêm ComputeAdjustedSL(): đẩy SL ra xa mép Zone theo đệm
+   trên rồi MathRound() về số nguyên (vd 4023.15 -> 4023). Áp dụng CHUNG cho
+   cả SendZoneSignal (chạm Zone) và SendZoneFormedSignal (Zone mới hình
+   thành) — chỉ đổi giá trị HIỂN THỊ, logic phát hiện chạm/xuyên Zone vẫn
+   dùng SL gốc chưa đệm từ buffer indicator, không đổi.
+10. Tách SendSignalMessage() dùng chung cho cả 2 loại tín hiệu (chạm Zone /
+    Zone mới hình thành) — cùng 1 logic kèm ảnh nếu chart TF đó đã cache sẵn,
+    lùi về text-only nếu chưa, tránh lặp code giữa SendZoneSignal và
+    SendZoneFormedSignal.
+11. Tách ParseTFList() dùng chung cho Inp_EnabledTF và Inp_ZoneFormedTF —
+    trước đó BuildEnabledTFList() tự parse riêng, giờ dùng lại đúng 1 hàm
+    cho cả 2 input.
+12. Bỏ hẳn nút/lệnh help theo yêu cầu người dùng (đã ghim sẵn tin nhắn hướng
+    dẫn, không cần bot gửi lại): bước đầu bỏ hàng nút "/help" khỏi bàn phím
+    (BuildKeyboardJson) nhưng vẫn giữ lệnh gõ tay, đổi tên từ "/start"/"/help"
+    sang "/chart_help" — tránh trùng tên lệnh chung chung với bot giao dịch
+    khác trong CÙNG group Telegram (Telegram mặc định chuyển MỌI tin nhắn
+    bắt đầu bằng "/" tới TẤT CẢ bot trong group, kể cả lệnh không nhắm tới
+    bot đó — đây là nguyên nhân người dùng thấy bot "chạy theo" lệnh của bot
+    giao dịch). Sau đó theo yêu cầu tiếp theo, bỏ HẲN luôn "/chart_help" và
+    xoá SendHelp() (không còn ai gọi). ProcessCommand() giờ CHỈ phản hồi
+    đúng 7 lệnh /chart_M1..D1, mọi lệnh khác (kể cả của bot khác trong
+    group) bị bỏ qua hoàn toàn. BuildKeyboardJson() trả về
+    {"remove_keyboard":true} khi n==0 (chưa bật TF nào) thay vì hiện nút
+    help như trước.
 
 Nhật ký 2026-08-06 — BOT_ChartSnapshot
 

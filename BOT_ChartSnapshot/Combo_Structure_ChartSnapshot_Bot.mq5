@@ -37,6 +37,10 @@ input string Inp_EnabledTF = "M1,M5,M15,M30,H1,H4,D1"; // TF được phép lấ
 input group "--- Zone Alert Settings ---"
 input bool   Inp_EnableZoneAlert = true; // Tự động báo Telegram khi giá chạm Zone Buy/Sell (áp dụng cho các TF trong Inp_EnabledTF)
 
+input group "--- Zone Formed (Limit) Alert Settings ---"
+input bool   Inp_EnableZoneFormedAlert = true;  // Tự động báo đặt Limit ngay khi có Zone Buy/Sell MỚI hình thành
+input string Inp_ZoneFormedTF = "";             // TF báo Limit khi Zone mới hình thành (vd "M5,H4"). Trống = tất cả
+
 // ==================================================================
 // STATE
 // ==================================================================
@@ -72,6 +76,21 @@ bool   g_zone_sell_armed[];
 double g_zone_sell_entry[];
 double g_zone_sell_stop[];
 
+// Danh sách TF cho Zone Formed Alert (parse từ Inp_ZoneFormedTF, độc lập với g_enabled_tf).
+ENUM_TIMEFRAMES g_zf_tf[];
+string          g_zf_label[];
+
+// Trạng thái theo dõi "Zone mới hình thành" — song song index với g_zf_tf. "seen" chỉ false ở lần
+// đọc đầu tiên sau khi EA khởi động/reload; lần đó chỉ ghi nhận Zone hiện có làm mốc so sánh, KHÔNG
+// báo (vì không biết Zone đó đã hình thành từ bao lâu trước). Từ lần seen=true trở đi, Entry/SL đổi
+// khác mốc đã ghi (kể cả từ rỗng -> có) mới coi là Zone mới thật sự vừa hình thành và được báo.
+bool   g_zf_buy_seen[];
+double g_zf_buy_entry[];
+double g_zf_buy_stop[];
+bool   g_zf_sell_seen[];
+double g_zf_sell_entry[];
+double g_zf_sell_stop[];
+
 // ==================================================================
 // TIME HELPER
 // ==================================================================
@@ -81,6 +100,49 @@ double g_zone_sell_stop[];
 // thêm 7 tiếng là ra giờ VN mà không cần biết trước broker đang lệch GMT bao nhiêu.
 datetime VNNow() {
    return TimeGMT() + 7 * 3600;
+}
+
+// ==================================================================
+// SL HELPER (đệm SL ra xa mép Zone theo độ rộng Zone, làm tròn số nguyên)
+// ==================================================================
+// Quy ước pip giống hệt GetPipSize() của BOT_TLS/TLS_SMC_CSV_Bot.mq5 — vàng/gold = 0.1,
+// JPY = 0.01, 5/4 digit = 0.0001, 3/2 digit = 0.01, còn lại lấy Point*10.
+double GetPipSize(string sym) {
+   string s = sym; StringToUpper(s);
+   if(StringFind(s, "XAU") >= 0 || StringFind(s, "GOLD") >= 0) return 0.1;
+   if(StringFind(s, "JPY") >= 0) return 0.01;
+   long digits = SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   if(digits == 5 || digits == 4) return 0.0001;
+   if(digits == 3 || digits == 2) return 0.01;
+   return SymbolInfoDouble(sym, SYMBOL_POINT) * 10.0;
+}
+
+// Chia độ rộng Zone (pips) thành 5 phần bằng nhau, lấy 1 phần so với thang 30-35-40-45-50 pips
+// (làm tròn LÊN mốc gần nhất) để ra khoảng đệm — Zone càng rộng thì đệm càng nhiều, tối đa 50 pips.
+// Ví dụ: Zone rộng 100 pips -> 1 phần = 20 -> đệm 30 (mốc đầu tiên >= 20). Cách chọn thang 5 mốc
+// này theo đúng yêu cầu người dùng (ưu tiên hơn cách chia 3 mốc 30/40/50).
+double ComputeSLPadPips(double entry, double stop) {
+   double pip = GetPipSize(_Symbol);
+   double widthPips = MathAbs(entry - stop) / pip;
+   double share = widthPips / 5.0;
+   double ladder[5] = {30, 35, 40, 45, 50};
+   double pad = 50;
+   for(int k = 0; k < 5; k++) {
+      if(share <= ladder[k]) { pad = ladder[k]; break; }
+   }
+   return pad;
+}
+
+// SL hiển thị trong thông báo = mép SL gốc của Zone (biên đối diện với Entry) + đệm ComputeSLPadPips,
+// đẩy ra xa Zone (Buy đẩy xuống, Sell đẩy lên), rồi làm tròn về số nguyên (vd 4023.15 -> 4023) —
+// dùng CHUNG cho cả tín hiệu chạm Zone (SendZoneSignal) và tín hiệu Zone mới hình thành
+// (SendZoneFormedSignal). Lưu ý: chỉ ảnh hưởng giá trị HIỂN THỊ — logic phát hiện chạm/xuyên Zone
+// vẫn dùng mép SL GỐC (chưa đệm) từ buffer indicator, không đổi.
+double ComputeAdjustedSL(bool isBuy, double entry, double stop) {
+   double pip    = GetPipSize(_Symbol);
+   double padPips = ComputeSLPadPips(entry, stop);
+   double adjusted = isBuy ? (stop - padPips * pip) : (stop + padPips * pip);
+   return MathRound(adjusted);
 }
 
 // ==================================================================
@@ -209,13 +271,12 @@ bool LabelToTF(string label, ENUM_TIMEFRAMES &tf) {
    return false;
 }
 
-// Parse Inp_EnabledTF ("M5,H4") -> g_enabled_tf[]/g_enabled_label[]. Rỗng = cho phép tất cả
-// (giữ hành vi cũ cho các bot chưa cấu hình input này).
-void BuildEnabledTFList() {
-   ArrayFree(g_enabled_tf);
-   ArrayFree(g_enabled_label);
+// Parse 1 chuỗi TF kiểu "M5,H4" -> out_tf[]/out_label[], dùng chung cho Inp_EnabledTF và
+// Inp_ZoneFormedTF. Rỗng = cho phép tất cả 7 TF.
+void ParseTFList(string src, ENUM_TIMEFRAMES &out_tf[], string &out_label[], string inputNameForLog) {
+   ArrayFree(out_tf);
+   ArrayFree(out_label);
 
-   string src = Inp_EnabledTF;
    StringTrimLeft(src);
    StringTrimRight(src);
    if(src == "") src = "M1,M5,M15,M30,H1,H4,D1";
@@ -231,21 +292,25 @@ void BuildEnabledTFList() {
 
       ENUM_TIMEFRAMES tf;
       if(!LabelToTF(tok, tf)) {
-         Print("[ChartSnapshotBot] Bỏ qua TF không hợp lệ trong Inp_EnabledTF: '", tok, "'");
+         Print("[ChartSnapshotBot] Bỏ qua TF không hợp lệ trong ", inputNameForLog, ": '", tok, "'");
          continue;
       }
       string label = (tok == "D") ? "D1" : tok;
 
       bool dup = false;
-      for(int j = 0; j < ArraySize(g_enabled_tf); j++) if(g_enabled_tf[j] == tf) { dup = true; break; }
+      for(int j = 0; j < ArraySize(out_tf); j++) if(out_tf[j] == tf) { dup = true; break; }
       if(dup) continue;
 
-      int m = ArraySize(g_enabled_tf);
-      ArrayResize(g_enabled_tf, m + 1);
-      ArrayResize(g_enabled_label, m + 1);
-      g_enabled_tf[m]    = tf;
-      g_enabled_label[m] = label;
+      int m = ArraySize(out_tf);
+      ArrayResize(out_tf, m + 1);
+      ArrayResize(out_label, m + 1);
+      out_tf[m]    = tf;
+      out_label[m] = label;
    }
+}
+
+void BuildEnabledTFList() {
+   ParseTFList(Inp_EnabledTF, g_enabled_tf, g_enabled_label, "Inp_EnabledTF");
 
    if(ArraySize(g_enabled_tf) == 0)
       Print("[ChartSnapshotBot] CẢNH BÁO: Inp_EnabledTF không có TF hợp lệ nào — bot sẽ không phản hồi lệnh /chart_xx nào.");
@@ -261,6 +326,19 @@ void BuildEnabledTFList() {
       g_zone_buy_entry[i]    = EMPTY_VALUE; g_zone_buy_stop[i]  = EMPTY_VALUE;
       g_zone_sell_alerted[i] = false; g_zone_sell_armed[i] = false;
       g_zone_sell_entry[i]   = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE;
+   }
+}
+
+// Danh sách TF cho Zone Formed Alert — độc lập với Inp_EnabledTF (có thể khác hoàn toàn).
+void BuildZoneFormedTFList() {
+   ParseTFList(Inp_ZoneFormedTF, g_zf_tf, g_zf_label, "Inp_ZoneFormedTF");
+
+   int cnt = ArraySize(g_zf_tf);
+   ArrayResize(g_zf_buy_seen, cnt);  ArrayResize(g_zf_buy_entry, cnt);  ArrayResize(g_zf_buy_stop, cnt);
+   ArrayResize(g_zf_sell_seen, cnt); ArrayResize(g_zf_sell_entry, cnt); ArrayResize(g_zf_sell_stop, cnt);
+   for(int i = 0; i < cnt; i++) {
+      g_zf_buy_seen[i]  = false; g_zf_buy_entry[i]  = EMPTY_VALUE; g_zf_buy_stop[i]  = EMPTY_VALUE;
+      g_zf_sell_seen[i] = false; g_zf_sell_entry[i] = EMPTY_VALUE; g_zf_sell_stop[i] = EMPTY_VALUE;
    }
 }
 
@@ -293,17 +371,12 @@ void ReleaseZoneHandles() {
    ArrayFree(g_zone_handle);
 }
 
-// Gửi tín hiệu chạm Zone. Nếu chart của TF này đã mở sẵn (người dùng từng bấm /chart_xx) thì
-// kèm luôn ảnh chụp — gần như miễn phí vì không phải mở chart mới. Nếu chưa mở, CHỦ Ý không tự
-// mở chart mới ở đây (luồng ChartOpen tốn 3x Sleep(1500) và chặn toàn bộ EA vì MQL5 đơn luồng)
-// — lùi về gửi text để tránh nhiều Zone chạm gần nhau dồn delay, dễ làm treo/lag VPS.
-void SendZoneSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double slPrice) {
-   string caption = "<b>" + _Symbol + " — " + label + "</b>"
-                   + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
-                   + "\n👉 Tín hiệu " + (isBuy ? "BUY" : "SELL")
-                   + "\n🆘 SL: " + DoubleToString(slPrice, _Digits)
-                   + "\n💰 TP: 10-20-30 giá";
-
+// Gửi 1 caption tín hiệu (chạm Zone hoặc Zone mới hình thành). Nếu chart của TF này đã mở sẵn
+// (người dùng từng bấm /chart_xx) thì kèm luôn ảnh chụp — gần như miễn phí vì không phải mở chart
+// mới. Nếu chưa mở, CHỦ Ý không tự mở chart mới ở đây (luồng ChartOpen tốn 3x Sleep(1500) và chặn
+// toàn bộ EA vì MQL5 đơn luồng) — lùi về gửi text để tránh nhiều Zone chạm/hình thành gần nhau dồn
+// delay, dễ làm treo/lag VPS.
+void SendSignalMessage(ENUM_TIMEFRAMES tf, string caption) {
    long chart_id = GetCachedChartId(tf);
    if(chart_id != 0) {
       ChartRedraw(chart_id);
@@ -312,6 +385,31 @@ void SendZoneSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double slPrice
    } else {
       Radar.SendMessage("🔔 " + caption);
    }
+}
+
+// Tín hiệu CHẠM Zone (giá đi tới đúng mép Entry). entry/stop là giá GỐC từ buffer indicator —
+// SL hiển thị được đệm ra xa qua ComputeAdjustedSL(), không dùng thẳng stop.
+void SendZoneSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double entry, double stop) {
+   double slShow = ComputeAdjustedSL(isBuy, entry, stop);
+   string caption = "<b>" + _Symbol + " — " + label + "</b>"
+                   + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
+                   + "\n👉 Tín hiệu " + (isBuy ? "BUY" : "SELL")
+                   + "\n🆘 SL: " + DoubleToString(slShow, 0)
+                   + "\n💰 TP: 10-20-30 giá";
+   SendSignalMessage(tf, caption);
+}
+
+// Tín hiệu Zone MỚI HÌNH THÀNH — gợi ý đặt Limit ngay tại mép Entry của Zone vừa xuất hiện,
+// SL cũng đệm ra xa mép Zone giống hệt cách tính của SendZoneSignal (dùng chung ComputeAdjustedSL).
+void SendZoneFormedSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double entry, double stop) {
+   double slShow = ComputeAdjustedSL(isBuy, entry, stop);
+   string caption = "<b>" + _Symbol + " — " + label + "</b>"
+                   + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
+                   + "\n📐 Zone " + (isBuy ? "Buy" : "Sell") + " mới hình thành"
+                   + "\n📍 Đặt Limit tại: " + DoubleToString(entry, _Digits)
+                   + "\n🆘 SL: " + DoubleToString(slShow, 0)
+                   + "\n💰 TP: 10-20-30 giá";
+   SendSignalMessage(tf, caption);
 }
 
 // Buffer 18/19 = Buy Zone Entry/SL, buffer 20/21 = Sell Zone SL/Entry (xem SetIndexBuffer
@@ -348,7 +446,7 @@ void CheckZoneTouches() {
          // Mép trên = BuyZoneEntryBuffer (đỉnh zone) — chỉ báo khi giá ĐI TỪ TRÊN XUỐNG cắt mép này
          // và chưa xuyên thủng mép SL (buyStop) — xuyên rồi thì Zone coi như đã hỏng, không báo.
          if(g_zone_buy_armed[i] && !g_zone_buy_alerted[i] && bid <= buyEntry && bid > buyStop) {
-            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], true, buyStop);
+            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], true, buyEntry, buyStop);
             g_zone_buy_alerted[i] = true;
             g_zone_buy_armed[i]   = false;
          }
@@ -368,7 +466,7 @@ void CheckZoneTouches() {
          // Mép dưới = SellZoneEntryBuffer (đáy zone) — chỉ báo khi giá ĐI TỪ DƯỚI LÊN cắt mép này
          // và chưa xuyên thủng mép SL (sellStop) phía trên.
          if(g_zone_sell_armed[i] && !g_zone_sell_alerted[i] && bid >= sellEntry && bid < sellStop) {
-            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], false, sellStop);
+            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], false, sellEntry, sellStop);
             g_zone_sell_alerted[i] = true;
             g_zone_sell_armed[i]   = false;
          }
@@ -376,6 +474,57 @@ void CheckZoneTouches() {
          g_zone_sell_entry[i] = EMPTY_VALUE; g_zone_sell_stop[i] = EMPTY_VALUE;
          g_zone_sell_alerted[i] = false; g_zone_sell_armed[i] = false;
       }
+   }
+}
+
+// Theo dõi 1 phía (Buy hoặc Sell) của 1 TF cho Zone Formed Alert. "seen" false = lần đọc đầu
+// tiên, chỉ ghi nhận mốc chứ không báo (không rõ Zone đã có từ trước khi EA chạy hay chưa).
+// Từ lần seen=true trở đi, Entry/SL đổi khác mốc đã ghi (kể cả từ rỗng -> có giá trị) mới coi
+// là Zone MỚI thật sự và báo.
+void CheckOneZoneFormed(ENUM_TIMEFRAMES tf, string label, bool isBuy,
+                         double entryVal, double stopVal,
+                         bool &seen, double &lastEntry, double &lastStop) {
+   bool valid = (entryVal != EMPTY_VALUE && stopVal != EMPTY_VALUE);
+
+   if(!seen) {
+      seen      = true;
+      lastEntry = valid ? entryVal : EMPTY_VALUE;
+      lastStop  = valid ? stopVal  : EMPTY_VALUE;
+      return;
+   }
+
+   if(valid) {
+      bool isNew = (lastEntry != entryVal || lastStop != stopVal);
+      lastEntry = entryVal;
+      lastStop  = stopVal;
+      if(isNew && Inp_EnableZoneFormedAlert) SendZoneFormedSignal(tf, label, isBuy, entryVal, stopVal);
+   } else {
+      lastEntry = EMPTY_VALUE;
+      lastStop  = EMPTY_VALUE;
+   }
+}
+
+// Báo khi có Zone Buy/Sell MỚI hình thành (không cần giá chạm tới) — dùng danh sách TF riêng
+// Inp_ZoneFormedTF, tái sử dụng handle Zone đã có (GetOrCreateZoneHandle cache theo TF, dùng
+// chung được cho cả CheckZoneTouches lẫn hàm này dù 2 danh sách TF khác nhau).
+void CheckZoneFormed() {
+   if(!Inp_EnableZoneFormedAlert) return;
+
+   double buf[1];
+   for(int i = 0; i < ArraySize(g_zf_tf); i++) {
+      int handle = GetOrCreateZoneHandle(g_zf_tf[i]);
+      if(handle == INVALID_HANDLE) continue;
+
+      double buyEntry = EMPTY_VALUE, buyStop = EMPTY_VALUE, sellStop = EMPTY_VALUE, sellEntry = EMPTY_VALUE;
+      if(CopyBuffer(handle, 18, 0, 1, buf) > 0) buyEntry  = buf[0];
+      if(CopyBuffer(handle, 19, 0, 1, buf) > 0) buyStop   = buf[0];
+      if(CopyBuffer(handle, 20, 0, 1, buf) > 0) sellStop  = buf[0];
+      if(CopyBuffer(handle, 21, 0, 1, buf) > 0) sellEntry = buf[0];
+
+      CheckOneZoneFormed(g_zf_tf[i], g_zf_label[i], true,  buyEntry,  buyStop,
+                          g_zf_buy_seen[i],  g_zf_buy_entry[i],  g_zf_buy_stop[i]);
+      CheckOneZoneFormed(g_zf_tf[i], g_zf_label[i], false, sellEntry, sellStop,
+                          g_zf_sell_seen[i], g_zf_sell_entry[i], g_zf_sell_stop[i]);
    }
 }
 
@@ -412,29 +561,29 @@ void AdoptExistingCharts() {
    }
 }
 
-// Dựng bàn phím custom + tối đa 4 nút/hàng, chỉ gồm các TF đang bật.
+// Dựng bàn phím custom + tối đa 4 nút/hàng, chỉ gồm các TF đang bật — KHÔNG có nút help nào cả
+// (người dùng đã ghim sẵn tin nhắn hướng dẫn, không cần bot gửi lại). Trường hợp n==0 (chưa bật
+// TF nào, cấu hình sai Inp_EnabledTF) thì không có gì để bấm cả — trả về "remove_keyboard" để gỡ
+// hẳn bàn phím thay vì hiện bàn phím rỗng/lỗi.
 string BuildKeyboardJson() {
    int n = ArraySize(g_enabled_label);
+   if(n == 0) return "{\"remove_keyboard\":true}";
+
    string json = "{\"keyboard\":[";
-   if(n == 0) {
-      json += "[\"/help\"]";
-   } else {
-      int per_row = 4;
-      int i = 0;
-      bool first_row = true;
-      while(i < n) {
-         if(!first_row) json += ",";
-         json += "[";
-         int row_end = MathMin(i + per_row, n);
-         for(int k = i; k < row_end; k++) {
-            if(k > i) json += ",";
-            json += "\"/chart_" + g_enabled_label[k] + "\"";
-         }
-         json += "]";
-         first_row = false;
-         i = row_end;
+   int per_row = 4;
+   int i = 0;
+   bool first_row = true;
+   while(i < n) {
+      if(!first_row) json += ",";
+      json += "[";
+      int row_end = MathMin(i + per_row, n);
+      for(int k = i; k < row_end; k++) {
+         if(k > i) json += ",";
+         json += "\"/chart_" + g_enabled_label[k] + "\"";
       }
-      json += ",[\"/help\"]";
+      json += "]";
+      first_row = false;
+      i = row_end;
    }
    json += "],\"resize_keyboard\":true,\"is_persistent\":true}";
    return json;
@@ -457,15 +606,6 @@ void SendChartForTF(ENUM_TIMEFRAMES tf, string label) {
 // Bàn phím custom (nút bấm dưới khung chat) — dựng động theo Inp_EnabledTF
 // lúc OnInit, lưu vào g_keyboard_json, chỉ hiện nút của các TF bot này hỗ trợ.
 
-void SendHelp() {
-   string txt = "📋 <b>Lệnh lấy chart:</b>\n";
-   int n = ArraySize(g_enabled_label);
-   if(n == 0) txt += "(Chưa có TF nào được bật — kiểm tra input Inp_EnabledTF)";
-   else for(int i = 0; i < n; i++) txt += "/chart_" + g_enabled_label[i] + "\n";
-
-   Radar.SendMessage(txt, g_keyboard_json);
-}
-
 void ProcessCommand(string cmd) {
    int at = StringFind(cmd, "@");
    if(at > 0) cmd = StringSubstr(cmd, 0, at);
@@ -481,7 +621,8 @@ void ProcessCommand(string cmd) {
       return;
    }
 
-   if(cmd == "/start" || cmd == "/help") SendHelp();
+   // Không còn lệnh help nào — người dùng đã ghim sẵn tin nhắn hướng dẫn, và mọi lệnh khác
+   // (/start, /help, hay lệnh của bot khác trong group) đều bị bỏ qua hoàn toàn.
 }
 
 // ==================================================================
@@ -577,6 +718,7 @@ void SkipPendingTelegramUpdates() {
 int OnInit() {
    Radar.Init(Inp_BotToken, Inp_ChatID);
    BuildEnabledTFList();
+   BuildZoneFormedTFList();
    AdoptExistingCharts();
    g_keyboard_json = BuildKeyboardJson();
    SkipPendingTelegramUpdates();
@@ -599,5 +741,6 @@ void OnTick() {
 void OnTimer() {
    CheckTelegramCommands();
    CheckZoneTouches();
+   CheckZoneFormed();
 }
 //+------------------------------------------------------------------+
