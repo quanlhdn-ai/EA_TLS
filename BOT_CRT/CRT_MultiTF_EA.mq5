@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.49"
+#property version   "1.50"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -372,6 +372,24 @@
 //     đường thứ hai bị chặn hẳn, nên dòng log cũ mô tả một phép so sánh chưa từng chạy.
 //     Nay thêm WickPassReason() để in đúng lý do thật, và dòng "2.1b KHÔNG ĐỦ ĐK" cũng
 //     phân biệt được là trượt vì râu ngắn hay vì đang bật chế độ chỉ nhận nến thuận.
+//
+//   [1.50] NHÁNH 2.1b — MỐC 50% ĐỔI SANG RÂU QUÉT THẬT CỦA NẾN GỐC.
+//     Trước đây lấy theo râu của CÂY THỨ 2. Soi ca 2026.08.04 08:00-08:15 (nguồn Swing,
+//     SELL) bằng Data Window mới lộ ra vấn đề: cây thứ 2 có đỉnh 4068.806, vẫn nằm DƯỚI
+//     đường Last Major 4069.405 — tức là nó KHÔNG HỀ chạm biên. "Râu phía quét" của nó
+//     (0.563) chẳng liên quan gì tới cú quét thanh khoản thật, vốn xảy ra ở nến gốc
+//     08:00 (đỉnh 4072.959). Mốc chờ tính ra chỉ là một mức hồi kỹ thuật ngẫu nhiên.
+//     Nay lấy theo râu quét của nến gốc: từ mút râu tới mép thân của CHÍNH nến gốc.
+//     Ca trên: mốc chờ đổi từ 4068.524 -> (4072.959 + 4068.240)/2 = 4070.600, nằm đúng
+//     trong vùng thanh khoản vừa bị quét.
+//     Cần thêm trường m2OriginBodyEdge vào SCRTSource vì trước đó chỉ lưu High/Low của
+//     nến gốc, không đủ để dựng lại râu quét.
+//     KHÔNG áp dụng cho nhánh 2.2.1 — mốc ở đó là 50% TOÀN THÂN cây thứ 2, vốn là lựa
+//     chọn riêng và cây thứ 2 ở nhánh đó luôn là cây quyết định thật sự.
+//     Hai đề xuất còn lại cùng đợt đã được cân nhắc và CHỦ ĐỘNG BỎ QUA:
+//       · bắt cây thứ 2 qua phép đo râu/thân (bỏ đường tắt thuận chiều) — giữ nguyên,
+//         "cứ nến thuận chiều là được" là hành vi mong muốn;
+//       · thêm ngưỡng tối thiểu cho râu theo % chiều dài nến — tạm chưa làm.
 // ==============================================================================
 
 #include <Trade/Trade.mqh>
@@ -658,6 +676,8 @@ struct SCRTSource
    int      m2Dir;              // +1 = quét biên dưới (chờ BUY) / -1 = quét biên trên
    double   m2OriginHigh;       // High nến gốc — mốc so sánh cho điều kiện đủ ở 2.2.1
    double   m2OriginLow;        // Low nến gốc
+   double   m2OriginBodyEdge;   // Mép THÂN nến gốc phía quét — cùng với High/Low tạo thành
+                                // râu quét THẬT, dùng làm mốc 50% cho nhánh 2.1b
    datetime m2OriginTime;
    // Biên đã DÙNG XONG -> ngưng mọi setup trên biên này cho tới khi biên đổi giá trị.
    // Đặt = true ở CẢ 3 kết cục: 2.1 vào lệnh, 2.2.1 vào lệnh, 2.2.2 thất bại.
@@ -862,7 +882,8 @@ void ResetSourceFull(SCRTSource &s)
    s.hasSweptHigh = false; s.sweptHigh = 0; s.sweptHighTime = 0;
    s.armed = false; s.armDir = 0; s.armOppBoundary = 0; s.lastActedBreakTime = 0;
    s.ordersThisRound = 0; s.profitRounds = 0; s.prevOpenCount = 0; s.lastPoolPnl = 0;
-   s.m2Waiting = false; s.m2WaitKind = 0; s.m2Dir = 0; s.m2OriginHigh = 0; s.m2OriginLow = 0; s.m2OriginTime = 0;
+   s.m2Waiting = false; s.m2WaitKind = 0; s.m2Dir = 0;
+   s.m2OriginHigh = 0; s.m2OriginLow = 0; s.m2OriginBodyEdge = 0; s.m2OriginTime = 0;
    s.lineUsed = false;
    s.lastEventMsg = "";
 }
@@ -1296,12 +1317,13 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
    {
       // 2.1 nhưng nến ngược chiều lệnh và râu < thân -> nến xu hướng ngược, không phải
       // cú từ chối. Cho thêm ĐÚNG 1 cây để thị trường thể hiện lực.
-      s.m2Waiting    = true;
-      s.m2WaitKind   = 2;
-      s.m2Dir        = dir;
-      s.m2OriginHigh = highC;
-      s.m2OriginLow  = lowC;
-      s.m2OriginTime = tC;
+      s.m2Waiting        = true;
+      s.m2WaitKind       = 2;
+      s.m2Dir            = dir;
+      s.m2OriginHigh     = highC;
+      s.m2OriginLow      = lowC;
+      s.m2OriginBodyEdge = bodyEdge;   // giữ lại để tính mốc 50% theo râu quét THẬT
+      s.m2OriginTime     = tC;
       bool chiThuan = (s.isSwing ? Inp_PinbarChiThuan_SW : Inp_PinbarChiThuan_LK);
       PrintFormat("[CRT][%s] 2.1 nến gốc %s @%s bị loại (%s) -> chờ 1 cây %s kế tiếp.",
                   s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES),
@@ -1396,9 +1418,11 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
 
       if(s.m2WaitKind == 2)
       {
-         // --- Nhánh 2.1b: nến gốc là pinbar nhưng râu quá ngắn so với thân.
-         //     Yêu cầu cây này vừa đóng trong biên, vừa đạt tỷ lệ râu >= thân.
-         //     Mốc 50% lấy theo chính cây này.
+         // --- Nhánh 2.1b: nến gốc là pinbar nhưng trượt lọc chất lượng.
+         //     Yêu cầu cây này vừa đóng trong biên, vừa qua được lọc.
+         //     MỐC 50% LẤY THEO RÂU QUÉT THẬT CỦA NẾN GỐC, không phải râu cây này —
+         //     cây thứ 2 có thể không hề chạm biên (râu của nó chẳng liên quan gì tới
+         //     cú quét thanh khoản), nên lấy theo nó sẽ ra một mức hồi ngẫu nhiên.
          bool strong = PassesWickFilter(s, s.m2Dir, highC, lowC, openC, closeC);
          if(closedIn && strong)
          {
@@ -1409,11 +1433,13 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
                            s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES));
                return;
             }
-            double bodyEdge   = isBuy ? MathMin(openC, closeC) : MathMax(openC, closeC);
-            double limitPrice = isBuy ? (lowC + bodyEdge) / 2.0 : (highC + bodyEdge) / 2.0;
-            PrintFormat("[CRT][%s] 2.1b PINBAR (cây 2) %s @%s · qua lọc: %s -> vào cặp lệnh (limit @50%% râu = %s)",
+            double limitPrice = isBuy ? (s.m2OriginLow  + s.m2OriginBodyEdge) / 2.0
+                                      : (s.m2OriginHigh + s.m2OriginBodyEdge) / 2.0;
+            PrintFormat("[CRT][%s] 2.1b PINBAR (cây 2) %s @%s · qua lọc: %s -> vào cặp lệnh (limit @50%% râu quét nến gốc %s->%s = %s)",
                         s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES),
                         WickPassReason(s.m2Dir, highC, lowC, openC, closeC),
+                        DoubleToString(isBuy ? s.m2OriginLow : s.m2OriginHigh, _Digits),
+                        DoubleToString(s.m2OriginBodyEdge, _Digits),
                         DoubleToString(limitPrice, _Digits));
             ConfirmSweepForMode2(s, s.m2Dir, tC);
             STPConfig cfg21b = TPCfg_Pinbar(s);

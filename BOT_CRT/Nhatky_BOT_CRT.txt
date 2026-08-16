@@ -1,3 +1,214 @@
+Nhật ký 2026-08-16/17 — BOT_CRT  (CRT_MultiTF_EA v1.36 -> v1.50)
+
+Chặng này xoay quanh MỘT việc: dựng cách vào lệnh thứ 2 (đọc thẳng hình dạng nến
+quét, không qua BOS/CHOCH) rồi bồi thêm nhiều lớp lọc nhiễu cho nó.
+
+=====================================================================
+A. CÁCH VÀO LỆNH MỚI — "NẾN QUÉT"
+=====================================================================
+
+[v1.36] Thêm Inp_TradeMode, tách 2 cách xác nhận vào lệnh:
+  · TradeMode_BOS_KhungEntry (như cũ): quét râu -> arm -> chờ BOS/CHOCH khung entry.
+  · TradeMode_NenQuet_LTF (mới): vào lệnh NGAY trên khung quét râu, bỏ qua khung entry.
+    Mỗi setup vào ĐÚNG 1 CẶP: 1 lệnh market + 1 lệnh chờ tại mốc 50%.
+  Ba nhánh kết cục (loại trừ lẫn nhau, mỗi lần quét chỉ rơi vào đúng 1):
+    2.1   nến gốc đóng TRONG biên + qua lọc chất lượng -> vào ngay, mốc 50% = giữa RÂU
+    2.1b  nến gốc đóng trong biên nhưng TRƯỢT lọc -> chờ đúng 1 cây; cây đó đóng trong
+          biên + qua lọc thì vào. Mốc 50% ban đầu lấy theo cây thứ 2, từ v1.50 đổi sang
+          RÂU QUÉT THẬT CỦA NẾN GỐC — xem mục F.
+    2.2   nến gốc đóng NGOÀI biên -> chờ đúng 1 cây; cây đó đóng trong biên VÀ close
+          vượt/bằng đỉnh nến gốc (quét đáy) thì vào, mốc 50% = giữa TOÀN THÂN cây 2
+  Ở Mode 2, engine BOS chỉ chạy khi Inp_ShowStructure = true (để vẽ), không tham gia
+  quyết định vào lệnh -> tiết kiệm CPU khi backtest.
+  LƯU Ý KIẾN TRÚC: ProcessLTFSweep() chạy NGOÀI khối bảo vệ của OnTick, nên hàm vào
+  lệnh của Mode 2 phải TỰ kiểm EnableTrading / halt / Shield / news / spread.
+
+[v1.36] Bỏ nhãn khung thời gian gắn cứng. Logic vốn đã chạy đúng theo Inp_HTF/LTF/
+  EntryTF, nhưng MỌI NHÃN đều ghi cứng "H4"/"M1" nên đổi khung xong màn hình vẫn hiện
+  "H4 High" -> tưởng bot bị gắn cứng. Nay dùng TFToString(). Đổi tên enum bỏ tiền tố
+  TF: H4_LienKe->Bien_LienKe, H4_Swing->Bien_Swing, EntryMode_LimitTaiH4->...BienHTF,
+  ...ZoneM1->...ZoneEntry. Muốn bám theo TF chart đang mở: chọn "Current timeframe".
+
+=====================================================================
+B. CÁC LỚP LỌC NHIỄU (thứ tự kiểm đúng như bot chạy)
+=====================================================================
+
+[v1.43] LỌC "QUÉT KHÔNG RÕ RÀNG" — Inp_MinSweepPips (mặc định 3 pip).
+  Vấn đề: chênh lệch giá giữa các sàn cỡ vài pip đủ để một cây chạm biên ở sàn này mà
+  không chạm ở sàn kia -> cùng chiến lược ra kết quả khác nhau.
+  Cây đầu quét nông hơn ngưỡng -> bỏ cây đó, chờ 1 cây; cây sau quét đủ sâu thì CHÍNH
+  NÓ lên làm nến gốc rồi chạy lại toàn bộ 2.1/2.1b/2.2 (cặp nến xét lúc này là cây 2
+  và cây 3). Cây sau vẫn không đủ -> bỏ tín hiệu, đốt biên.
+  Đây là BỘ LỌC ĐẦU VÀO, không phải nhánh setup -> không có công tắc riêng, tắt bằng
+  cách để = 0.
+  Refactor kèm: tách ClassifyOriginCandle() vì phần "phân loại nến gốc" nay được gọi
+  từ 2 chỗ. Tiện thể gộp 2 nhánh BUY/SELL đối xứng (trước copy-paste ~40 dòng x2).
+
+[v1.39] LỌC CHẤT LƯỢNG NẾN — PassesWickFilter().
+  Backtest cho thấy 2.1 nhận cả những cây "thọc qua biên rồi đi tiếp": thân dài, râu
+  ngắn, đóng ngược hướng lệnh — nến xu hướng chứ không phải cú quét bị từ chối.
+  Luật: CHỈ lọc khi nến đóng NGƯỢC chiều lệnh (quét đáy mà nến giảm / quét đỉnh mà nến
+  tăng) -> cần râu phía quét >= thân. Nến THUẬN chiều thì qua thẳng, không đo gì.
+  Trượt lọc -> KHÔNG bỏ ngay mà sinh ra nhánh 2.1b (chờ 1 cây).
+  Kèm theo: khi chờ cây thứ 2 (cả 2.1b lẫn 2.2), nếu cây đó thọc sâu hơn nến gốc thì
+  cập nhật mút râu -> SL bám đúng chỗ. Trước đó SL luôn theo nến gốc nên có thể nằm
+  TRONG vùng đã bị xuyên qua, gần như chắc chắn dính SL ngay.
+
+[v1.48] Inp_PinbarChiThuan_LK / _SW — chỉ nhận pinbar THUẬN chiều.
+  Nhánh 2.1 vốn gộp 2 loại nến mà công tắc không tách được: (a) nến thuận chiều qua
+  thẳng, (b) nến ngược chiều nhưng râu >= thân. Bật cờ này thì loại hẳn nhóm (b).
+  Cài trong PassesWickFilter nên áp cho CẢ 2.1 lẫn 2.1b.
+
+[v1.40] CHẶN VÀO LỆNH KHI GIÁ ĐÃ VƯỢT MIDDLE (bổ sung cho v1.38).
+  v1.38 mới chỉ HUỶ LỆNH CHỜ khi giá chạm Middle, còn lệnh MARKET vẫn vào dù giá đã ở
+  bên kia Middle. Backtest 2026.08.09 22:00: Middle = 4340.599 nhưng market BUY khớp ở
+  4343.852 — đã vượt đích, dư địa còn lại gần bằng 0. Nay chặn ở tầng đặt lệnh nên bao
+  cả market lẫn limit, cả 2 mode.
+
+[v1.38] Giá chạm Middle -> huỷ mọi lệnh CHỜ cùng chiều chưa khớp (cả 2 mode).
+  Middle là đích của setup; giá tới đó mà lệnh chờ chưa khớp thì cơ hội đã trôi qua.
+  Chỉ đụng lệnh chờ, vị thế đã khớp vẫn để TP/SL tự chạy.
+
+=====================================================================
+C. VÒNG ĐỜI ĐƯỜNG BIÊN & QUẢN LÝ LỆNH
+=====================================================================
+
+[v1.37] 1 BIÊN = 1 LẦN DÙNG. Cờ lineUsed bật ở CẢ 3 kết cục (2.1 vào lệnh, 2.2.1 vào
+  lệnh, 2.2.2 thất bại). Mỗi biên chỉ xét đúng lần quét ĐẦU TIÊN; mọi lần quét sau bỏ
+  qua tới khi biên đổi giá trị (nến khung gốc mới / điểm Swing mới).
+  Hạn mức Inp_MaxOrders_* nay CHỈ áp cho Mode BOS — để = 1 thì cặp lệnh Mode 2 bị chặn
+  mất vế limit, mà luật "1 biên 1 cặp" đã là trần chặt hơn.
+
+[v1.37] BIÊN MỚI -> huỷ mọi lệnh chờ chưa khớp của biên cũ.
+  LỖI ĐÃ VÁ: ResetSourceSweepAndArm() trước đây chỉ gọi CancelEAPendings() khi đang
+  armed, mà Mode 2 KHÔNG dùng arm -> lệnh chờ sống sót qua biên mới. Nay huỷ vô điều kiện.
+
+[v1.37] 1 LỆNH TRONG CẶP CHẠM TP -> lệnh còn lại cùng chiều: chưa khớp thì huỷ, đã khớp
+  thì dời SL về entry.
+  LỖI ĐÃ VÁ: OnTradeTransaction mở đầu bằng "if(!Inp_EnableTelegram) return;" -> tắt
+  Telegram là mất luôn luật này. Đã chuyển điều kiện đó xuống sau phần xử lý cặp lệnh.
+
+[v1.44] GIÁ CHẠM BIÊN ĐỐI DIỆN -> dời SL về entry (hoà vốn), cả 2 mode, mỗi tick.
+  Từ mốc đó lệnh chỉ được gồng lãi, không thể quay đầu thành lỗ.
+  Refactor: tách MovePositionToBreakeven() dùng chung với luật TP ở trên — cả 2 chỗ
+  chỉ dời khi việc đó CÓ LỢI, không bao giờ nới lỏng một SL đang tốt.
+  Cả 2 luật quản lý lệnh này đặt NGOÀI khối bảo vệ của OnTick: siết SL / huỷ lệnh chờ
+  luôn an toàn, phải chạy được cả khi Shield/halt đang chặn vào lệnh mới.
+
+=====================================================================
+D. THIẾT LẬP TP & CÔNG TẮC
+=====================================================================
+
+[v1.41 -> v1.46] Tách bộ TP, qua 3 bước:
+  1.41  tách theo NHÁNH: Mode BOS / nhánh 2.1 / nhánh 2.2 (3 bộ).
+  1.45  gộp 4 mốc TP vào chung 1 enum — CÁCH NÀY SAI Ý, chỉ cho chọn mốc khác nhau
+        chứ không cho 2 nguồn dùng chế độ TP khác nhau.
+  1.46  tách ĐẦY ĐỦ theo NGUỒN x NHÁNH = 6 bộ, mỗi bộ 4 tham số = 24 ô.
+        Hai enum mốc khác nhau theo nguồn:
+          · nguồn LIỀN KỀ (2 mốc) — biên của nó CHÍNH LÀ biên HTF liền kề nên thêm mốc
+            "…liền kề" chỉ trùng lại chính nó, không đưa vào dropdown.
+          · nguồn SWING (4 mốc) — thêm Middle và biên đối diện của nến HTF LIỀN KỀ:
+            vào theo Last Major nhưng chốt theo nến HTF hiện tại.
+        Nối dây: 2 enum ép về thang chung ENUM_TP_ANCHOR lưu trong STPConfig, nên
+        ComputeTP() chỉ xử lý 1 kiểu. SCRTSource thêm cờ isSwing để TPCfg_*() chọn bộ.
+        LƯU Ý: TPCfg_*() phải khai báo SAU struct SCRTSource (MQL5 cần kiểu đã biết).
+  Nhánh 2.1 và 2.1b DÙNG CHUNG bộ TP (cùng loại setup, chỉ vào chậm 1 nến).
+
+[v1.47] 6 CÔNG TẮC bật/tắt từng setup con = 3 nhánh x 2 nguồn.
+  QUAN TRỌNG — tắt setup thì KHÔNG ĐỐT BIÊN: nếu vẫn đốt, tắt 2.1 sẽ cướp mất cơ hội
+  của 2.2 ở những lần quét sau trên cùng biên -> 2 lần backtest với 2 cấu hình không
+  còn so sánh được với nhau.
+
+[v1.37] Bố cục Input chia lại thành nhóm CHUNG (mọi mode) và nhóm RIÊNG từng mode,
+  đánh số 1..9: 1,4,5,6,7,9 = chung · 2,8 = riêng Mode BOS · 3 = riêng Mode Nến quét.
+  Hiện tổng 76 input trong 9 nhóm.
+
+[v1.37] Inp_FarFromLine_Action: khi giá đã cách biên quá Inp_MaxDistFromLine_Pips thì
+  xử lý vế MARKET của cặp lệnh — Far_BoLenhMarket (mặc định, khuyến nghị: chỉ giữ
+  limit 50%) / Far_ChuyenThanhLimitTaiLine / Far_VanVaoMarket. Vế limit vẫn đặt bình thường.
+
+=====================================================================
+E. LỖI LOG ĐÃ SỬA
+=====================================================================
+
+[v1.49] Journal ghi cứng "râu>=thân đạt" cho mọi ca qua lọc ở nhánh 2.1/2.1b. Nhưng
+  PassesWickFilter có HAI đường qua khác hẳn: nến THUẬN chiều qua ngay mà KHÔNG hề đo
+  râu/thân; chỉ nến NGƯỢC chiều mới phải so. Khi bật Inp_PinbarChiThuan_* thì đường
+  thứ hai bị chặn hẳn -> dòng log cũ mô tả một phép so sánh CHƯA TỪNG CHẠY.
+  Nay thêm WickPassReason() in đúng lý do thật; dòng "KHÔNG ĐỦ ĐK" cũng phân biệt được
+  trượt vì râu ngắn hay vì đang bật chế độ chỉ nhận nến thuận.
+
+=====================================================================
+F. ĐÃ XỬ LÝ — 3 đề xuất, chốt 1 sửa 2 giữ  [v1.50]
+=====================================================================
+
+Phát hiện khi soi ca 2026.08.04 08:00-08:15 (nguồn Swing, SELL) bằng Data Window:
+
+  Cây 08:00 (nến gốc): O 4065.377 H 4072.959 L 4064.378 C 4068.240 -> nến TĂNG
+     thân 2.863 · râu trên 4.719  => râu >= thân, tức là NẾU TẮT Inp_PinbarChiThuan
+     thì cây này ĐÃ QUA cửa và bot vào lệnh sớm hơn 1 nến, mốc chờ cũng khác.
+     => Công tắc "chỉ nhận nến thuận" thay đổi hẳn kết quả, không chỉ lọc bớt.
+
+  Cây 08:15 (cây được vào lệnh): O 4068.243 H 4068.806 L 4060.378 C 4063.244
+     thân 4.999 · râu trên 0.563  => THÂN GẤP ~9 LẦN RÂU, không phải pinbar.
+     Nó lọt qua chỉ nhờ đường tắt "thuận chiều" (nến giảm trong setup SELL).
+     Nếu phải qua bằng đường đo râu thì trượt thẳng.
+
+Hai vấn đề rút ra:
+  1. Đường tắt "thuận chiều" đang quá rộng — cho qua cả nến xu hướng thân dài không
+     râu, đúng loại đã bị lọc bỏ ở phía ngược chiều. "Thể hiện lực" và "là pinbar" là
+     hai chuyện khác nhau.
+  2. Mốc 50% của nhánh 2.1b có thể vô nghĩa: đỉnh cây 08:15 (4068.806) còn nằm DƯỚI
+     đường Last Major (4069.405) — cây này không hề chạm biên, nên "râu phía quét" của
+     nó chẳng liên quan gì tới cú quét thật (xảy ra ở cây 08:00).
+
+Ba hướng đã đề xuất — kết quả:
+
+  a. Bắt cây thứ 2 qua phép đo râu/thân, bỏ đường tắt thuận chiều
+     -> GIỮ NGUYÊN. Người dùng chốt: "cứ nến thuận chiều là được". Đường tắt rộng là
+        hành vi MONG MUỐN, không phải lỗ hổng. Vấn đề 1 ở trên coi như đóng.
+
+  b. Nhánh 2.1b lấy mốc 50% theo râu quét THẬT của cây gốc
+     -> ĐÃ SỬA ở v1.50. Thêm trường m2OriginBodyEdge vào SCRTSource (trước chỉ lưu
+        High/Low nến gốc, không đủ dựng lại râu quét). Mốc chờ ca trên đổi từ 4068.524
+        thành (4072.959 + 4068.240)/2 = 4070.600 — nằm đúng vùng thanh khoản vừa quét.
+        KHÔNG đụng nhánh 2.2.1: mốc ở đó vẫn là 50% TOÀN THÂN cây thứ 2, vì cây thứ 2
+        của nhánh đó luôn là cây quyết định thật sự.
+
+  c. Thêm ngưỡng tối thiểu cho râu theo % chiều dài nến
+     -> TẠM CHƯA LÀM. Để dành nếu backtest cho thấy còn lọt nến xấu.
+
+Lưu ý khi backtest lại: thay đổi (b) làm mốc chờ dịch lên gần vùng quét hơn, nên
+khoảng cách entry-tới-SL NGẮN LẠI -> nếu chuyển sang tính lot theo % tài khoản thì
+khối lượng sẽ lớn hơn trước. Hiện đang dùng lot cố định nên chưa ảnh hưởng.
+
+=====================================================================
+G. TÀI LIỆU
+=====================================================================
+
+Bản đặc tả đầy đủ luật vào lệnh + lọc nhiễu (văn bản thuần, có ví dụ số thật, không
+dùng tên biến code) — dùng để đối chiếu cách hiểu giữa 2 bên:
+  https://claude.ai/code/artifact/64c93503-c09e-4ff8-807c-5a784f8e3c6b
+Sửa code xong thì cập nhật lại tài liệu này ở ĐÚNG đường link đó (republish cùng file).
+
+=====================================================================
+H. GHI CHÚ VẬN HÀNH BỔ SUNG
+=====================================================================
+
+- Bot chạy theo Inp_LTF bất kể chart đang mở khung nào. Attach lên M1 chỉ khiến OnTick
+  gọi dày hơn (phản ứng nhanh hơn cho Pool SL / Shield / huỷ lệnh chờ), logic vẫn chờ
+  đúng nến LTF đóng. Các PERIOD_CURRENT còn lại chỉ để quy đổi thời gian sang vị trí
+  nến khi VẼ.
+- Log backtest có "TELEGRAM POST ERROR: Code -1 | Error: 4014" lặp lại là BÌNH THƯỜNG:
+  MT5 không cho gọi WebRequest trong Strategy Tester. Chạy live/demo mới gửi được.
+- Mọi luật lọc/huỷ đều áp cho CẢ 2 nguồn: state nằm trong struct SCRTSource (mỗi nguồn
+  1 bản), thao tác lệnh lọc theo magic riêng nên không bao giờ đụng nhầm nguồn kia.
+- Luật duy nhất KHÔNG áp cho Mode 2: "nến LTF đóng thủng mốc râu quét -> huỷ arm"
+  (v1.35a). Đúng đắn — luật đó bảo vệ trạng thái CHỜ của Mode BOS, mà Mode 2 vào lệnh
+  ngay nên không có gì để huỷ; vai trò tương đương do lineUsed đảm nhiệm.
+
+=====================================================================
+
 Nhật ký 2026-08-03/04 — BOT_CRT  (CRT_MultiTF_EA v1.05 -> v1.35)
 
 =====================================================================
