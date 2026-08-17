@@ -1,3 +1,271 @@
+Nhật ký 2026-08-17/18 — BOT_CRT  (CRT_MultiTF_EA v1.50 -> v1.61)
+
+Chặng này gần như chỉ làm MỘT việc: truy cho ra vì sao bot nhận nhầm "quét thanh
+khoản" ở những chỗ không hề có cú quét nào, rồi nhân đó rút gọn mô hình cho dễ kiểm
+chứng. Sửa 4 lần mới đúng — mỗi lần backtest lại lộ thêm một lỗ hổng của lần trước,
+nên phần C bên dưới ghi lại cả những bước SAI, vì chúng giải thích vì sao thiết kế
+cuối cùng phải như vậy.
+
+=====================================================================
+A. MÔI TRƯỜNG BUILD — ĐÃ COMPILE ĐƯỢC TỪ DÒNG LỆNH
+=====================================================================
+
+CLAUDE.md ghi "MQL5 has no command-line compiler" — SAI. MetaEditor có tham số dòng
+lệnh, dùng được ngay:
+
+  & 'C:\Program Files\MetaTrader 5\MetaEditor64.exe' `
+      /compile:"<data>\MQL5\Experts\CRT_MultiTF_EA.mq5" /inc:"<data>\MQL5" /log:<file>
+
+  · data folder: C:\Users\Admin\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075
+  · log ghi bằng UTF-16 (đọc bằng Get-Content -Encoding Unicode)
+  · exit code khác 0 kể cả khi chỉ có warning -> phải đọc dòng "Result: N errors"
+  · 3 warning hiện có đều vô hại và có sẵn từ trước: POSITION_COMMISSION deprecated (x2)
+    và ép kiểu ushort->uchar trong Telegram_Radar.mqh
+
+Ý nghĩa: từ nay mỗi lần sửa đều compile kiểm chứng được ngay, không phải chờ F7 thủ
+công. Toàn bộ v1.50 -> v1.61 đã compile sạch 0 lỗi.
+
+=====================================================================
+B. CA GỐC — CÚ "QUÉT" KHÔNG HỀ TỒN TẠI
+=====================================================================
+
+Backtest 2026.08.04, nguồn Swing, đường Last Major High = 4069.405:
+
+  16:00  nến M15 H=4088.586 L=4084.268  -> bot ghi nhận "quét biên trên", vào nhánh 2.2
+  16:15  cây thứ 2 vẫn đóng ngoài biên  -> 2.2.2 thất bại, đốt biên
+
+Cả cây nến nằm TRỌN phía trên đường line, cách gần 200 pip. Giá đã giao dịch ở vùng
+trên đó suốt nhiều giờ. Không có cú thọc-ra-rồi-bị-từ-chối nào cả.
+
+Nguyên nhân gốc: điều kiện nhận diện quét chỉ có ĐÚNG MỘT phép so sánh —
+"đỉnh nến có cao hơn đường biên không?". Không hề đòi hỏi giá phải TỪ TRONG BIÊN
+thọc ra. Khi giá đã ở hẳn ngoài biên thì MỌI cây nến đều thoả điều kiện đó.
+
+Đây là thiếu sót về BẢN CHẤT của CRT, không phải lỗi lập trình: quét thanh khoản
+theo định nghĩa là đi từ trong ra rồi bị đẩy ngược lại.
+
+=====================================================================
+C. CỔNG "ĐI TỪ TRONG RA" — 4 LẦN LÀM MỚI ĐÚNG
+=====================================================================
+
+[v1.51] Lần 1 — cờ trạng thái theo từng phía (sweepEligibleLow/High).
+  Ý tưởng: một phía chỉ được tính quét sau khi có nến LTF đóng cửa BÊN TRONG biên.
+  Kèm 2 sửa phụ: (a) đổi biên phía nào chỉ thu hồi tư cách phía đó; (b) xử nến LTF
+  trước rồi mới cập nhật biên (xem mục D).
+  LỖ HỔNG: khởi động nguội thì cả 2 phía chưa có tư cách, cây LTF ĐẦU TIÊN của phiên
+  phải hy sinh làm "bằng chứng". Backtest 04/08 00:00 đúng cây đó là cây quét -> mất
+  tín hiệu oan.
+
+[v1.52] Lần 2 — mồi tư cách từ lịch sử.
+  "Bot chưa ghi nhận" không có nghĩa là không có dữ liệu: MT5 nạp sẵn lịch sử M15 từ
+  2025. Dùng nến LTF đã đóng gần nhất để cấp tư cách ngay lúc khởi động.
+  VẪN CÒN LỖ HỔNG, và là lỗ hổng nặng hơn — xem dưới.
+
+[v1.53] Lần 3 — biến thành TRẠNG THÁI LIÊN TỤC (có cấp thì phải có thu hồi).
+  Backtest lặp lại y hệt ca 16:00 cũ. Truy ra HAI lỗ hổng cùng một gốc: cờ chỉ biết
+  CẤP, không bao giờ THU HỒI.
+    · giá leo hẳn lên trên biên suốt 6 tiếng mà cờ vẫn giữ true từ lần cấp lúc 08:15;
+      đến 16:00 biên phía Low đổi (mở lại lineUsed) là quét ảo nổ ngay;
+    · tệ hơn: hàm cấp chạy NGAY SAU hàm xử lý trên CÙNG cây nến, mà nhánh 2.1/2.1b
+      theo định nghĩa đóng cửa TRONG biên -> vừa tiêu hao xong đã cấp lại. Cơ chế
+      "tiêu hao" thêm ở 1.51 vì thế CHƯA BAO GIỜ có tác dụng thật.
+  Rút về một bất biến: "phía X đủ tư cách <=> nến LTF đóng gần nhất đóng TRONG phía X".
+
+[v1.56] Lần 4 — bỏ hẳn trạng thái, tính TẠI CHỖ.
+  Nhìn lại thì cái trạng thái đó chỉ để nhớ đúng một việc: nến liền trước đóng trong
+  hay ngoài biên. Việc đó đọc thẳng nến shift 2 lúc cần là ra.
+  Gỡ được: 4 biến trạng thái + hàm cập nhật + 3 điểm gọi + toàn bộ log đổi trạng thái
+  + đoạn mồi lúc khởi động + 2 tham số "phía nào đổi" của hàm reset.
+  Kết quả LOGIC Y HỆT, code ngắn hơn hẳn, và hết sạch log ngập kiểu "ĐỦ/MẤT tư cách"
+  mỗi khi giá dập dình quanh line (04/08: lật 5 lần trong 2 tiếng).
+
+  BÀI HỌC: trạng thái chạy nền chỉ nên nuôi khi KHÔNG thể tính lại từ dữ liệu gốc.
+  Ba bản đầu sai đều vì cùng một lý do — nuôi cờ rồi quên mất một đường cập nhật.
+
+=====================================================================
+D. LỆCH MỘT NẾN Ở MỐC ĐÓNG NẾN KHUNG GỐC  [v1.53]
+=====================================================================
+
+Thứ tự cũ trong OnTick: cập nhật biên TRƯỚC, xử lý nến LTF SAU.
+Tại tick chuyển giao HTF (vd 16:00) thì biên nhảy sang cây HTF vừa đóng, RỒI mới xử
+lý nến LTF cuối cùng của chính cây đó. Nến này bị đem so với đường biên mà chính nó
+góp phần tạo ra -> về mặt toán học không bao giờ vượt qua được.
+Hệ quả: cú quét thật xảy ra ở nến LTF cuối mỗi chu kỳ HTF bị BỎ SÓT VĨNH VIỄN.
+
+Nay đảo lại: xử nến LTF trước (so với biên CŨ, đúng biên của nó), cập nhật biên sau.
+Hệ quả đã cân nhắc và chấp nhận: cặp lệnh sinh ra ở nến đó sẽ bị biên mới huỷ vế
+limit ngay sau đó (đúng luật "biên mới huỷ lệnh chờ"), vế market vẫn giữ.
+
+=====================================================================
+E. BỎ HẲN LUẬT QUÉT NÔNG  [v1.55]
+=====================================================================
+
+Luật cũ: râu phải thọc qua biên >= 3 pip mới tính là quét; nông hơn thì chờ 1 cây,
+cây sau vẫn không đủ sâu thì ĐỐT BIÊN.
+
+Kịch bản người dùng nêu đã phơi bày chỗ tệ: line -> cây quét 1 pip -> vài cây lởn vởn
+quanh line, có cây ra 1-2 pip -> vài cây không chạm -> rồi một cây quét 10 pip kèm
+setup 2.1/2.2 hoàn hảo. Kết quả với luật cũ: đường line CHẾT từ cây thứ 2, toàn bộ
+phần sau kể cả cú quét 10 pip đẹp nhất bị bỏ qua sạch.
+Đã xảy ra thật: cú chạm 1.6 pip lúc 12:30 giết đường H4 lúc 13:00, nằm chết tới 16:00.
+
+Ba phương án đã đặt lên bàn:
+  a. Quét nông = CHƯA CHẠM BIÊN (bỏ qua hẳn, KHÔNG đốt biên, line còn nguyên)
+  b. Giữ nguyên
+  c. Bỏ hẳn luật 3 pips
+Đã báo trước rằng (c) KHÔNG cứu được kịch bản trên — cây quét 1 pip nếu đóng lại
+trong biên sẽ thành pinbar 2.1 hợp lệ, vào lệnh ngay trên cú chạm 1 pip rồi đốt biên,
+cú quét 10 pip vẫn bị bỏ qua. Người dùng chọn (c) sau khi thấy rõ hệ quả, đổi lại
+được sự đồng nhất.
+
+=> Nay: râu vượt biên BAO NHIÊU CŨNG TÍNH LÀ QUÉT. Gỡ nhánh chờ m2WaitKind=3, hàm
+   SweepDepthPips() và input Inp_MinSweepPips.
+   PHƯƠNG ÁN (a) VẪN CÒN NGUYÊN GIÁ TRỊ nếu backtest cho thấy nhiễu tăng — nó là cách
+   duy nhất giữ được CẢ lọc nhiễu LẪN cú quét sâu về sau.
+
+=====================================================================
+F. MÔ HÌNH SAU KHI RÚT GỌN  [v1.56]
+=====================================================================
+
+Người dùng tự đúc kết và đúng: kể từ lúc chạm biên, bot chỉ theo dõi TỐI ĐA 2 CÂY NẾN.
+
+  Cổng 1 — ĐI TỪ TRONG RA: nến LTF liền trước phải đóng TRONG biên phía đang xét.
+  Cổng 2 — CHẠM BIÊN: râu vượt qua line -> QUÉT CRT ĐÃ XONG, dù chỉ vượt 1 point.
+
+  Rồi cửa sổ 2 cây:
+    nến gốc đóng TRONG biên  -> 2.1  (qua lọc râu/thân thì vào luôn;
+                                      không qua thì chờ 1 cây -> 2.1b)
+    nến gốc đóng NGOÀI biên  -> 2.2  (chờ 1 cây engulfing)
+  Hết cây thứ 2 là chốt sổ: vào lệnh hoặc đốt biên. Không theo dõi thêm cây nào nữa.
+
+Dọn kèm: bỏ Inp_PinbarChiThuan_LK/_SW. Hai công tắc này cho phép loại thẳng nến ngược
+chiều mà không xét râu/thân — một nhánh luật THỨ BA nằm ngoài mô hình trên. Cả hai vốn
+đang mặc định false nên gỡ đi không đổi hành vi.
+
+LƯU Ý phân biệt cổng 1 với "quét": cổng 1 KHÔNG định nghĩa lại quét, nó chỉ khẳng định
+điều vốn ngầm hiểu — giá đã ở hẳn ngoài biên thì phía đó không còn thanh khoản để quét.
+
+Input: 76 -> 73 qua cả chặng.
+
+=====================================================================
+G. "1 BIÊN = 1 LẦN DÙNG" TÁCH THEO TỪNG PHÍA  [v1.58]
+=====================================================================
+
+Chính dòng log thêm ở 1.57 làm lộ lỗi này:
+
+  08:00  ĐỔI BIÊN cả 2 phía: trên 4064.700 -> 4069.405 · dưới 4018.977 -> 4042.403
+  08:15  2.1 PINBAR SELL -> vào lệnh trên biên TRÊN 4069.405
+  08:45  TP
+  16:00  ĐỔI BIÊN phía DƯỚI: 4042.403 -> 4045.486     <- CHỈ phía dưới
+  16:15  [vẫn lôi biên TRÊN 4069.405 ra xét tiếp]     <- SAI
+
+Biên trên giữ nguyên giá trị, đã xét xong và đã ăn TP, không có lý do gì sống lại.
+Nguyên nhân: lineUsed là MỘT cờ dùng chung cho cả 2 phía -> reset là mất sạch trí nhớ
+của cả hai.
+
+Nay tách lineUsedLow / lineUsedHigh; hàm reset nhận lại (highChanged, lowChanged) và
+chỉ xoá cờ của đúng phía có giá trị biên mới. Phép kiểm tra chuyển xuống SAU khi đã
+biết chiều quét, nên bỏ luôn lệnh chặn sớm ở đầu hàm.
+
+ĐỪNG NHẦM với v1.51: hồi đó cũng tách theo phía, nhưng là tách TƯ CÁCH QUÉT (nay tính
+tại chỗ, không còn cờ). Lần này tách CỜ ĐÃ DÙNG — hai việc hoàn toàn khác nhau.
+
+=====================================================================
+H. SIẾT TỶ LỆ RÂU / THÂN: 1.0 -> 1.5  [v1.61]
+=====================================================================
+
+Trước: nến ngược chiều chỉ cần râu BẰNG thân là đạt. Nay đòi râu gấp RƯỠI thân thì sự
+từ chối giá mới được coi là rõ ràng.
+
+Khai báo bằng hằng số Inp_WickBodyRatio ngay trên PassesWickFilter() (yêu cầu: sửa
+thẳng trong code, KHÔNG đưa vào màn hình Input) -> số input giữ nguyên 73, .set không
+phải đụng. Muốn đổi lần sau chỉ sửa đúng dòng đó; để 0 là bỏ hẳn phép đo.
+
+PHẠM VI — hỏi đáp đã làm rõ trước khi sửa:
+  · Áp cho CẢ 2.1 (nến gốc) LẪN 2.1b (cây thứ 2) — hai nhánh gọi chung hàm lọc.
+  · KHÔNG đụng 2.2: nhánh đó xét engulfing, chưa bao giờ gọi bộ lọc râu.
+  · KHÔNG đụng nến THUẬN chiều: loại này qua thẳng, không đo gì. MÀU là cổng đầu tiên,
+    râu/thân chỉ là phương án dự phòng khi màu không đạt.
+  · Nến gần doji (thân ~ 0) vẫn luôn qua bất kể tỷ lệ — không hại, doji râu dài đúng
+    là nến từ chối giá.
+
+Cách đo: thân = |close - open| (toàn bộ thân); râu = CHỈ râu phía đã quét, không tính
+râu bên kia.
+
+Dự đoán: nhiều ca 2.1 bị đẩy sang 2.1b, cây thứ 2 của 2.1b cũng khó qua hơn -> tổng số
+lệnh giảm ở cả hai nhánh. Ca 08:00 ngày 04/08 vẫn qua nhưng sát ngưỡng hơn hẳn (cần
+4.295, có 4.719; luật cũ dư 1.65 lần, luật mới chỉ dư 1.10 lần).
+
+=====================================================================
+I. HIỂN THỊ & LOG
+=====================================================================
+
+[v1.50] Nhánh 2.1b đổi mốc 50%: lấy theo RÂU QUÉT THẬT CỦA NẾN GỐC thay vì râu cây
+  thứ 2. Lý do: cây thứ 2 có thể KHÔNG HỀ chạm biên (ca 04/08: đỉnh 4068.806 vẫn nằm
+  dưới đường 4069.405), râu của nó chẳng liên quan gì tới cú quét thanh khoản -> mốc
+  chờ tính ra chỉ là một mức hồi kỹ thuật ngẫu nhiên. Mốc đổi 4068.524 -> 4070.600.
+  Cần thêm trường m2OriginBodyEdge vì trước đó chỉ lưu High/Low nến gốc, không đủ dựng
+  lại râu quét.
+
+[v1.53] Nhãn đường kẻ bám MÉP PHẢI KHUNG NHÌN. Trước gắn cứng ở "nến hiện tại + 50
+  nến" nên zoom to lên là nhãn văng khỏi màn hình. Nay chừa sẵn một khoảng tính bằng
+  PIXEL vừa đủ chứa chữ (bề rộng chữ cố định theo pixel, còn 1 nến chiếm bao nhiêu
+  pixel thì đổi theo zoom). Thêm OnChartEvent(CHARTEVENT_CHART_CHANGE) để zoom/kéo
+  chart là vẽ lại.
+
+[v1.57] In rõ SỰ KIỆN ĐỔI BIÊN của nguồn Swing. Đây là mắt xích luôn bị hụt khi đọc
+  journal: vào lệnh -> đốt biên -> im lặng 8 tiếng -> rồi "đột nhiên" xét quét trở lại.
+  Nguyên nhân nằm ở giữa mà không ai thấy. Chỉ in cho Swing; nguồn liền kề đổi biên mỗi
+  nến HTF theo định nghĩa nên in ra chỉ tổ ngập journal.
+
+[v1.59] Biên ĐÃ XÉT XONG tự đổi sang XÁM + nhãn thêm "· đã dùng", thay vì báo bằng chữ
+  trên dashboard (đề xuất của người dùng, tốt hơn hẳn: thông tin nằm đúng chỗ nó thuộc
+  về, dashboard khỏi phải gánh và khỏi che chart). Tách theo phía nên biên trên có thể
+  xám trong khi biên dưới vẫn giữ màu.
+  BẪY ĐÃ VÁ: RefreshAll() phải coi thay đổi của cờ "đã dùng" là một lý do vẽ lại
+  (g_lastUsedMask). Thiếu điều kiện này thì đường vừa xét xong vẫn giữ màu cũ cho tới
+  lần vẽ kế tiếp vì lý do khác -> hiển thị sai trong một quãng.
+
+[v1.60] Sửa câu chữ log đổi biên. Bản 1.57 ghi "biên mở lại cho lần quét mới" -> hiểu
+  nhầm là đường CŨ hồi sinh. Bản chất: điểm Major Swing mới làm đường Last Major NHẢY
+  SANG GIÁ KHÁC; đường cũ biến mất khỏi chart, đường mới thay chỗ và chưa từng được
+  dùng nên bộ đếm của nó bắt đầu từ 0. Câu log nay ghi rõ "đường KHÁC thay chỗ đường
+  cũ" và thêm "phía kia giữ nguyên trạng thái".
+
+[v1.54] Log tư cách quét: báo HẬU QUẢ, không báo trạng thái. Chỉ in khi thực sự CHẶN
+  một cú vượt biên, mỗi đợt giá ra ngoài biên in đúng 1 dòng.
+
+=====================================================================
+J. QUYẾT ĐỊNH ĐÃ CHỐT — ĐỪNG "SỬA CHO NHẤT QUÁN" NHẦM
+=====================================================================
+
+1. Khi biên MỘT phía đổi, vẫn huỷ lệnh chờ của CẢ 2 PHÍA.
+   Trông như chỗ sót của luật per-side ở v1.58, nhưng là CỐ Ý. Lý do: TP của nhiều
+   nhánh neo vào đường Middle, mà Middle = (biên trên + biên dưới)/2. Chỉ cần MỘT phía
+   đổi là Middle đã đổi, nên lệnh chờ phía kia tuy vẫn đúng tiền đề nhưng đang mang sẵn
+   TP tính theo range CŨ -> đã lạc hậu, để lại còn hại hơn huỷ đi.
+   Đã cân nhắc cả hướng ngược lại. Ghi chú cũng nằm ngay tại chỗ gọi CancelEAPendings().
+
+2. Đường tắt "nến thuận chiều thì qua thẳng" — GIỮ NGUYÊN, không bỏ.
+   Đã đề xuất bắt cả nến thuận chiều phải qua phép đo râu/thân; người dùng bác:
+   "cứ nến thuận chiều là được". Đây là hành vi MONG MUỐN, không phải lỗ hổng.
+
+3. Ngưỡng tối thiểu cho râu theo % chiều dài nến — chưa làm, để dành.
+
+=====================================================================
+K. VIỆC CÒN LẠI
+=====================================================================
+
+· Đang trong giai đoạn theo dõi và kiểm thử. Bản v1.61 đã chạy đúng theo kiểm tra của
+  người dùng ngày 18/08.
+· Nếu backtest cho thấy nhiễu tăng sau khi bỏ luật 3 pips: cân nhắc phương án (a) ở
+  mục E — quét nông = chưa chạm biên, không đốt biên.
+· CLAUDE.md ở thư mục EA_TLS vẫn ghi sai "MQL5 has no command-line compiler" — nên sửa
+  khi có dịp (xem mục A).
+· Token Telegram vẫn hardcode trong cả .mq5 lẫn .set. EA_TLS là git repo -> đẩy public
+  là lộ. Đã báo, người dùng chọn giữ.
+
+
 Nhật ký 2026-08-16/17 — BOT_CRT  (CRT_MultiTF_EA v1.36 -> v1.50)
 
 Chặng này xoay quanh MỘT việc: dựng cách vào lệnh thứ 2 (đọc thẳng hình dạng nến

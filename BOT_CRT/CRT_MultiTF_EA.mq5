@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.50"
+#property version   "1.61"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -390,6 +390,174 @@
 //       · bắt cây thứ 2 qua phép đo râu/thân (bỏ đường tắt thuận chiều) — giữ nguyên,
 //         "cứ nến thuận chiều là được" là hành vi mong muốn;
 //       · thêm ngưỡng tối thiểu cho râu theo % chiều dài nến — tạm chưa làm.
+//
+//   [1.51] VÁ 3 LỖI PHÁT HIỆN QUÉT SAI — soi từ ca 2026.08.04 16:00 (nguồn Swing nhận
+//     nhầm "quét biên trên" trong khi giá đã giao dịch hẳn TRÊN đường Last Major High
+//     4069.405 từ nhiều giờ trước; nến M15 15:45 H=4088.883 nằm trọn phía trên đường):
+//     (A) TƯ CÁCH QUÉT THEO TỪNG PHÍA BIÊN (sweepEligibleLow/High): một phía chỉ được
+//         nhận diện quét sau khi có bằng chứng giá giao dịch BÊN TRONG biên —
+//           · lúc biên hình thành: cấp theo giá thực tế (bid) — giá đang trong biên thì
+//             cấp ngay, đang ngoài (khởi động nguội giữa cây HTF, hoặc biên Swing bị giá
+//             bỏ lại) thì KHÔNG cấp; bid=0 (OnInit trước tick đầu) cũng không cấp;
+//           · sau đó: một nến LTF ĐÓNG CỬA trong biên sẽ cấp, hiệu lực TỪ CÂY KẾ TIẾP
+//             (GrantSweepEligibility gọi SAU ProcessSourceSweep) — cây quay về từ ngoài
+//             không thể tự cấp rồi tự bị nhận nhầm là quét;
+//           · bất đẳng thức NGHIÊM NGẶT: đóng đúng ngay tại biên chưa tính là trong biên;
+//           · tư cách TIÊU HAO khi chuỗi quét bắt đầu — chuỗi thất bại mà giá ở lại bên
+//             ngoài thì không còn cờ nào để lần reset biên sau tái kích quét ảo.
+//         Gác ở cả 2 mode: Mode 2 chặn lúc dò nến gốc; Mode 1 chặn lúc MỞ cụm quét mới
+//         (cụm đang theo dõi dở vẫn chạy tiếp vì nó mở lúc còn đủ tư cách).
+//     (B) ĐỔI BIÊN PHÍA NÀO CHỈ THU HỒI TƯ CÁCH PHÍA ĐÓ: ResetSourceSweepAndArm nhận
+//         thêm (highChanged, lowChanged). Trước đây Last Major Low đổi cũng gỡ khoá phía
+//         High — chính là ngòi nổ của ca trên. Trạng thái THEO SETUP (chờ cây 2, lineUsed,
+//         hạn mức, lệnh chờ) vẫn reset toàn bộ vì setup dang dở đã mất căn cứ.
+//     (C) XỬ LÝ NẾN LTF TRƯỚC, CẬP NHẬT BIÊN SAU trong OnTick: sửa lỗi lệch-một-nến —
+//         nến LTF cuối chu kỳ HTF trước đây bị so với biên mà chính nó góp phần tạo ra
+//         (không bao giờ vượt được) thay vì biên cũ; cú quét thật ở nến đó bị bỏ sót.
+//         Hệ quả đã cân nhắc: cặp lệnh sinh ra ở nến đó sẽ bị biên mới huỷ vế limit ngay
+//         sau đó (đúng luật), vế market giữ nguyên.
+//
+//   [1.52] KHỞI ĐỘNG NGUỘI — MỒI TƯ CÁCH QUÉT TỪ LỊCH SỬ. Bản 1.51 quá thận trọng:
+//     khởi động là cả 2 phía chưa có tư cách, cây LTF đầu tiên của phiên chạy phải hy
+//     sinh làm "bằng chứng giá trong biên" — nếu chính cây đó là cây quét (backtest
+//     04/08 00:00 quét Last Major High 4064.700) thì cú quét bị bỏ qua oan. Nhưng "bot
+//     chưa ghi nhận" không có nghĩa là không có dữ liệu: lịch sử LTF luôn sẵn trong MT5.
+//     Nay ở lần lấy mốc đầu tiên, dùng CLOSE của nến LTF đã đóng gần nhất để cấp tư cách
+//     — nến đó đóng TRƯỚC lúc bot chạy nên vẫn giữ nguyên tắc "hiệu lực từ cây sau".
+//     Vẫn an toàn cho ca giá đang ở ngoài biên: nến lịch sử đóng ngoài thì không cấp.
+//
+//   [1.53] TƯ CÁCH QUÉT ĐỔI THÀNH TRẠNG THÁI LIÊN TỤC — vá lỗ hổng còn lại của 1.51/1.52.
+//     Backtest 2026.08.04 16:15 vẫn lặp lại y hệt ca quét ảo cũ: nến M15 H=4088.586
+//     L=4084.268 nằm TRỌN trên Last Major High 4069.405 mà vẫn vào nhánh 2.2. Truy ra
+//     HAI lỗ hổng cùng một gốc — cờ tư cách chỉ biết CẤP, không bao giờ THU HỒI:
+//       · giá leo hẳn lên trên biên suốt 6 tiếng nhưng cờ vẫn giữ true từ lần cấp lúc
+//         08:15, nên khi biên phía Low đổi lúc 16:00 (mở lại lineUsed) là quét ảo nổ ngay;
+//       · tệ hơn, hàm cấp chạy NGAY SAU ProcessSourceSweep trên CÙNG cây nến, mà nhánh
+//         2.1/2.1b theo định nghĩa đóng cửa TRONG biên -> vừa tiêu hao xong đã cấp lại.
+//         Cơ chế "tiêu hao" thêm ở 1.51 vì thế chưa bao giờ có tác dụng thật -> đã gỡ bỏ.
+//     Nay rút về ĐÚNG MỘT bất biến, kiểm chứng được bằng mắt trên chart:
+//         phía biên X đủ tư cách  <=>  nến LTF ĐÓNG GẦN NHẤT đóng cửa BÊN TRONG phía X.
+//     RefreshSweepEligibility() gán TUYỆT ĐỐI cả 2 phía (không còn chỉ-gán-một-chiều),
+//     gọi ở 3 nơi duy nhất: sau mỗi nến LTF đóng, lúc biên đổi giá trị, và lúc khởi động.
+//     Giá ra ngoài -> mất tư cách ngay; quay vào -> có lại, hiệu lực từ cây kế tiếp.
+//
+//   [1.53] NHÃN ĐƯỜNG KẺ BÁM MÉP PHẢI KHUNG NHÌN. Trước đây đầu mút line và nhãn gắn
+//     cứng ở "nến hiện tại + 50 nến" nên zoom to lên là nhãn nằm ngoài màn hình, mất hút.
+//     Nay VisibleEdgeTimes() chừa sẵn ở mép phải một khoảng tính bằng PIXEL vừa đủ chứa
+//     chữ (bề rộng chữ cố định theo pixel, còn 1 nến chiếm bao nhiêu pixel thì đổi theo
+//     zoom), line kết thúc ngay trước khoảng đó, nhãn nằm gọn bên trong. Thêm
+//     OnChartEvent(CHARTEVENT_CHART_CHANGE) để zoom/kéo chart là vẽ lại — chỉ đụng đối
+//     tượng đồ hoạ, không chạm logic vào lệnh.
+//
+//   [1.54] LOG TƯ CÁCH QUÉT: BÁO HẬU QUẢ, KHÔNG BÁO TRẠNG THÁI. Bản 1.53 in mỗi lần
+//     trạng thái lật, mà giá dập dình quanh đường line thì lật liên tục (backtest
+//     2026.08.04: mất 11:45 -> đủ 12:15 -> mất 12:45 -> đủ 13:15 -> mất 13:30) — ngập
+//     log mà không nói được điều người dùng cần biết. Nay im lặng khi đổi trạng thái,
+//     chỉ in khi tư cách THỰC SỰ CHẶN một cú vượt biên, và mỗi đợt giá ra ngoài biên chỉ
+//     in ĐÚNG 1 dòng (cờ elgBlockLogged*, reset lúc vừa mất tư cách).
+//
+//   [1.55] GỠ BỎ HẲN LỌC ĐỘ SÂU QUÉT (Inp_MinSweepPips). Quyết định của người dùng sau
+//     khi soi kịch bản: line -> cây quét 1 pip -> vài cây lởn vởn quanh line, có cây ra
+//     1-2 pip -> vài cây không chạm -> rồi một cây quét 10 pip kèm setup 2.1/2.2 hoàn hảo.
+//     Luật cũ xử lý ca này rất tệ: cây 1 pip vào nhánh chờ (m2WaitKind=3), cây kế không
+//     đủ 3 pip là ĐỐT BIÊN ngay -> toàn bộ phần sau, kể cả cú quét 10 pip đẹp nhất, bị bỏ
+//     qua sạch. Đã xảy ra thật trong backtest 2026.08.04: cú chạm 1.6 pip lúc 12:30 giết
+//     đường H4 lúc 13:00, nằm chết tới 16:00.
+//     Nay bỏ hẳn cho đồng nhất: râu vượt biên BAO NHIÊU CŨNG TÍNH LÀ QUÉT, mọi cú quét đi
+//     thẳng vào 2.1 / 2.2 như nhau. Gỡ luôn nhánh chờ m2WaitKind=3, hàm SweepDepthPips()
+//     và input Inp_MinSweepPips (76 -> 75 input, .set phải bỏ dòng tương ứng).
+//     ĐÃ BÁO TRƯỚC VÀ NGƯỜI DÙNG CHẤP NHẬN: cách này KHÔNG cứu được kịch bản trên. Cây
+//     quét 1 pip nếu đóng lại trong biên giờ thành pinbar 2.1 hợp lệ -> vào lệnh ngay
+//     trên cú chạm 1 pip rồi đốt biên, cú quét 10 pip sau đó vẫn bị bỏ qua. Đổi lại được
+//     sự đồng nhất: chỉ còn 2 cổng lọc thay vì 3, không còn nhánh chờ ngoại lệ nào.
+//     Nếu backtest cho thấy nhiễu tăng, phương án chưa dùng tới là: quét nông = CHƯA CHẠM
+//     BIÊN (bỏ qua hẳn, KHÔNG đốt biên) — giữ được cả lọc nhiễu lẫn cú quét sâu về sau.
+//
+//   [1.56] DỌN SẠCH THEO MÔ HÌNH "CỬA SỔ 2 CÂY". Sau khi bỏ lọc độ sâu, vòng đời một
+//     lần quét gọn lại đúng như người dùng đúc kết: TỐI ĐA 2 CÂY NẾN kể từ lúc chạm biên
+//     (cây gốc + đúng 1 cây xác nhận), hết 2 cây là ngã ngũ — vào lệnh hoặc đốt biên.
+//     Hai việc dọn theo:
+//     (a) BỎ Inp_PinbarChiThuan_LK / _SW. Hai công tắc này cho phép loại thẳng nến ngược
+//         chiều mà không xét râu/thân — một nhánh luật thứ ba nằm ngoài mô hình 2.1/2.1b.
+//         Cả hai vốn đang mặc định false nên gỡ đi KHÔNG đổi hành vi, chỉ bớt 2 input và
+//         xoá 3 chỗ rẽ nhánh trong log. PassesWickFilter() nay không cần tham số nguồn.
+//     (b) BỎ TRẠNG THÁI "tư cách quét" (4 biến + hàm RefreshSweepEligibility + 3 điểm
+//         gọi + toàn bộ log đổi trạng thái). Thay bằng CameFromInside() đọc thẳng giá
+//         đóng cửa nến LTF shift 2 đúng lúc cần. Kết quả LOGIC Y HỆT (trạng thái cũ chẳy
+//         qua chẳy lại cũng chỉ để nhớ "nến liền trước đóng trong hay ngoài biên"), nhưng
+//         hết sạch log ngập kiểu "ĐỦ/MẤT tư cách" mỗi khi giá dập dình quanh line, và
+//         không còn phải mồi trạng thái lúc khởi động nguội hay lúc biên đổi.
+//         ResetSourceSweepAndArm() vì thế bỏ luôn 2 tham số "phía nào đổi" của v1.51.
+//     LƯU Ý: cổng "đi từ trong ra" KHÔNG bị bỏ — nó chỉ đổi cách tính. Bỏ hẳn là quét ảo
+//     kiểu 2026.08.04 16:00 quay lại ngay.
+//
+//   [1.57] IN RÕ SỰ KIỆN ĐỔI BIÊN của nguồn Swing. Soi backtest 2026.08.04 thấy một
+//     mắt xích luôn bị hụt khi đọc journal: 08:15 vào lệnh 2.1 -> biên bị đốt (lineUsed)
+//     -> im lặng suốt 8 tiếng -> rồi 16:15 "đột nhiên" có dòng log xét quét trở lại.
+//     Nguyên nhân nằm ở giữa mà không ai thấy: 16:00 nến H4 đóng -> engine xác nhận điểm
+//     Major Swing mới -> biên Swing đổi giá trị -> lineUsed mở lại -> đường biên tưởng đã
+//     chết bỗng sống lại. Nay in đúng 1 dòng ngay tại thời điểm đó, ghi rõ phía nào đổi
+//     và giá cũ -> giá mới, nên chuỗi nhân quả đọc thẳng trên journal là hiểu.
+//     Chỉ in cho nguồn Swing; nguồn liền kề đổi biên mỗi nến HTF theo định nghĩa nên in
+//     ra chỉ tổ ngập journal.
+//
+//   [1.58] "1 BIÊN = 1 LẦN DÙNG" TÁCH THEO TỪNG PHÍA. Chính dòng log thêm ở 1.57 làm lộ
+//     lỗi: 08:00 biên Swing đổi CẢ 2 phía (trên 4064.700->4069.405) -> 08:15 vào lệnh 2.1
+//     trên biên trên -> 08:45 TP. Đến 16:00 chỉ biên DƯỚI đổi (4042.403->4045.486), vậy
+//     mà biên TRÊN — vẫn nguyên giá trị 4069.405, đã xét xong và đã ăn TP — cũng bị mở
+//     lại và lôi ra kiểm tra tiếp. Nguyên nhân: lineUsed là MỘT cờ dùng chung cho cả 2
+//     phía, nên reset là mất sạch trí nhớ của cả hai.
+//     Nay tách lineUsedLow / lineUsedHigh, ResetSourceSweepAndArm() nhận lại 2 tham số
+//     (highChanged, lowChanged) và chỉ xoá cờ của đúng phía có giá trị biên mới. Kiểm tra
+//     cờ chuyển xuống sau khi đã biết chiều quét, nên bỏ luôn lệnh chặn sớm đầu hàm.
+//     Dashboard cũng tách 3 trạng thái: cả 2 biên đã dùng / chỉ biên trên / chỉ biên dưới.
+//     Lưu ý phân biệt với v1.51: hồi đó tách theo phía là để thu hồi TƯ CÁCH QUÉT (nay
+//     tính tại chỗ, không còn cờ); lần này tách là cho CỜ ĐÃ DÙNG — hai việc khác nhau.
+//
+//   [1.59] BÁO "BIÊN ĐÃ DÙNG" NGAY TRÊN ĐƯỜNG LINE, KHÔNG NHỒI VÀO DASHBOARD.
+//     Bản 1.58 báo bằng chữ trên dashboard ("biên trên đã dùng — còn chờ quét biên dưới")
+//     làm dashboard dài ra và che chart. Nay đường biên nào đã xét xong thì tự đổi sang
+//     XÁM và nhãn thêm "· đã dùng" — nhìn lướt chart là biết đường nào còn hiệu lực,
+//     đường nào chỉ còn là dấu vết. Tách theo phía nên biên trên có thể xám trong khi
+//     biên dưới vẫn giữ màu. Dashboard rút gọn, chỉ còn báo việc ĐANG diễn ra (chờ nến 2).
+//     Kèm theo: RefreshAll() phải coi thay đổi của cờ "đã dùng" là một lý do vẽ lại
+//     (g_lastUsedMask). Thiếu điều kiện này thì đường vừa xét xong vẫn giữ màu cũ cho tới
+//     lần vẽ kế tiếp vì lý do khác, tức hiển thị sai trong một quãng.
+//
+//   [1.60] SỬA CÂU CHỮ LOG ĐỔI BIÊN + CHỐT MỘT QUYẾT ĐỊNH.
+//     (a) Bản 1.57 ghi "biên mở lại cho lần quét mới" -> gây hiểu nhầm là đường biên CŨ
+//         được hồi sinh. Bản chất khác hẳn: điểm Major Swing mới làm đường Last Major
+//         NHẢY SANG GIÁ KHÁC (vd 4045.486 -> 4065.367); đường cũ biến mất khỏi chart,
+//         đường mới thay chỗ và chưa từng được dùng nên bộ đếm "1 biên = 1 lần dùng" của
+//         nó bắt đầu từ 0 — không liên quan gì tới lịch sử đường cũ. Câu log nay nói rõ
+//         "đường KHÁC thay chỗ đường cũ", và ghi thêm "phía kia giữ nguyên trạng thái"
+//         để thấy ngay luật per-side của 1.58 đang có hiệu lực.
+//     (b) CHỐT: khi biên MỘT phía đổi, vẫn huỷ lệnh chờ của CẢ 2 phía. Xem lý do đầy đủ
+//         ở chỗ gọi CancelEAPendings() trong ResetSourceSweepAndArm(). Tóm tắt: TP neo
+//         vào Middle, mà Middle phụ thuộc cả 2 biên, nên một phía đổi là lệnh chờ phía
+//         kia đã mang TP lạc hậu. Đây KHÔNG phải chỗ sót của luật per-side.
+//
+//   [1.61] SIẾT TỶ LỆ RÂU/THÂN CỦA PINBAR: 1.0 -> 1.5. Trước đây râu chỉ cần BẰNG thân
+//     là đạt; nay đòi râu dài gấp rưỡi thân thì sự từ chối giá mới được coi là rõ ràng.
+//     Khai báo bằng hằng số Inp_WickBodyRatio ngay trên PassesWickFilter() (theo yêu cầu
+//     người dùng: sửa thẳng trong code, không thêm vào màn hình Input) -> số input giữ
+//     nguyên 73, .set không phải đụng tới.
+//     PHẠM VI: áp cho CẢ 2.1 (nến gốc) lẫn 2.1b (cây thứ 2) vì hai nhánh gọi chung hàm
+//     lọc. KHÔNG đụng nhánh 2.2 — nhánh đó xét engulfing, chưa bao giờ gọi bộ lọc râu.
+//     KHÔNG đụng nến THUẬN chiều lệnh — loại này vẫn qua thẳng, không đo gì.
+//     Log ở 3 chỗ đã sửa để in kèm ngưỡng cần đạt (vd "râu 0.689 < 1.5 x thân 2.077 =
+//     3.116"), tránh phải nhẩm tay khi soi lại.
+//     DỰ ĐOÁN TÁC ĐỘNG khi backtest: nhiều ca 2.1 sẽ bị đẩy sang 2.1b, và cây thứ 2 của
+//     2.1b cũng khó qua hơn -> tổng số lệnh giảm ở cả hai nhánh.
+//     Nến gần doji (thân ~ 0) vẫn luôn qua bất kể tỷ lệ, vì ngưỡng cần đạt cũng ~ 0 —
+//     không hại, doji có râu dài đúng là nến từ chối giá.
+//
+//   GHI CHÚ MÔ HÌNH — chỉ còn 2 cổng, và một cửa sổ 2 cây:
+//     1. ĐI TỪ TRONG RA: nến LTF liền trước phải đóng cửa TRONG biên phía đang xét.
+//     2. CHẠM BIÊN: râu vượt qua line -> QUÉT CRT ĐÃ XONG, dù chỉ vượt 1 point.
+//     Rồi cửa sổ 2 cây: cây gốc đóng trong biên -> 2.1 (đạt râu/thân thì vào luôn, không
+//     đạt thì chờ 1 cây -> 2.1b); cây gốc đóng ngoài biên -> chờ 1 cây engulfing -> 2.2.
+//     Hết cây thứ 2 là chốt sổ: vào lệnh hoặc đốt biên. Không theo dõi thêm cây nào nữa.
 // ==============================================================================
 
 #include <Trade/Trade.mqh>
@@ -447,7 +615,6 @@ input double           Inp_AccountSL_Percent= 0.0;       // Đóng hết khi tà
 input ENUM_CRT_SL_MODE Inp_SL_Mode          = SLMode_RauQuet; // Cách đặt SL:
 input double           Inp_SL_BufferPips    = 30;        //   • nếu SLMode_RauQuet — SL lùi ra ngoài râu quét (pip)
 input double           Inp_MaxSL_Pips       = 200;       // SL xa hơn số pip này thì bỏ lệnh (0=không giới hạn)
-input double           Inp_MinSweepPips     = 3.0;       // Râu phải thọc qua biên tối thiểu bao nhiêu pip mới tính là quét (0=tắt)
 input double           Inp_MaxDistFromLine_Pips = 100;   // Giá cách biên quá số pip này -> Mode BOS: bỏ chờ; Mode Nến quét: xử lý theo mục 3 (0=tắt)
 input double           Inp_Pool_SL_Percent  = 0;         // Nhóm lệnh cùng chiều lỗ quá % này thì đóng cả nhóm (0=tắt)
 
@@ -493,8 +660,6 @@ input bool             Inp_On_22_LK         = true;       // BẬT setup [LIỀN
 input bool             Inp_On_21_SW         = true;       // BẬT setup [SWING · 2.1 pinbar]
 input bool             Inp_On_21b_SW        = true;       // BẬT setup [SWING · 2.1b pinbar cây 2]
 input bool             Inp_On_22_SW         = true;       // BẬT setup [SWING · 2.2 engulfing]
-input bool             Inp_PinbarChiThuan_LK = false;     // [LIỀN KỀ] Pinbar CHỈ nhận nến THUẬN chiều lệnh (bỏ nến ngược dù râu dài)
-input bool             Inp_PinbarChiThuan_SW = false;     // [SWING] Pinbar CHỈ nhận nến THUẬN chiều lệnh (bỏ nến ngược dù râu dài)
 input ENUM_CRT_TP_MODE Inp_TP21_Mode_LK     = TPMode_MidBienH4; // [2.1 · LIỀN KỀ] Cách tính TP:
 input ENUM_CRT_TP      Inp_TP21_Target_LK   = TP_Middle;  //   • nếu MidBienH4 — TP đặt ở:
 input double           Inp_TP21_RR_LK       = 2.0;        //   • nếu RR — tỷ lệ Reward:Risk
@@ -575,6 +740,10 @@ const color            Inp_ColorHigh          = clrRed;
 const color            Inp_ColorLow           = clrLimeGreen;
 const int              Inp_LineWidth          = 2;
 const ENUM_LINE_STYLE  Inp_LineStyle          = STYLE_SOLID;
+// [v1.59] Màu cho đường biên ĐÃ XÉT XONG. Xám trung tính để nó lùi hẳn ra sau, nhìn
+// lướt qua chart là biết ngay đường nào còn hiệu lực, đường nào chỉ còn là dấu vết.
+// Chọn tông giữa (128,128,128) để đọc được trên cả nền chart sáng lẫn tối.
+const color            Inp_ColorLineUsed      = clrGray;
 const int              Inp_LabelFontSize      = 9;
 const int              Inp_LabelOffsetBars    = 2;          // Số nến dịch chữ label sang phải so với đầu mút line
 const color            Inp_ColorMid           = clrSilver;  // xám nhạt
@@ -601,6 +770,7 @@ datetime g_lastCurBarTime = 0;  // phát hiện nến mới trên chart hiện t
 datetime g_lastLTFBarTime = 0;  // phát hiện nến LTF mới đóng
 
 bool     g_hasData = false;
+int      g_lastUsedMask = -1;   // ảnh chụp cờ "biên đã dùng" của 2 nguồn ở lần vẽ trước
 double   g_htfHigh = 0;
 double   g_htfLow  = 0;
 
@@ -672,7 +842,7 @@ struct SCRTSource
    // "Nến gốc" = cây LTF đầu tiên thọc râu ra ngoài biên. Nếu nó đóng lại BÊN TRONG biên
    // -> setup 2.1 (pinbar) ngay. Nếu đóng BÊN NGOÀI -> chờ ĐÚNG 1 cây kế tiếp (2.2).
    bool     m2Waiting;          // đang chờ cây LTF thứ 2 sau nến gốc
-   int      m2WaitKind;         // 1 = nhánh 2.2 (chờ engulfing) · 2 = nhánh 2.1 yếu (chờ râu>=thân)
+   int      m2WaitKind;         // 1 = nhánh 2.2 (chờ engulfing) · 2 = nhánh 2.1b (chờ cây 2 qua lọc râu)
    int      m2Dir;              // +1 = quét biên dưới (chờ BUY) / -1 = quét biên trên
    double   m2OriginHigh;       // High nến gốc — mốc so sánh cho điều kiện đủ ở 2.2.1
    double   m2OriginLow;        // Low nến gốc
@@ -682,7 +852,23 @@ struct SCRTSource
    // Biên đã DÙNG XONG -> ngưng mọi setup trên biên này cho tới khi biên đổi giá trị.
    // Đặt = true ở CẢ 3 kết cục: 2.1 vào lệnh, 2.2.1 vào lệnh, 2.2.2 thất bại.
    // Nghĩa là mỗi đường biên chỉ được xét ĐÚNG 1 lần quét đầu tiên, và chỉ vào ĐÚNG 1 cặp lệnh.
-   bool     lineUsed;
+   // [v1.58] TÁCH THEO TỪNG PHÍA. Trước đây dùng chung 1 cờ nên khi biên phía DƯỚI đổi
+   // (điểm Major Swing mới) thì phía TRÊN — vốn đã xét xong và vào lệnh — cũng bị mở lại
+   // oan, dù đường biên trên không hề thay đổi giá trị. Xem ca 2026.08.04: biên trên
+   // 4069.405 vào lệnh lúc 08:15 và TP lúc 08:45, nhưng 16:00 biên DƯỚI đổi là nó lại bị
+   // lôi ra xét tiếp. Nay mỗi phía nhớ riêng, chỉ mở lại đúng phía có giá trị mới.
+   bool     lineUsedLow;    // biên DƯỚI đã xét xong (quét dưới -> BUY)
+   bool     lineUsedHigh;   // biên TRÊN đã xét xong (quét trên -> SELL)
+
+   // [FIX A - v1.51] Phía biên chỉ ĐỦ TƯ CÁCH tính quét sau khi đã có ít nhất 1 nến LTF
+   // ĐÓNG CỬA BÊN TRONG biên kể từ lúc biên nhận giá trị hiện tại. Nếu không có chốt này,
+   // khi giá đã giao dịch hẳn ở NGOÀI biên (vd biên Swing cũ bị giá bỏ lại phía dưới)
+   // thì MỌI nến đều "vượt biên" và bị nhận nhầm là quét thanh khoản — dù chẳng có cú
+   // thọc-ra-rồi-bị-từ-chối nào cả. Bản chất CRT: quét là đi TỪ TRONG ra, không phải
+   // đang ở ngoài sẵn.
+   // Đã in log "vượt biên nhưng không tính là quét" cho biên hiện tại chưa — mỗi đường
+   // biên chỉ in đúng 1 dòng, không spam. Reset khi biên đổi hoặc khi có cú quét hợp lệ.
+   bool     sweepBlockLogged;
 
    string   lastEventMsg;
 };
@@ -873,6 +1059,16 @@ void StripNonBosObjects()
 }
 
 //+------------------------------------------------------------------+
+// Đánh dấu / đọc cờ "biên phía này đã xét xong". dir > 0 = quét biên DƯỚI (vào BUY),
+// dir < 0 = quét biên TRÊN (vào SELL).
+//+------------------------------------------------------------------+
+void SetLineUsed(SCRTSource &s, int dir, bool used)
+{
+   if(dir > 0) s.lineUsedLow  = used;
+   else        s.lineUsedHigh = used;
+}
+
+//+------------------------------------------------------------------+
 void ResetSourceFull(SCRTSource &s)
 {
    s.boundHigh = 0; s.boundLow = 0; s.boundHighTime = 0; s.boundLowTime = 0; s.boundReady = false;
@@ -882,9 +1078,10 @@ void ResetSourceFull(SCRTSource &s)
    s.hasSweptHigh = false; s.sweptHigh = 0; s.sweptHighTime = 0;
    s.armed = false; s.armDir = 0; s.armOppBoundary = 0; s.lastActedBreakTime = 0;
    s.ordersThisRound = 0; s.profitRounds = 0; s.prevOpenCount = 0; s.lastPoolPnl = 0;
+   s.lineUsedLow = false; s.lineUsedHigh = false; s.sweepBlockLogged = false;
    s.m2Waiting = false; s.m2WaitKind = 0; s.m2Dir = 0;
    s.m2OriginHigh = 0; s.m2OriginLow = 0; s.m2OriginBodyEdge = 0; s.m2OriginTime = 0;
-   s.lineUsed = false;
+   s.sweepBlockLogged = false;
    s.lastEventMsg = "";
 }
 
@@ -892,7 +1089,14 @@ void ResetSourceFull(SCRTSource &s)
 // Reset trạng thái quét + huỷ arm/pending của 1 nguồn khi biên của nó đổi
 // (nến H4 mới với ADJACENT; Last Major High/Low mới xác nhận với LASTMAJOR).
 //+------------------------------------------------------------------+
-void ResetSourceSweepAndArm(SCRTSource &s)
+// Biên đổi giá trị -> trạng thái THEO SETUP mất căn cứ: setup dở dang, hạn mức, lệnh chờ
+// đều tham chiếu biên cũ nên xoá sạch.
+// [v1.58] Riêng cờ "biên đã dùng" thì xoá THEO TỪNG PHÍA (highChanged / lowChanged):
+// biên Swing có thể đổi chỉ một phía, phía kia vẫn nguyên đường cũ nên không được phép
+// hồi sinh — nếu không thì một đường biên đã vào lệnh và TP xong vẫn bị lôi ra xét lại
+// mỗi lần phía đối diện có điểm Major Swing mới.
+//+------------------------------------------------------------------+
+void ResetSourceSweepAndArm(SCRTSource &s, bool highChanged, bool lowChanged)
 {
    s.sweepLowActive  = false;
    s.sweepHighActive = false;
@@ -904,13 +1108,27 @@ void ResetSourceSweepAndArm(SCRTSource &s)
    s.m2Waiting       = false;
    s.m2WaitKind      = 0;
    s.m2Dir           = 0;
-   s.lineUsed        = false;  // biên mới -> mở lại quyền vào lệnh trên biên này
+
+   // [v1.58] CHỈ mở lại quyền vào lệnh ở PHÍA có giá trị biên mới. Phía không đổi vẫn là
+   // đúng đường biên cũ -> luật "1 biên = 1 lần dùng" phải tiếp tục có hiệu lực với nó.
+   if(lowChanged)  s.lineUsedLow  = false;
+   if(highChanged) s.lineUsedHigh = false;
+
+   s.sweepBlockLogged = false;   // biên mới -> cho phép in lại 1 dòng nếu bị chặn
+
    ObjectDelete(0, g_prefix + "SweepLowArrow_"  + s.tag);
    ObjectDelete(0, g_prefix + "SweepHighArrow_" + s.tag);
 
    s.armed = false;
    // Biên mới hình thành -> lệnh chờ của biên CŨ hết ý nghĩa, huỷ ngay dù chưa khớp.
    // Phải huỷ vô điều kiện (không bọc trong "if(s.armed)") vì Mode 2 không dùng arm.
+   //
+   // CỐ Ý HUỶ CẢ 2 PHÍA, KHÔNG lọc theo phía vừa đổi — đừng "sửa cho nhất quán" với luật
+   // per-side của lineUsed ở v1.58. Lý do: TP của nhiều nhánh neo vào đường Middle, mà
+   // Middle = (biên trên + biên dưới)/2. Chỉ cần MỘT phía đổi là Middle đã đổi, nên lệnh
+   // chờ của phía kia tuy vẫn đúng tiền đề (đường biên của nó không thay đổi) nhưng đang
+   // mang sẵn TP tính theo range CŨ -> đã lạc hậu, để lại còn hại hơn huỷ đi.
+   // Quyết định của người dùng 2026-08-18, đã cân nhắc cả hướng ngược lại.
    CancelEAPendings(s.magic);
 }
 
@@ -923,10 +1141,34 @@ void OnDeinit(const int reason)
 }
 
 //+------------------------------------------------------------------+
+// [v1.53] Zoom / kéo chart -> vẽ lại để đầu mút line và nhãn bám lại mép phải khung
+// nhìn mới. Chỉ đụng đối tượng đồ hoạ, không chạm gì tới logic vào lệnh.
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
+{
+   if(id == CHARTEVENT_CHART_CHANGE && g_hasData)
+      DrawAll();
+}
+
+//+------------------------------------------------------------------+
 void OnTick()
 {
-   RefreshAll(false);
+   // [FIX C - v1.51] Xử lý nến LTF vừa đóng TRƯỚC, cập nhật biên SAU.
+   // Thứ tự cũ (RefreshAll trước) có lỗi lệch-một-nến: tại tick chuyển giao HTF, biên
+   // nhảy sang cây HTF vừa đóng RỒI mới xử lý nến LTF cuối cùng của chính cây đó — nến
+   // này bị so với đường biên mà nó góp phần tạo ra, về mặt toán học không bao giờ vượt
+   // qua được -> cú quét thật xảy ra ở nến LTF cuối chu kỳ HTF bị bỏ sót vĩnh viễn.
+   // Nay nến LTF cuối chu kỳ được so với biên CŨ (biên đúng của nó); biên mới chỉ áp
+   // từ nến kế tiếp. Hệ quả đã cân nhắc: nếu nến đó tạo cặp lệnh thì ngay sau đó
+   // RefreshAll đổi biên và huỷ vế limit chưa khớp — đúng luật "biên mới huỷ lệnh chờ
+   // của biên cũ", vế market vẫn giữ.
+   // Riêng tick ĐẦU TIÊN sau khởi động: chưa có biên (g_hasData = false) thì phải cập
+   // nhật biên trước rồi mới xử lý nến — nếu không ProcessLTFSweep chỉ lấy mốc rồi thoát,
+   // và OnInit đã gọi RefreshAll(true) nên thực tế nhánh này hiếm khi cần tới.
+   if(!g_hasData)
+      RefreshAll(false);
    ProcessLTFSweep();
+   RefreshAll(false);
 
    // Huỷ lệnh chờ khi giá đã chạm đường Middle — áp dụng cho CẢ 2 MODE.
    // Để ngoài khối bảo vệ bên dưới vì huỷ lệnh chờ luôn là hành động an toàn, cần
@@ -995,7 +1237,15 @@ void RefreshAll(bool forceUpdate)
    if(!g_hasData)
       return;
 
-   if(priceChanged || timeChanged || lmChanged || forceUpdate)
+   // [v1.59] Cờ "biên đã dùng" đổi cũng phải vẽ lại: nó quyết định MÀU của đường line.
+   // Không có điều kiện này thì đường vừa xét xong vẫn giữ màu cũ cho tới lần vẽ kế tiếp
+   // vì lý do khác (giá đổi / nến mới), tức là hiển thị sai trong một quãng.
+   int usedMask = (g_srcAdj.lineUsedLow  ? 1 : 0) | (g_srcAdj.lineUsedHigh ? 2 : 0)
+                | (g_srcLM.lineUsedLow   ? 4 : 0) | (g_srcLM.lineUsedHigh  ? 8 : 0);
+   bool usedChanged = (usedMask != g_lastUsedMask);
+   g_lastUsedMask = usedMask;
+
+   if(priceChanged || timeChanged || lmChanged || usedChanged || forceUpdate)
       DrawAll();
 }
 
@@ -1021,13 +1271,13 @@ bool UpdateHTFPrice(bool force)
 
    ComputeStartTimes(htfBarTime);
 
-   // H4 vừa cập nhật range mới -> nguồn ADJACENT dùng biên mới, reset toàn bộ trạng thái quét/arm.
+   // HTF vừa cập nhật range mới -> nguồn LIỀN KỀ dùng biên mới, xoá sạch setup dở dang.
    g_srcAdj.boundHigh     = htfHigh;
    g_srcAdj.boundLow      = htfLow;
    g_srcAdj.boundHighTime = htfBarTime;
    g_srcAdj.boundLowTime  = htfBarTime;
    g_srcAdj.boundReady    = true;
-   ResetSourceSweepAndArm(g_srcAdj);
+   ResetSourceSweepAndArm(g_srcAdj, true, true);   // nến HTF mới -> cả 2 phía đều là biên mới
 
    return true;
 }
@@ -1044,7 +1294,10 @@ bool UpdateLastMajorBoundary(bool force)
    double   newLow   = g_htfEngine.current_maj_last_low;
    datetime newLowT  = g_htfEngine.current_maj_last_low_time;
 
-   bool changed = false;
+   bool highChanged = false;
+   bool lowChanged  = false;
+   double oldHigh   = g_srcLM.boundHigh;   // giữ lại để in log đổi biên
+   double oldLow    = g_srcLM.boundLow;
 
    if(newHigh != EMPTY_VALUE && newHighT != 0)
    {
@@ -1054,7 +1307,7 @@ bool UpdateLastMajorBoundary(bool force)
          g_srcLM.boundHigh     = newHigh;
          g_srcLM.boundHighTime = newHighT;
          if(oldT != 0 && newHighT != oldT)
-            changed = true;
+            highChanged = true;
       }
    }
 
@@ -1066,16 +1319,39 @@ bool UpdateLastMajorBoundary(bool force)
          g_srcLM.boundLow     = newLow;
          g_srcLM.boundLowTime = newLowT;
          if(oldT != 0 && newLowT != oldT)
-            changed = true;
+            lowChanged = true;
       }
    }
 
    g_srcLM.boundReady = (g_srcLM.boundHighTime != 0 && g_srcLM.boundLowTime != 0);
 
-   if(changed)
-      ResetSourceSweepAndArm(g_srcLM);
+   // Phía nào đổi cũng xoá sạch setup dở dang của biên cũ.
+   if(highChanged || lowChanged)
+   {
+      // [v1.57] In rõ SỰ KIỆN ĐỔI BIÊN. Đây là mắt xích hay bị hụt khi soi lại journal:
+      // biên Swing chỉ đổi khi có nến HTF mới đóng và engine xác nhận điểm Major Swing
+      // mới, và chính lúc đó lineUsed được mở lại -> một đường biên tưởng đã "chết" từ
+      // lâu bỗng sống lại và bot xét quét trở lại. Không có dòng này thì các log quét
+      // sau đó trông như tự nhiên xuất hiện.
+      // Chỉ in cho nguồn Swing: nguồn liền kề đổi biên mỗi nến HTF theo định nghĩa,
+      // in ra chỉ tổ ngập journal mà chẳng nói thêm được gì.
+      // Câu chữ nói rõ: đây là ĐƯỜNG KHÁC thay chỗ đường cũ, KHÔNG phải đường cũ hồi sinh.
+      // Bản 1.57 ghi "biên mở lại cho lần quét mới" gây hiểu nhầm là đường cũ được dùng lại.
+      if(highChanged && lowChanged)
+         PrintFormat("[CRT][%s] ĐỔI BIÊN cả 2 phía (Major Swing mới): trên %s->%s · dưới %s->%s — đường KHÁC thay chỗ đường cũ, huỷ setup/lệnh chờ của đường cũ; đường mới ở trạng thái CHƯA DÙNG.",
+                     g_srcLM.tag, DoubleToString(oldHigh, _Digits), DoubleToString(g_srcLM.boundHigh, _Digits),
+                     DoubleToString(oldLow, _Digits), DoubleToString(g_srcLM.boundLow, _Digits));
+      else if(highChanged)
+         PrintFormat("[CRT][%s] ĐỔI BIÊN phía TRÊN (Major Swing mới): %s -> %s — đường KHÁC thay chỗ đường cũ, huỷ setup/lệnh chờ của đường cũ; đường mới ở trạng thái CHƯA DÙNG. Biên dưới giữ nguyên trạng thái.",
+                     g_srcLM.tag, DoubleToString(oldHigh, _Digits), DoubleToString(g_srcLM.boundHigh, _Digits));
+      else
+         PrintFormat("[CRT][%s] ĐỔI BIÊN phía DƯỚI (Major Swing mới): %s -> %s — đường KHÁC thay chỗ đường cũ, huỷ setup/lệnh chờ của đường cũ; đường mới ở trạng thái CHƯA DÙNG. Biên trên giữ nguyên trạng thái.",
+                     g_srcLM.tag, DoubleToString(oldLow, _Digits), DoubleToString(g_srcLM.boundLow, _Digits));
 
-   return changed;
+      ResetSourceSweepAndArm(g_srcLM, highChanged, lowChanged);
+   }
+
+   return (highChanged || lowChanged);
 }
 
 //+------------------------------------------------------------------+
@@ -1130,15 +1406,81 @@ void ComputeStartTimes(datetime htfOpen)
 }
 
 //+------------------------------------------------------------------+
+// [v1.59] Đường biên ĐÃ XÉT XONG thì đổi sang xám + nhãn thêm chữ "đã dùng", thay vì
+// báo bằng chữ trên dashboard. Nhìn thẳng vào chart là biết đường nào còn hiệu lực.
+// Trạng thái này theo TỪNG PHÍA, nên biên trên có thể xám trong khi biên dưới vẫn màu.
+//+------------------------------------------------------------------+
+color LineColor(color base, bool used)
+{
+   return used ? Inp_ColorLineUsed : base;
+}
+
+string LineLabel(string base, bool used)
+{
+   return used ? base + "  · đã dùng" : base;
+}
+
+//+------------------------------------------------------------------+
+// [v1.53] Mốc đầu mút line + vị trí nhãn, BÁM THEO VÙNG ĐANG NHÌN THẤY của chart.
+// Trước đây cả 2 gắn cứng ở "nến hiện tại + 50 nến": zoom to lên thì điểm đó nằm ngoài
+// màn hình -> nhãn biến mất. Nay chừa sẵn ở mép phải khung nhìn một khoảng vừa đủ chứa
+// chữ, line kết thúc ngay trước khoảng đó, nhãn nằm gọn bên trong — đúng bố cục hình
+// minh hoạ và không bao giờ bị cắt mất dù zoom mức nào.
+// Chừa theo PIXEL chứ không theo số nến: bề rộng chữ cố định theo pixel, còn một nến
+// chiếm bao nhiêu pixel thì đổi theo mức zoom.
+// Trả về false nếu chưa lấy được toạ độ chart -> bên gọi dùng lại mốc cũ.
+//+------------------------------------------------------------------+
+bool VisibleEdgeTimes(int maxTextLen, datetime &lineEnd, datetime &labelAt)
+{
+   long wpx = 0;
+   if(!ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0, wpx) || wpx <= 0)
+      return false;
+
+   // ~0.62 * cỡ chữ là bề rộng trung bình 1 ký tự của font mặc định; +16px lề.
+   int reserve = (int)(maxTextLen * Inp_LabelFontSize * 0.62) + 16;
+   if(reserve > (int)wpx / 2)
+      reserve = (int)wpx / 2;          // chart quá hẹp -> nhiều nhất lấy nửa bề ngang
+
+   int      sub = 0;
+   double   px  = 0;
+   datetime tEnd = 0, tLabel = 0;
+   if(!ChartXYToTimePrice(0, (int)wpx - reserve,     0, sub, tEnd,   px)) return false;
+   if(!ChartXYToTimePrice(0, (int)wpx - reserve + 6, 0, sub, tLabel, px)) return false;
+   if(tEnd <= 0 || tLabel <= 0 || tLabel <= tEnd)
+      return false;
+
+   lineEnd = tEnd;
+   labelAt = tLabel;
+   return true;
+}
+
+//+------------------------------------------------------------------+
 void DrawAll()
 {
    datetime endTime   = g_lastCurBarTime + Inp_ExtendBars * PeriodSeconds(PERIOD_CURRENT);
    datetime labelTime = endTime + Inp_LabelOffsetBars * PeriodSeconds(PERIOD_CURRENT);
 
+   // Nhãn dài nhất quyết định khoảng chừa: "Last Major High: " + giá + "  · đã dùng".
+   if(Inp_ShowLabel || Inp_ShowLastMajorLabel)
+   {
+      int maxLen = 18 + _Digits + 5 + 11;
+      datetime e2 = 0, l2 = 0;
+      if(VisibleEdgeTimes(maxLen, e2, l2))
+      {
+         endTime   = e2;
+         labelTime = l2;
+      }
+   }
+
    if(AdjacentEnabled())
    {
-      DrawLevelLine(g_nameHighLine, g_highStartTime, endTime, g_htfHigh, Inp_ColorHigh, Inp_LineWidth, Inp_LineStyle);
-      DrawLevelLine(g_nameLowLine,  g_lowStartTime,  endTime, g_htfLow,  Inp_ColorLow,  Inp_LineWidth, Inp_LineStyle);
+      bool usedHi = g_srcAdj.lineUsedHigh;
+      bool usedLo = g_srcAdj.lineUsedLow;
+
+      DrawLevelLine(g_nameHighLine, g_highStartTime, endTime, g_htfHigh,
+                    LineColor(Inp_ColorHigh, usedHi), Inp_LineWidth, Inp_LineStyle);
+      DrawLevelLine(g_nameLowLine,  g_lowStartTime,  endTime, g_htfLow,
+                    LineColor(Inp_ColorLow,  usedLo), Inp_LineWidth, Inp_LineStyle);
 
       if(Inp_ShowMidLine)
          DrawLevelLine(g_nameMidLine, g_midStartTime, endTime, HTF_Mid(), Inp_ColorMid, Inp_MidLineWidth, Inp_MidLineStyle);
@@ -1149,9 +1491,11 @@ void DrawAll()
       {
          string tfName = TFToString(Inp_HTF);
          DrawLevelLabel(g_nameHighLabel, labelTime, g_htfHigh,
-                         StringFormat("%s High: %s", tfName, DoubleToString(g_htfHigh, _Digits)), Inp_ColorHigh);
+                         LineLabel(StringFormat("%s High: %s", tfName, DoubleToString(g_htfHigh, _Digits)), usedHi),
+                         LineColor(Inp_ColorHigh, usedHi));
          DrawLevelLabel(g_nameLowLabel, labelTime, g_htfLow,
-                         StringFormat("%s Low: %s", tfName, DoubleToString(g_htfLow, _Digits)), Inp_ColorLow);
+                         LineLabel(StringFormat("%s Low: %s", tfName, DoubleToString(g_htfLow, _Digits)), usedLo),
+                         LineColor(Inp_ColorLow, usedLo));
       }
       else
       {
@@ -1166,17 +1510,22 @@ void DrawAll()
 
    if(LastMajorEnabled() && g_srcLM.boundReady)
    {
+      bool lmUsedHi = g_srcLM.lineUsedHigh;
+      bool lmUsedLo = g_srcLM.lineUsedLow;
+
       DrawLevelLine(g_nameLastMajorHighLine, g_srcLM.boundHighTime, endTime, g_srcLM.boundHigh,
-                     Inp_ColorLastMajorHigh, Inp_LastMajorLineWidth, Inp_LastMajorLineStyle);
+                     LineColor(Inp_ColorLastMajorHigh, lmUsedHi), Inp_LastMajorLineWidth, Inp_LastMajorLineStyle);
       DrawLevelLine(g_nameLastMajorLowLine,  g_srcLM.boundLowTime,  endTime, g_srcLM.boundLow,
-                     Inp_ColorLastMajorLow,  Inp_LastMajorLineWidth, Inp_LastMajorLineStyle);
+                     LineColor(Inp_ColorLastMajorLow,  lmUsedLo), Inp_LastMajorLineWidth, Inp_LastMajorLineStyle);
 
       if(Inp_ShowLastMajorLabel)
       {
          DrawLevelLabel(g_nameLastMajorHighLabel, labelTime, g_srcLM.boundHigh,
-                         StringFormat("Last Major High: %s", DoubleToString(g_srcLM.boundHigh, _Digits)), Inp_ColorLastMajorHigh);
+                         LineLabel(StringFormat("Last Major High: %s", DoubleToString(g_srcLM.boundHigh, _Digits)), lmUsedHi),
+                         LineColor(Inp_ColorLastMajorHigh, lmUsedHi));
          DrawLevelLabel(g_nameLastMajorLowLabel, labelTime, g_srcLM.boundLow,
-                         StringFormat("Last Major Low: %s", DoubleToString(g_srcLM.boundLow, _Digits)), Inp_ColorLastMajorLow);
+                         LineLabel(StringFormat("Last Major Low: %s", DoubleToString(g_srcLM.boundLow, _Digits)), lmUsedLo),
+                         LineColor(Inp_ColorLastMajorLow, lmUsedLo));
       }
    }
    else
@@ -1206,7 +1555,8 @@ void ProcessLTFSweep()
    bool firstInit = (g_lastLTFBarTime == 0);
    g_lastLTFBarTime = ltfBar0;
    if(firstInit)
-      return; // lần đầu chỉ lấy mốc
+      return; // lần đầu chỉ lấy mốc; cổng "đi từ trong ra" đọc thẳng lịch sử nên không
+              // cần mồi trạng thái gì cả, kể cả khi bot vừa khởi động nguội.
 
    // Nến LTF vừa đóng = shift 1
    double highC  = iHigh(_Symbol,  Inp_LTF, 1);
@@ -1219,6 +1569,28 @@ void ProcessLTFSweep()
 
    if(Inp_EntrySource != Bien_LienKe && g_srcLM.boundReady)
       ProcessSourceSweep(g_srcLM, highC, lowC, closeC, tC);
+}
+
+//+------------------------------------------------------------------+
+// [v1.56] "Quét là đi TỪ TRONG biên ra" — kiểm TẠI CHỖ, không nuôi trạng thái chạy nền.
+// Nến LTF LIỀN TRƯỚC phải đóng cửa BÊN TRONG biên phía đang xét. Nếu nó đã đóng ở ngoài
+// thì giá đang giao dịch ở vùng khác, phía đó không còn thanh khoản để quét — cú "vượt
+// biên" của cây hiện tại chỉ là giá đi tiếp, không phải cú thọc-ra-rồi-bị-từ-chối.
+// Không có chốt này thì tái diễn ca backtest 2026.08.04 16:00: nến M15 H=4088.586 nằm
+// TRỌN trên đường 4069.405 vẫn bị nhận là "quét biên trên".
+// Trước đây (v1.51-1.55) việc này nuôi bằng 4 biến trạng thái cập nhật sau MỖI nến, sinh
+// ra hàng loạt log đổi trạng thái vô nghĩa khi giá dập dình quanh line. Nay đọc thẳng
+// nến shift 2 đúng lúc cần -> bỏ được toàn bộ trạng thái và log đó, kết quả y hệt.
+// Dùng CLOSE chứ không dùng High/Low: thân nến nằm trong biên mới chứng tỏ giá thực sự
+// giao dịch bên trong, râu chạm vào chưa đủ. Bất đẳng thức NGHIÊM NGẶT: đóng đúng ngay
+// tại biên chưa tính là "trong biên".
+//+------------------------------------------------------------------+
+bool CameFromInside(int dir, double lo, double hi)
+{
+   double prevClose = iClose(_Symbol, Inp_LTF, 2);
+   if(prevClose <= 0)
+      return false;
+   return (dir > 0) ? (prevClose > lo) : (prevClose < hi);
 }
 
 //+------------------------------------------------------------------+
@@ -1245,7 +1617,15 @@ void ProcessLTFSweep()
 // Mục đích: loại nến xu hướng mạnh ngược hướng (thân dài, râu ngắn) — chỉ thọc qua biên
 // rồi đi tiếp chứ không phải quét thanh khoản rồi bị từ chối.
 //+------------------------------------------------------------------+
-bool PassesWickFilter(SCRTSource &s, int dir, double h, double l, double o, double c)
+// [v1.61] Tỷ lệ tối thiểu RÂU / THÂN để một nến ngược chiều được công nhận là cú từ chối
+// giá. Trước là 1.0 (râu chỉ cần bằng thân); nay 1.5 — râu phải dài hơn hẳn thân thì sự
+// từ chối mới rõ ràng. Đặt hằng số chứ không đưa vào Input theo yêu cầu người dùng; muốn
+// đổi thì sửa đúng dòng này. Để 0 là bỏ hẳn phép đo (mọi nến ngược chiều đều qua).
+// Áp CHUNG cho cả nhánh 2.1 (nến gốc) lẫn 2.1b (cây thứ 2) vì cả hai gọi hàm này.
+const double Inp_WickBodyRatio = 1.5;
+
+//+------------------------------------------------------------------+
+bool PassesWickFilter(int dir, double h, double l, double o, double c)
 {
    bool isBuy = (dir > 0);
 
@@ -1253,17 +1633,12 @@ bool PassesWickFilter(SCRTSource &s, int dir, double h, double l, double o, doub
    if(candleWithTrade)
       return true;   // nến thuận chiều lệnh -> miễn lọc, tự nó đã thể hiện lực
 
-   // Từ đây trở xuống: nến đóng NGƯỢC chiều lệnh.
-   // Inp_PinbarChiThuan_* = true -> loại thẳng, không xét râu/thân nữa. Dùng khi chỉ
-   // muốn giao dịch pinbar "sạch" (quét đáy thì phải là nến tăng, quét đỉnh phải nến giảm).
-   if(s.isSwing ? Inp_PinbarChiThuan_SW : Inp_PinbarChiThuan_LK)
-      return false;
-
+   // Từ đây trở xuống: nến đóng NGƯỢC chiều lệnh -> đòi râu phía quét >= 1.5 x thân.
    double body = MathAbs(c - o);
    double wick = isBuy ? (MathMin(o, c) - l)     // quét biên dưới -> đo râu DƯỚI
                        : (h - MathMax(o, c));    // quét biên trên -> đo râu TRÊN
    if(wick < 0) wick = 0;
-   return (wick >= body);
+   return (wick >= body * Inp_WickBodyRatio);
 }
 
 //+------------------------------------------------------------------+
@@ -1281,14 +1656,16 @@ string WickPassReason(int dir, double h, double l, double o, double c)
    double body = MathAbs(c - o);
    double wick = isBuy ? (MathMin(o, c) - l) : (h - MathMax(o, c));
    if(wick < 0) wick = 0;
-   return StringFormat("nến ngược chiều nhưng râu %s >= thân %s",
-                       DoubleToString(wick, _Digits), DoubleToString(body, _Digits));
+   return StringFormat("nến ngược chiều nhưng râu %s >= %.1f x thân %s (cần %s)",
+                       DoubleToString(wick, _Digits), Inp_WickBodyRatio,
+                       DoubleToString(body, _Digits),
+                       DoubleToString(body * Inp_WickBodyRatio, _Digits));
 }
 
 //+------------------------------------------------------------------+
 // Phân loại NẾN GỐC (cây đã quét đủ sâu qua biên) -> quyết định vào lệnh ngay hay chờ tiếp.
 // Tách riêng vì được gọi từ 2 nơi: lúc dò nến gốc lần đầu, và lúc cây kế tiếp "lên ngôi"
-// nến gốc sau khi cây trước bị loại vì quét quá nông (m2WaitKind = 3).
+// Tách riêng thành hàm vì đây là điểm rẽ 3 nhánh 2.1 / 2.1b / 2.2 của cây gốc.
 //+------------------------------------------------------------------+
 void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, double closeC,
                           double openC, datetime tC, double lo, double hi)
@@ -1313,9 +1690,9 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
 
    double bodyEdge = isBuy ? MathMin(openC, closeC) : MathMax(openC, closeC);
 
-   if(!PassesWickFilter(s, dir, highC, lowC, openC, closeC))
+   if(!PassesWickFilter(dir, highC, lowC, openC, closeC))
    {
-      // 2.1 nhưng nến ngược chiều lệnh và râu < thân -> nến xu hướng ngược, không phải
+      // 2.1 nhưng nến ngược chiều lệnh và râu < 1.5 x thân -> nến xu hướng ngược, không phải
       // cú từ chối. Cho thêm ĐÚNG 1 cây để thị trường thể hiện lực.
       s.m2Waiting        = true;
       s.m2WaitKind       = 2;
@@ -1324,14 +1701,12 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
       s.m2OriginLow      = lowC;
       s.m2OriginBodyEdge = bodyEdge;   // giữ lại để tính mốc 50% theo râu quét THẬT
       s.m2OriginTime     = tC;
-      bool chiThuan = (s.isSwing ? Inp_PinbarChiThuan_SW : Inp_PinbarChiThuan_LK);
-      PrintFormat("[CRT][%s] 2.1 nến gốc %s @%s bị loại (%s) -> chờ 1 cây %s kế tiếp.",
+      PrintFormat("[CRT][%s] 2.1 nến gốc %s @%s bị loại (nến ngược chiều, râu %s < %.1f x thân %s = %s) -> chờ 1 cây %s kế tiếp.",
                   s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES),
-                  chiThuan
-                     ? "nến ngược chiều — đang bật CHỈ NHẬN NẾN THUẬN"
-                     : StringFormat("nến ngược chiều, râu %s < thân %s",
-                          DoubleToString(isBuy ? (bodyEdge - lowC) : (highC - bodyEdge), _Digits),
-                          DoubleToString(MathAbs(closeC - openC), _Digits)),
+                  DoubleToString(isBuy ? (bodyEdge - lowC) : (highC - bodyEdge), _Digits),
+                  Inp_WickBodyRatio,
+                  DoubleToString(MathAbs(closeC - openC), _Digits),
+                  DoubleToString(MathAbs(closeC - openC) * Inp_WickBodyRatio, _Digits),
                   TFToString(Inp_LTF));
       return;
    }
@@ -1344,7 +1719,7 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
                   s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES));
       return;
    }
-   s.lineUsed = true;   // 1 biên chỉ vào đúng 1 cặp lệnh
+   SetLineUsed(s, dir, true);   // phía biên này chỉ vào đúng 1 cặp lệnh
 
    // limit @ 50% RÂU phía quét (từ mút râu tới mép THÂN).
    double limitPrice = isBuy ? (lowC + bodyEdge) / 2.0 : (highC + bodyEdge) / 2.0;
@@ -1359,21 +1734,13 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
 }
 
 //+------------------------------------------------------------------+
-// Độ sâu râu đã thọc qua biên, tính bằng pip. Âm nghĩa là chưa chạm biên.
-//+------------------------------------------------------------------+
-double SweepDepthPips(int dir, double highC, double lowC, double lo, double hi)
-{
-   return (dir > 0) ? (lo - lowC) / GetPipSize()
-                    : (highC - hi) / GetPipSize();
-}
-
 //+------------------------------------------------------------------+
 void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double closeC,
                             datetime tC, double lo, double hi)
 {
-   if(s.lineUsed)
-      return;   // biên đã dùng xong -> bỏ qua mọi lần quét sau, chờ biên mới
-
+   // [v1.58] Không chặn sớm ở đây nữa: cờ "đã dùng" nay theo TỪNG PHÍA nên chỉ kiểm được
+   // sau khi biết cú quét thuộc phía nào (xem chỗ dò nến gốc bên dưới). Nhánh đang chờ
+   // cây 2 thì đương nhiên chưa dùng xong nên vẫn chạy tiếp bình thường.
    double openC = iOpen(_Symbol, Inp_LTF, 1);
 
    //---------- Đang chờ cây kế tiếp ----------
@@ -1386,34 +1753,9 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
       if(isBuy  && lowC  < s.sweepLowExtreme)  s.sweepLowExtreme  = lowC;
       if(!isBuy && highC > s.sweepHighExtreme) s.sweepHighExtreme = highC;
 
-      //=== Kind 3: cây trước quét quá NÔNG -> cây này mới có tư cách làm nến gốc ===
-      if(s.m2WaitKind == 3)
-      {
-         bool   swept = isBuy ? (lowC < lo) : (highC > hi);
-         double depth = SweepDepthPips(s.m2Dir, highC, lowC, lo, hi);
-
-         if(swept && depth >= Inp_MinSweepPips)
-         {
-            if(isBuy) s.sweepLowStartTime  = tC;
-            else      s.sweepHighStartTime = tC;
-            PrintFormat("[CRT][%s] Cây kế tiếp quét đủ sâu (%.1f >= %.1f pip) -> nhận làm NẾN GỐC mới.",
-                        s.tag, depth, Inp_MinSweepPips);
-            ClassifyOriginCandle(s, s.m2Dir, highC, lowC, closeC, openC, tC, lo, hi);
-         }
-         else
-         {
-            s.lineUsed = true;
-            PrintFormat("[CRT][%s] Cây kế tiếp vẫn KHÔNG quét đủ sâu (%s) -> bỏ tín hiệu, biên %s coi như đã dùng.",
-                        s.tag,
-                        !swept ? "không chạm biên" : StringFormat("%.1f < %.1f pip", depth, Inp_MinSweepPips),
-                        TFToString(Inp_HTF));
-         }
-         return;
-      }
-
       //=== Kind 1 & 2: setup đã ngã ngũ -> đốt biên. Riêng trường hợp setup BỊ TẮT thì
       //=== KHÔNG đốt, để các nhánh còn bật vẫn còn cơ hội ở lần quét sau trên biên này.
-      s.lineUsed    = true;
+      SetLineUsed(s, s.m2Dir, true);
       bool closedIn = isBuy ? (closeC > lo) : (closeC < hi);   // điều kiện CẦN cho cả 2 nhánh
 
       if(s.m2WaitKind == 2)
@@ -1423,12 +1765,12 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
          //     MỐC 50% LẤY THEO RÂU QUÉT THẬT CỦA NẾN GỐC, không phải râu cây này —
          //     cây thứ 2 có thể không hề chạm biên (râu của nó chẳng liên quan gì tới
          //     cú quét thanh khoản), nên lấy theo nó sẽ ra một mức hồi ngẫu nhiên.
-         bool strong = PassesWickFilter(s, s.m2Dir, highC, lowC, openC, closeC);
+         bool strong = PassesWickFilter(s.m2Dir, highC, lowC, openC, closeC);
          if(closedIn && strong)
          {
             if(!SetupEnabled_21b(s))
             {
-               s.lineUsed = false;   // setup tắt -> coi như chưa dùng biên
+               SetLineUsed(s, s.m2Dir, false);   // setup tắt -> coi như chưa dùng biên
                PrintFormat("[CRT][%s] 2.1b PINBAR (cây 2) %s @%s -> setup ĐANG TẮT, bỏ qua (biên vẫn còn hiệu lực).",
                            s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES));
                return;
@@ -1449,9 +1791,7 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
             PrintFormat("[CRT][%s] 2.1b KHÔNG ĐỦ ĐK (%s) -> bỏ setup, biên %s coi như đã dùng.",
                         s.tag,
                         !closedIn ? "cây 2 đóng ngoài biên"
-                                  : ((s.isSwing ? Inp_PinbarChiThuan_SW : Inp_PinbarChiThuan_LK)
-                                       ? "cây 2 vẫn ngược chiều — đang bật CHỈ NHẬN NẾN THUẬN"
-                                       : "cây 2 ngược chiều và râu < thân"),
+                                  : StringFormat("cây 2 ngược chiều và râu < %.1f x thân", Inp_WickBodyRatio),
                         TFToString(Inp_HTF));
          return;
       }
@@ -1463,7 +1803,7 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
       {
          if(!SetupEnabled_22(s))
          {
-            s.lineUsed = false;   // setup tắt -> coi như chưa dùng biên
+            SetLineUsed(s, s.m2Dir, false);   // setup tắt -> coi như chưa dùng biên
             PrintFormat("[CRT][%s] 2.2.1 ENGULFING %s @%s -> setup ĐANG TẮT, bỏ qua (biên vẫn còn hiệu lực).",
                         s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES));
             return;
@@ -1489,33 +1829,35 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
       return;
    }
 
-   //---------- Dò NẾN GỐC lần đầu ----------
+   //---------- Dò NẾN GỐC: cây chạm biên, mở cửa sổ theo dõi 2 cây ----------
+   // Phía nào đã xét xong (vào lệnh hoặc thất bại) thì im lặng cho tới khi CHÍNH phía đó
+   // nhận giá trị biên mới — phía kia đổi không liên quan.
    int dir = 0;
-   if(Inp_DetectLowSweep       && lowC  < lo) dir = +1;
-   else if(Inp_DetectHighSweep && highC > hi) dir = -1;
+   if(Inp_DetectLowSweep       && !s.lineUsedLow  && lowC  < lo) dir = +1;
+   else if(Inp_DetectHighSweep && !s.lineUsedHigh && highC > hi) dir = -1;
    if(dir == 0)
       return;
+
+   // Cổng "đi từ trong ra" — xem CameFromInside().
+   if(!CameFromInside(dir, lo, hi))
+   {
+      if(!s.sweepBlockLogged)
+      {
+         s.sweepBlockLogged = true;   // mỗi đường biên chỉ báo 1 lần, tránh ngập log
+         PrintFormat("[CRT][%s] Nến %s @%s %s biên %s nhưng KHÔNG tính là quét: nến liền trước đã đóng NGOÀI biên (giá đang ở vùng khác, không còn thanh khoản để quét).",
+                     s.tag, TFToString(Inp_LTF), TimeToString(tC, TIME_DATE|TIME_MINUTES),
+                     dir > 0 ? "thủng" : "vượt",
+                     DoubleToString(dir > 0 ? lo : hi, _Digits));
+      }
+      return;
+   }
+   s.sweepBlockLogged = false;
 
    if(dir > 0) { s.sweepLowExtreme  = lowC;  s.sweepLowStartTime  = tC; }
    else        { s.sweepHighExtreme = highC; s.sweepHighStartTime = tC; }
 
-   // Lọc "quét không rõ ràng": râu thọc qua biên quá nông thì chưa tính là quét thanh
-   // khoản — chênh lệch giá giữa các sàn cỡ vài pip có thể tự sinh/mất tín hiệu kiểu này.
-   // Bỏ qua cây đó, chờ ĐÚNG 1 cây kế tiếp; cây nào quét đủ sâu mới được làm nến gốc.
-   double depth = SweepDepthPips(dir, highC, lowC, lo, hi);
-   if(Inp_MinSweepPips > 0 && depth < Inp_MinSweepPips)
-   {
-      s.m2Waiting    = true;
-      s.m2WaitKind   = 3;
-      s.m2Dir        = dir;
-      s.m2OriginHigh = highC;
-      s.m2OriginLow  = lowC;
-      s.m2OriginTime = tC;
-      PrintFormat("[CRT][%s] Quét biên %s @%s chỉ %.1f pip (< %.1f) -> quét KHÔNG RÕ RÀNG, chờ 1 cây %s kế tiếp.",
-                  s.tag, dir > 0 ? "dưới" : "trên", TimeToString(tC, TIME_DATE|TIME_MINUTES),
-                  depth, Inp_MinSweepPips, TFToString(Inp_LTF));
-      return;
-   }
+   // [1.55] Không còn lọc độ sâu: râu thọc qua biên BAO NHIÊU CŨNG TÍNH LÀ QUÉT.
+   // Mọi cú vượt biên đi thẳng vào 2.1 / 2.2 như nhau.
 
    ClassifyOriginCandle(s, dir, highC, lowC, closeC, openC, tC, lo, hi);
 }
@@ -1578,11 +1920,13 @@ void ProcessSourceSweep(SCRTSource &s, double highC, double lowC, double closeC,
    }
 
    //================= QUÉT RÂU DƯỚI =================
+   // [FIX A] Chỉ MỞ cụm quét mới khi phía đó có tư cách; cụm đang theo dõi dở thì vẫn
+   // tiếp tục (nó đã được mở lúc còn đủ tư cách).
    if(Inp_DetectLowSweep)
    {
       if(!s.sweepLowActive)
       {
-         if(lowC < lo)
+         if(lowC < lo && CameFromInside(+1, lo, hi))
          {
             s.sweepLowActive    = true;
             s.sweepLowExtreme   = lowC;
@@ -1605,7 +1949,7 @@ void ProcessSourceSweep(SCRTSource &s, double highC, double lowC, double closeC,
    {
       if(!s.sweepHighActive)
       {
-         if(highC > hi)
+         if(highC > hi && CameFromInside(-1, lo, hi))
          {
             s.sweepHighActive    = true;
             s.sweepHighExtreme   = highC;
@@ -1973,7 +2317,7 @@ void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupNam
 bool PlaceOneOrder(SCRTSource &s, int dir, double entry, bool useLimit, string mocTxt, string setupName, STPConfig &cfg)
 {
    // Hạn mức số lệnh/vòng là khái niệm của Mode 1 (nhồi lệnh theo nhiều BOS/CHOCH).
-   // Mode 2 bị chặn bởi luật mạnh hơn: 1 biên = đúng 1 cặp lệnh (s.lineUsed).
+   // Mode 2 bị chặn bởi luật mạnh hơn: 1 phía biên = đúng 1 cặp lệnh (lineUsedLow/High).
    if(Inp_TradeMode == TradeMode_BOS_KhungEntry &&
       s.maxOrdersPerRound > 0 && s.ordersThisRound >= s.maxOrdersPerRound)
       return false;
@@ -2822,8 +3166,10 @@ string EntryStatusText(SCRTSource &s)
    string armTxt = "—";
    if(Inp_TradeMode == TradeMode_NenQuet_LTF)
    {
-      if(s.lineUsed)      armTxt = "biên đã dùng — chờ biên mới";
-      else if(s.m2Waiting)  armTxt = (s.m2Dir > 0) ? "chờ nến 2 (BUY)" : "chờ nến 2 (SELL)";
+      // [v1.59] Chỉ còn báo việc ĐANG DIỄN RA. Trạng thái "biên đã dùng" nay đọc thẳng
+      // trên chart (đường xám + nhãn "đã dùng") nên không nhồi thêm chữ vào dashboard.
+      if(s.m2Waiting)
+         armTxt = (s.m2Dir > 0) ? "chờ nến 2 (BUY)" : "chờ nến 2 (SELL)";
    }
    else if(s.armed)
       armTxt = (s.armDir > 0) ? "chờ BUY" : "chờ SELL";
