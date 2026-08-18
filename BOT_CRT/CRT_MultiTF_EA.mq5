@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.61"
+#property version   "1.62"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -386,10 +386,8 @@
 //     nến gốc, không đủ để dựng lại râu quét.
 //     KHÔNG áp dụng cho nhánh 2.2.1 — mốc ở đó là 50% TOÀN THÂN cây thứ 2, vốn là lựa
 //     chọn riêng và cây thứ 2 ở nhánh đó luôn là cây quyết định thật sự.
-//     Hai đề xuất còn lại cùng đợt đã được cân nhắc và CHỦ ĐỘNG BỎ QUA:
-//       · bắt cây thứ 2 qua phép đo râu/thân (bỏ đường tắt thuận chiều) — giữ nguyên,
-//         "cứ nến thuận chiều là được" là hành vi mong muốn;
-//       · thêm ngưỡng tối thiểu cho râu theo % chiều dài nến — tạm chưa làm.
+//     Đề xuất cùng đợt "bắt cây thứ 2 qua phép đo râu/thân (bỏ đường tắt thuận chiều)"
+//     đã cân nhắc và CHỦ ĐỘNG BỎ QUA: "cứ nến thuận chiều là được" là hành vi mong muốn.
 //
 //   [1.51] VÁ 3 LỖI PHÁT HIỆN QUÉT SAI — soi từ ca 2026.08.04 16:00 (nguồn Swing nhận
 //     nhầm "quét biên trên" trong khi giá đã giao dịch hẳn TRÊN đường Last Major High
@@ -570,6 +568,10 @@
 enum ENUM_CRT_TRADE_MODE { TradeMode_BOS_KhungEntry, TradeMode_NenQuet_LTF };
 enum ENUM_CRT_FAR_ACTION { Far_BoLenhMarket, Far_ChuyenThanhLimitTaiLine, Far_VanVaoMarket };
 enum ENUM_CRT_ENTRY_MODE { EntryMode_Market, EntryMode_LimitTaiBienHTF, EntryMode_LimitTaiZoneEntry };
+// Mốc giá mà tới đó thì lệnh CHỜ chưa khớp coi như hết cơ hội -> huỷ.
+// Middle: chặt hơn, coi như setup đã ăn nửa đường thì thôi.
+// Biên đối diện: rộng hơn, để lệnh chờ sống tới tận đích cuối của cú CRT.
+enum ENUM_CRT_CANCEL_AT { CancelAt_Middle, CancelAt_BienDoiDien };
 enum ENUM_CRT_SL_MODE { SLMode_RauQuet, SLMode_KhongDatSL };
 enum ENUM_CRT_TP_MODE { TPMode_MidBienH4, TPMode_RR, TPMode_Pips };
 // Mốc đặt TP khi chọn TPMode_MidBienH4. Hai enum riêng vì 2 nguồn có số lựa chọn khác nhau:
@@ -616,6 +618,7 @@ input ENUM_CRT_SL_MODE Inp_SL_Mode          = SLMode_RauQuet; // Cách đặt SL
 input double           Inp_SL_BufferPips    = 30;        //   • nếu SLMode_RauQuet — SL lùi ra ngoài râu quét (pip)
 input double           Inp_MaxSL_Pips       = 200;       // SL xa hơn số pip này thì bỏ lệnh (0=không giới hạn)
 input double           Inp_MaxDistFromLine_Pips = 100;   // Giá cách biên quá số pip này -> Mode BOS: bỏ chờ; Mode Nến quét: xử lý theo mục 3 (0=tắt)
+input ENUM_CRT_CANCEL_AT Inp_CancelPendingAt = CancelAt_Middle; // Huỷ lệnh chờ chưa khớp khi giá chạm:
 input double           Inp_Pool_SL_Percent  = 0;         // Nhóm lệnh cùng chiều lỗ quá % này thì đóng cả nhóm (0=tắt)
 
 // ============ 2. RIÊNG MODE BOS/CHOCH (TradeMode_BOS_KhungEntry) ============
@@ -1170,11 +1173,11 @@ void OnTick()
    ProcessLTFSweep();
    RefreshAll(false);
 
-   // Huỷ lệnh chờ khi giá đã chạm đường Middle — áp dụng cho CẢ 2 MODE.
+   // Huỷ lệnh chờ khi giá chạm mốc đã chọn (Middle hoặc biên đối diện) — CẢ 2 MODE.
    // Để ngoài khối bảo vệ bên dưới vì huỷ lệnh chờ luôn là hành động an toàn, cần
    // chạy được cả khi Shield/halt đang chặn vào lệnh mới.
-   CancelPendingsAtMiddle(g_srcAdj);
-   CancelPendingsAtMiddle(g_srcLM);
+   CancelPendingsAtTarget(g_srcAdj);
+   CancelPendingsAtTarget(g_srcLM);
 
    // Giá chạm biên đối diện -> kéo SL về entry, lệnh chỉ còn được gồng lãi.
    // Cũng để ngoài khối bảo vệ: siết SL luôn an toàn, phải chạy cả khi Shield/halt bật.
@@ -2332,7 +2335,7 @@ bool PlaceOneOrder(SCRTSource &s, int dir, double entry, bool useLimit, string m
    // Giá vào lệnh đã VƯỢT QUA đường Middle -> setup coi như đã chạy xong, vào lúc này là
    // muộn: phần lớn dư địa tới đích đã mất. Với TP_Middle thì còn vô lý hẳn (BUY mà TP
    // lại nằm dưới entry — ComputeTP sẽ âm thầm lùi TP về biên đối diện).
-   // Áp cho CẢ market lẫn limit, CẢ 2 mode — cùng tinh thần với CancelPendingsAtMiddle().
+   // Áp cho CẢ market lẫn limit, CẢ 2 mode — cùng tinh thần với CancelPendingsAtTarget().
    if(s.boundReady && s.boundHigh > 0 && s.boundLow > 0)
    {
       double mid = (s.boundHigh + s.boundLow) / 2.0;
@@ -2593,7 +2596,7 @@ int CountEAPositions(long magic)
 // nên huỷ. Chỉ đụng tới lệnh chờ — vị thế đã khớp vẫn để TP/SL của nó tự chạy.
 // Middle lấy theo biên của CHÍNH nguồn đó, đồng bộ với cách ComputeTP() tính TP_Middle.
 //+------------------------------------------------------------------+
-void CancelPendingsAtMiddle(SCRTSource &s)
+void CancelPendingsAtTarget(SCRTSource &s)
 {
    if(!s.boundReady || s.boundHigh <= 0 || s.boundLow <= 0)
       return;
@@ -2614,14 +2617,20 @@ void CancelPendingsAtMiddle(SCRTSource &s)
       bool isSell= (ot == ORDER_TYPE_SELL_LIMIT || ot == ORDER_TYPE_SELL_STOP);
       if(!isBuy && !isSell) continue;
 
-      // Lệnh chờ BUY nằm dưới giá, đích là Middle ở TRÊN -> giá lên tới Middle là hết cửa.
-      // Lệnh chờ SELL thì ngược lại.
-      bool reached = isBuy ? (bid >= mid) : (ask <= mid);
+      // [v1.62] Mốc huỷ do người dùng chọn. Lệnh chờ BUY sinh ra từ cú quét biên DƯỚI nên
+      // đích của nó nằm ở TRÊN -> giá lên tới mốc là hết cửa; lệnh chờ SELL ngược lại.
+      // Biên đối diện của BUY là biên TRÊN, của SELL là biên DƯỚI.
+      double target = (Inp_CancelPendingAt == CancelAt_Middle)
+                         ? mid
+                         : (isBuy ? s.boundHigh : s.boundLow);
+      string tenMoc = (Inp_CancelPendingAt == CancelAt_Middle) ? "Middle" : "biên đối diện";
+
+      bool reached = isBuy ? (bid >= target) : (ask <= target);
       if(!reached) continue;
 
       if(g_trade.OrderDelete(tk))
-         PrintFormat("[CRT][%s] Giá chạm Middle %s -> huỷ lệnh chờ %s #%I64u (coi như đã chạm TP trước khi khớp).",
-                     s.tag, DoubleToString(mid, _Digits), isBuy ? "BUY" : "SELL", tk);
+         PrintFormat("[CRT][%s] Giá chạm %s %s -> huỷ lệnh chờ %s #%I64u (coi như đã chạm TP trước khi khớp).",
+                     s.tag, tenMoc, DoubleToString(target, _Digits), isBuy ? "BUY" : "SELL", tk);
    }
 }
 
@@ -2950,6 +2959,15 @@ void HandlePairAfterTP(long magic, int dir)
       long pt = PositionGetInteger(POSITION_TYPE);
       if(isBuy != (pt == POSITION_TYPE_BUY)) continue;
 
+      // [v1.62] LƯU Ý — việc dời SL này CHỈ THÀNH CÔNG khi lệnh còn lại đang LÃI.
+      // Cặp BUY: lệnh chờ vào THẤP hơn lệnh market, nên TP của nó có thể nằm dưới cả điểm
+      // vào của lệnh market (vd market 4400.86 · limit 4382.60 TP 4387.60). Lúc limit ăn
+      // TP thì market đang âm, dời SL về 4400.86 tức đặt SL TRÊN giá hiện tại -> sàn trả
+      // lỗi invalid stops. Cặp SELL không gặp vì lệnh chờ vào CAO hơn.
+      // CỐ Ý ĐỂ NGUYÊN (quyết định người dùng 2026-08-18): lệnh âm cứ chạy tiếp tới SL/TP
+      // của chính nó. Đã cân nhắc 2 hướng khác — đóng luôn lệnh âm, hoặc nuốt dòng log
+      // thất bại — và bỏ cả hai. Dòng log "dời SL THẤT BẠI" ở đây là BÌNH THƯỜNG, không
+      // phải lỗi cần vá.
       MovePositionToBreakeven(tk, "1 lệnh trong cặp đã chạm TP");
    }
 }

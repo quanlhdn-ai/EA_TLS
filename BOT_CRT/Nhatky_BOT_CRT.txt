@@ -250,7 +250,9 @@ J. QUYẾT ĐỊNH ĐÃ CHỐT — ĐỪNG "SỬA CHO NHẤT QUÁN" NHẦM
    Đã đề xuất bắt cả nến thuận chiều phải qua phép đo râu/thân; người dùng bác:
    "cứ nến thuận chiều là được". Đây là hành vi MONG MUỐN, không phải lỗ hổng.
 
-3. Ngưỡng tối thiểu cho râu theo % chiều dài nến — chưa làm, để dành.
+3. Ngưỡng râu theo % CHIỀU DÀI NẾN — ĐÃ LOẠI BỎ HẲN khỏi danh sách cân nhắc
+   (quyết định 2026-08-18). Chỉ dùng DUY NHẤT một ngưỡng: râu >= 1.5 x THÂN nến.
+   Đừng đề xuất lại cách đo theo chiều dài nến nữa.
 
 =====================================================================
 K. VIỆC CÒN LẠI
@@ -444,7 +446,8 @@ Ba hướng đã đề xuất — kết quả:
         của nhánh đó luôn là cây quyết định thật sự.
 
   c. Thêm ngưỡng tối thiểu cho râu theo % chiều dài nến
-     -> TẠM CHƯA LÀM. Để dành nếu backtest cho thấy còn lọt nến xấu.
+     -> ĐÃ LOẠI BỎ HẲN (2026-08-18). Chốt chỉ dùng một ngưỡng duy nhất: râu >= 1.5 x
+        THÂN nến (xem mục H nhật ký 17/18-08). Không đo theo chiều dài nến nữa.
 
 Lưu ý khi backtest lại: thay đổi (b) làm mốc chờ dịch lên gần vùng quét hơn, nên
 khoảng cách entry-tới-SL NGẮN LẠI -> nếu chuyển sang tính lot theo % tài khoản thì

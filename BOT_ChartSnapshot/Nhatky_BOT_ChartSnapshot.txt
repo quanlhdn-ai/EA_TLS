@@ -137,6 +137,48 @@ Nhật ký 2026-08-06 — BOT_ChartSnapshot
 7. Giải phóng handle Zone (ReleaseZoneHandles(), IndicatorRelease) trong
    OnDeinit — các chart chụp ảnh vẫn giữ nguyên như quy ước cũ (không đóng).
 
+[TLS_SMC_Indicator.mq5 — gọn hoá bảng Inputs]
+1. Hardcode toàn bộ input màu sắc + kích thước chấm Swing thành const, gỡ
+   khỏi Inputs (giữ nguyên giá trị mặc định cũ, không đổi hiển thị ra chart):
+   MajorSwingColor, MajorSwingSize, TrackingLineColor, LastMajorLineColor,
+   BOS_Up_Color, BOS_Down_Color, KeyLevel_Color, BuyZoneColor, SellZoneColor,
+   MinorSwingSize, Minor_BOS_Up_Color, Minor_BOS_Down_Color,
+   MovingAvergeColor, InpBullColor, InpBearColor.
+2. Hardcode thêm 4 mục không phải màu/kiểu đường nhưng cũng ít khi cần chỉnh:
+   MaxBOSLines, MaxMinorBOSLines, MaxZones, MovingAveragePeriods → const.
+   Xoá luôn 3 group header rỗng ("Structure Settings", "SD Zone Settings",
+   "Moving Average") vì không còn input nào bên dưới.
+3. Gộp PeriodsInMajorSwing + PeriodsInMinorSwing chung 1 group mới
+   "Swing Settings (Major & Minor)" (trước đó tách 2 group Major/Minor
+   riêng, chỉ khác nhau đúng 2 dòng).
+4. Tách nhóm hiển thị (Show*) làm 2 group: "Hiển thị Major" (10 mục — gồm cả
+   ShowEMALine/ShowHACandles, xếp tạm vào Major vì không có group riêng cho
+   2 mục nền chung này) và "Hiển thị Minor" (2 mục: ShowMinorSwingPoints,
+   ShowMinorBOSCHOCH).
+5. Đổi toàn bộ nhãn input: thêm tiền tố "Major_"/"Minor_" theo từng nhóm để
+   dễ nhận biết khi lướt bảng Inputs. Riêng PeriodsInMajorSwing/Minor theo
+   yêu cầu riêng dùng dạng hậu tố: "Số nến Swing Major" / "Số nến Swing
+   Minor" (thử qua vài cách viết trước khi chốt: "Chu kỳ Swing" → "Số nến
+   dùng để tính Swing" → "Số nến Swing" (tiền tố) → chốt hậu tố cuối cùng).
+6. ShowEMALine đổi nhãn thành "Major_Đường EMA (21)" — gắn số chu kỳ MA
+   thẳng vào nhãn vì MovingAveragePeriods không còn chỉnh được qua input.
+   Có để lại comment code nhắc: đổi giá trị MovingAveragePeriods thì phải tự
+   sửa số "(21)" trong nhãn này theo, 2 chỗ không tự liên kết.
+7. ShowLastMajorHighLow: đổi mặc định true → false (tắt sẵn theo yêu cầu),
+   nhãn đổi thành "Major_Đường mốc Đỉnh/Đáy gần nhất". Đã cân nhắc đặt tên
+   theo đề xuất "đường High/Low của nến liền kề" nhưng xác nhận lại với
+   người dùng: KHÔNG đúng bản chất — đường này bám theo điểm Swing Major
+   gần nhất (last_maj_high/low), có thể cách nhiều nến về trước chứ không
+   phải High/Low của 1 nến đơn lẻ liền kề — nên giữ mô tả đúng, chỉ bỏ chữ
+   "Major" lặp (đã có tiền tố).
+- Kết quả: Inputs dialog giờ chỉ còn đúng 3 group cần cấu hình: "Hiển thị
+  Major", "Hiển thị Minor", "Swing Settings (Major & Minor)".
+- Đồng bộ 2 bản BOT_TLS/ và BOT_ChartSnapshot/ (dùng chung file này) sau mỗi
+  bước sửa, xác nhận diff -q khớp 100% mỗi lần. Đã kiểm tra không có chỗ nào
+  trong code gán lại giá trị cho các biến vừa chuyển const (an toàn compile).
+- Đã commit (ac4b16f, 06/08) nhưng lúc đó chưa ghi nhật ký — bổ sung lại khi
+  người dùng yêu cầu "tạo bản cập nhật cho từng bot" ngày 18/08.
+
 Nhật ký 2026-08-02 — BOT_ChartSnapshot
 
 [TLS_SMC_Indicator.mq5 — TÊN HIỆN TẠI (đã đổi tên trong ngày hôm nay, xem

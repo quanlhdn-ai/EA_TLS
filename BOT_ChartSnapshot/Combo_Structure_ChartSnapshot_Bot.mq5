@@ -36,6 +36,7 @@ input string Inp_EnabledTF = "M1,M5,M15,M30,H1,H4,D1"; // TF được phép lấ
 
 input group "--- Zone Alert Settings ---"
 input bool   Inp_EnableZoneAlert = true; // Tự động báo Telegram khi giá chạm Zone Buy/Sell (áp dụng cho các TF trong Inp_EnabledTF)
+input bool   Inp_HideZoneInSignalPhoto = true; // Ẩn vùng tô màu Zone trong ảnh tự động gửi kèm tín hiệu (không ảnh hưởng /chart_xx thủ công)
 
 input group "--- Zone Formed (Limit) Alert Settings ---"
 input bool   Inp_EnableZoneFormedAlert = true;  // Tự động báo đặt Limit ngay khi có Zone Buy/Sell MỚI hình thành
@@ -135,8 +136,8 @@ double ComputeSLPadPips(double entry, double stop) {
 
 // SL hiển thị trong thông báo = mép SL gốc của Zone (biên đối diện với Entry) + đệm ComputeSLPadPips,
 // đẩy ra xa Zone (Buy đẩy xuống, Sell đẩy lên), rồi làm tròn về số nguyên (vd 4023.15 -> 4023) —
-// dùng CHUNG cho cả tín hiệu chạm Zone (SendZoneSignal) và tín hiệu Zone mới hình thành
-// (SendZoneFormedSignal). Lưu ý: chỉ ảnh hưởng giá trị HIỂN THỊ — logic phát hiện chạm/xuyên Zone
+// dùng CHUNG cho cả 2 trường hợp gọi SendSignal() (chạm Zone và Zone mới hình thành). Lưu ý:
+// chỉ ảnh hưởng giá trị HIỂN THỊ — logic phát hiện chạm/xuyên Zone
 // vẫn dùng mép SL GỐC (chưa đệm) từ buffer indicator, không đổi.
 double ComputeAdjustedSL(bool isBuy, double entry, double stop) {
    double pip    = GetPipSize(_Symbol);
@@ -195,7 +196,7 @@ void RemoveSMCIndicatorFromChart(long chart_id) {
 
 // Trả về chart_id nếu TF này đã có sẵn chart mở từ trước (do đã có ai bấm /chart_xx) — không
 // tự mở mới. Dùng để quyết định có kèm ảnh vào cảnh báo Zone hay không mà không tốn chi phí
-// mở chart mới (xem SendZoneSignal).
+// mở chart mới (xem SendSignal/SendSignalMessage).
 long GetCachedChartId(ENUM_TIMEFRAMES tf) {
    for(int i = 0; i < ArraySize(g_cache_tf); i++) {
       if(g_cache_tf[i] == tf && ChartSymbol(g_cache_chart_id[i]) != "") return g_cache_chart_id[i];
@@ -371,6 +372,19 @@ void ReleaseZoneHandles() {
    ArrayFree(g_zone_handle);
 }
 
+// Ẩn/hiện object hình chữ nhật Zone (tên "IND_SMC_ZONE_..." — do CreateZone() trong
+// TLS_SMC_Indicator.mq5 vẽ, chỉ vùng Major, không đụng BOS/CHOCH/MA hay bất kỳ object nào khác).
+// Dùng OBJPROP_TIMEFRAMES=OBJ_NO_PERIODS để ẩn tạm mà KHÔNG xoá object — chỉ đổi hiển thị, giữ
+// nguyên toàn bộ thiết lập chỉ báo của người dùng (ShowSDZones...) cho các lần chụp thủ công sau.
+void SetZoneObjectsVisible(long chart_id, bool visible) {
+   int total = ObjectsTotal(chart_id, 0, OBJ_RECTANGLE);
+   for(int i = total - 1; i >= 0; i--) {
+      string nm = ObjectName(chart_id, i, 0, OBJ_RECTANGLE);
+      if(StringFind(nm, "IND_SMC_ZONE_") == 0)
+         ObjectSetInteger(chart_id, nm, OBJPROP_TIMEFRAMES, visible ? OBJ_ALL_PERIODS : OBJ_NO_PERIODS);
+   }
+}
+
 // Gửi 1 caption tín hiệu (chạm Zone hoặc Zone mới hình thành). Nếu chart của TF này đã mở sẵn
 // (người dùng từng bấm /chart_xx) thì kèm luôn ảnh chụp — gần như miễn phí vì không phải mở chart
 // mới. Nếu chưa mở, CHỦ Ý không tự mở chart mới ở đây (luồng ChartOpen tốn 3x Sleep(1500) và chặn
@@ -379,34 +393,32 @@ void ReleaseZoneHandles() {
 void SendSignalMessage(ENUM_TIMEFRAMES tf, string caption) {
    long chart_id = GetCachedChartId(tf);
    if(chart_id != 0) {
+      if(Inp_HideZoneInSignalPhoto) SetZoneObjectsVisible(chart_id, false);
       ChartRedraw(chart_id);
       Sleep(200);
       Radar.SendPhoto(chart_id, "📸 " + caption, Inp_ScreenshotWidth, Inp_ScreenshotHeight);
+      if(Inp_HideZoneInSignalPhoto) {
+         SetZoneObjectsVisible(chart_id, true);
+         ChartRedraw(chart_id);
+      }
    } else {
       Radar.SendMessage("🔔 " + caption);
    }
 }
 
-// Tín hiệu CHẠM Zone (giá đi tới đúng mép Entry). entry/stop là giá GỐC từ buffer indicator —
-// SL hiển thị được đệm ra xa qua ComputeAdjustedSL(), không dùng thẳng stop.
-void SendZoneSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double entry, double stop) {
+// Tín hiệu chung cho cả 2 trường hợp (chạm Zone / Zone mới hình thành) — cùng khung định dạng,
+// chỉ khác chữ "LIMIT": isLimit=true (Zone mới hình thành, giá CHƯA chạm tới, gợi ý đặt lệnh chờ
+// Limit) -> "👉 BUY LIMIT ..."; isLimit=false (giá đã chạm đúng mép Entry) -> "👉 BUY ..." (không
+// có chữ LIMIT, vì lúc này giá đã ở ngay mép, không còn là lệnh chờ nữa).
+// Entry/SL gốc hiển thị ĐÚNG thứ tự buffer indicator — Buy có Entry ở mép trên nên ra cao->thấp,
+// Sell có Entry ở mép dưới nên ra thấp->cao — KHÔNG sắp xếp lại theo min/max.
+// entry/stop là giá GỐC từ buffer indicator; SL hiển thị được đệm ra xa qua ComputeAdjustedSL().
+void SendSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double entry, double stop, bool isLimit) {
    double slShow = ComputeAdjustedSL(isBuy, entry, stop);
+   string side = (isBuy ? "BUY" : "SELL") + (isLimit ? " LIMIT " : " ");
    string caption = "<b>" + _Symbol + " — " + label + "</b>"
                    + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
-                   + "\n👉 Tín hiệu " + (isBuy ? "BUY" : "SELL")
-                   + "\n🆘 SL: " + DoubleToString(slShow, 0)
-                   + "\n💰 TP: 10-20-30 giá";
-   SendSignalMessage(tf, caption);
-}
-
-// Tín hiệu Zone MỚI HÌNH THÀNH — gợi ý đặt Limit ngay tại mép Entry của Zone vừa xuất hiện,
-// SL cũng đệm ra xa mép Zone giống hệt cách tính của SendZoneSignal (dùng chung ComputeAdjustedSL).
-void SendZoneFormedSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double entry, double stop) {
-   double slShow = ComputeAdjustedSL(isBuy, entry, stop);
-   string caption = "<b>" + _Symbol + " — " + label + "</b>"
-                   + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
-                   + "\n👉 Tín hiệu " + (isBuy ? "BUY" : "SELL") + " xuất hiện"
-                   + "\n📍 Đặt Limit tại: " + DoubleToString(entry, _Digits)
+                   + "\n👉 " + side + DoubleToString(entry, 0) + " - " + DoubleToString(stop, 0)
                    + "\n🆘 SL: " + DoubleToString(slShow, 0)
                    + "\n💰 TP: 10-20-30 giá";
    SendSignalMessage(tf, caption);
@@ -446,7 +458,7 @@ void CheckZoneTouches() {
          // Mép trên = BuyZoneEntryBuffer (đỉnh zone) — chỉ báo khi giá ĐI TỪ TRÊN XUỐNG cắt mép này
          // và chưa xuyên thủng mép SL (buyStop) — xuyên rồi thì Zone coi như đã hỏng, không báo.
          if(g_zone_buy_armed[i] && !g_zone_buy_alerted[i] && bid <= buyEntry && bid > buyStop) {
-            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], true, buyEntry, buyStop);
+            SendSignal(g_enabled_tf[i], g_enabled_label[i], true, buyEntry, buyStop, false);
             g_zone_buy_alerted[i] = true;
             g_zone_buy_armed[i]   = false;
          }
@@ -466,7 +478,7 @@ void CheckZoneTouches() {
          // Mép dưới = SellZoneEntryBuffer (đáy zone) — chỉ báo khi giá ĐI TỪ DƯỚI LÊN cắt mép này
          // và chưa xuyên thủng mép SL (sellStop) phía trên.
          if(g_zone_sell_armed[i] && !g_zone_sell_alerted[i] && bid >= sellEntry && bid < sellStop) {
-            SendZoneSignal(g_enabled_tf[i], g_enabled_label[i], false, sellEntry, sellStop);
+            SendSignal(g_enabled_tf[i], g_enabled_label[i], false, sellEntry, sellStop, false);
             g_zone_sell_alerted[i] = true;
             g_zone_sell_armed[i]   = false;
          }
@@ -497,7 +509,7 @@ void CheckOneZoneFormed(ENUM_TIMEFRAMES tf, string label, bool isBuy,
       bool isNew = (lastEntry != entryVal || lastStop != stopVal);
       lastEntry = entryVal;
       lastStop  = stopVal;
-      if(isNew && Inp_EnableZoneFormedAlert) SendZoneFormedSignal(tf, label, isBuy, entryVal, stopVal);
+      if(isNew && Inp_EnableZoneFormedAlert) SendSignal(tf, label, isBuy, entryVal, stopVal, true);
    } else {
       lastEntry = EMPTY_VALUE;
       lastStop  = EMPTY_VALUE;

@@ -4,103 +4,71 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a MetaTrader 5 (MT5) algorithmic trading system written in MQL5. The repository contains:
+MetaTrader 5 (MT5) algorithmic trading system written in MQL5. The repo is organised as **one folder per bot**, each self-contained with its own source, saved `.set` preset, journal, and backup zips.
 
-- [TLS_EA.mq5](TLS_EA.mq5) — Expert Advisor (~3072 lines). All trade logic, risk management, session gating, and Telegram notifications.
-- [TLS_EMA.mq5](TLS_EMA.mq5) — Custom EMA indicator. Draws EMA10/EMA39 lines, cross dots, and the HighLine/LowLine channel levels that the EA reads as breakout thresholds.
-- [TLS_HA.mq5](TLS_HA.mq5) — Custom Heikin-Ashi indicator. Provides candle color (bull/bear), OHLC values used for SL placement and trend bias.
-- [ChibaoMT5.txt](ChibaoMT5.txt) — TradingView Pine Script v6 SMC indicator (BOS/ChoCh, Order Blocks, Supply/Demand zones). Reference only; not compiled or used by the EA.
+| Folder | Main source | Notes |
+|---|---|---|
+| `BOT_CRT/` | `CRT_MultiTF_EA.mq5` | CRT (Candle Range Theory). Two boundary sources (adjacent HTF candle + Last Major Swing) running in parallel, separated by magic number. |
+| `BOT_TLS/` | `TLS_SMC_CSV_Bot.mq5`, `TLS_SMC_Indicator.mq5` | SMC bot. Reference implementation for order limits, Shield, Telegram — other bots port mechanisms from here. |
+| `BOT_OB_Radar/` | `BOT_OB_Radar.mq5` | Order Block radar. Also carries its own `OB_CSMC_Engine.mqh`. |
+| `BOT_ChartSnapshot/` | `Combo_Structure_ChartSnapshot_Bot.mq5` | Chart snapshot bot, uses `Telegram_ChartBot.mqh`. |
+| `Docs/` | — | `CRT_Ebook`, strategy spreadsheets. Reference only. |
+| `Indicator_TradingView/` | `ChibaoTradingView.txt` | Pine Script v6 SMC indicator. Reference only; never compiled. |
+| `OlderVersion/` | — | Archived sources. Do not edit; do not treat as current. |
 
-## Build & Deployment
+Each bot folder has a `Nhatky_<BOT>.txt` journal in Vietnamese. **Read the relevant journal before making changes** — it records past decisions, deliberate non-fixes, and the reasoning behind rules that look wrong out of context.
 
-MQL5 has no command-line compiler. Compilation is done inside **MetaEditor** (ships with MetaTrader 5):
+## Shared includes — must never diverge
 
-1. Open the `.mq5` file in MetaEditor.
-2. Press `F7` to compile. Errors and warnings appear in the Errors tab.
-3. The compiled `.ex5` file is written to the same directory.
+`CSMC_Engine.mqh` and `Telegram_Radar.mqh` are **byte-identical copies** kept in `BOT_CRT/`, `BOT_TLS/`, and `BOT_OB_Radar/`.
 
-**Deployment order** (both indicators must exist before attaching the EA):
-1. Copy `TLS_HA.ex5` and `TLS_EMA.ex5` → `<MT5 data folder>/MQL5/Indicators/`
-2. Copy `TLS_EA.ex5` → `<MT5 data folder>/MQL5/Experts/`
+Editing one means mirroring it to every other copy in the same change. Verify afterwards:
 
-The EA locates its indicators by name via the `HAIndicatorName` and `EMAIndicatorName` input parameters; these must match the installed `.ex5` filenames exactly.
-
-## Architecture
-
-### Signal Flow
-
-```
-EMA cross detected (TLS_EMA buffers) → set waitingBUY or waitingSELL
-  → each new bar: CheckBuyBreakoutOnClosedBar / CheckSellBreakoutOnClosedBar
-      → pass all filters → ExecuteEntry() → market or limit order placed
+```bash
+md5sum BOT_*/CSMC_Engine.mqh BOT_*/Telegram_Radar.mqh
 ```
 
-### Regime System
+All hashes for a given filename must match. A silent divergence here breaks bots that were not being worked on and is very hard to trace later.
 
-Every EMA crossover begins a new **regime** (`currentRegimeEpoch` = timestamp of the cross bar). Each HighLine/LowLine price level is allowed to fire **once per regime**. State is tracked in:
-- `usedLines[]` in memory, persisted to `TLS_LineUsed.dat` (binary)
-- Key = `(regimeEpoch, LineKey(price), isBuy)`
+Both are included with angle brackets (`#include <CSMC_Engine.mqh>`), so the compiler resolves them from `<MT5 data folder>/MQL5/Include/`, **not** from the bot folder.
 
-A cross resets the epoch; the same price level in a new regime is a fresh, unused setup.
+## Build
 
-### Entry Filter Chain (runs on each new bar)
+MetaEditor ships a working command-line compiler — use it, don't ask the user to press F7.
 
-`CheckBuyBreakoutOnClosedBar()` / `CheckSellBreakoutOnClosedBar()` require all of:
-1. `waitingBUY` / `waitingSELL` arm is set
-2. Price zone filter activated (if `EnablePriceZoneFilter = true`)
-3. HA candle at bar[1] is correct color (bull for buy, bear for sell)
-4. HA close is above HighLine / below LowLine at bar[1]
-5. Regular candle at bar[1] is in the same direction (close vs open)
-6. Line not already used in this regime
-7. Channel width ≥ `RangeChannelEMA` pips
+```powershell
+$DF = 'C:\Users\Admin\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
 
-Entry type decision in `ExecuteEntry()`:
-- **Market order** when SL distance ≤ `SLMaxPips`
-- **Limit order** at `sl ± SLMaxPips` when SL distance exceeds the cap
+# Source of truth is this repo; MT5 folders are deploy targets.
+Copy-Item 'BOT_CRT\CRT_MultiTF_EA.mq5' "$DF\MQL5\Experts\" -Force
+Copy-Item 'BOT_CRT\CSMC_Engine.mqh'    "$DF\MQL5\Include\" -Force
+Copy-Item 'BOT_CRT\Telegram_Radar.mqh' "$DF\MQL5\Include\" -Force
 
-### Price Zone Filter
+& 'C:\Program Files\MetaTrader 5\MetaEditor64.exe' `
+    /compile:"$DF\MQL5\Experts\CRT_MultiTF_EA.mq5" /inc:"$DF\MQL5" /log:"$env:TEMP\build.log"
+Get-Content "$env:TEMP\build.log" -Encoding Unicode | Select-String ': error |: warning |^Result:'
+```
 
-Up to 10 buy zones and 10 sell zones can be configured as inputs. The EA gates entries until price touches a matching zone (within `ZoneActivationPips`). Zones are single-use and persisted to `TLS_ZoneUsed.dat`. An opposite cross deactivates the current-side zone.
+Gotchas:
 
-### Risk Sizing
+- The log is **UTF-16** — read it with `-Encoding Unicode` or it comes out as mojibake.
+- MetaEditor returns a **non-zero exit code even when only warnings exist**. Judge success by the `Result: N errors` line, never by the exit code.
+- Three warnings are pre-existing and harmless across these bots: `POSITION_COMMISSION is deprecated` (×2) and a `ushort`→`uchar` conversion in `Telegram_Radar.mqh`.
+- Compiling writes `.ex5` next to the `.mq5` inside the MT5 folder. The Strategy Tester picks it up on the next run; no manual copy needed.
 
-`CalcLotsByRiskUSD()`: `lots = RiskUSDPerTrade / (sl_pips × pipValuePer1Lot)`
+Backtesting still needs the MT5 GUI (Strategy Tester). `WebRequest` is blocked there, so `TELEGRAM POST ERROR: Code -1 | Error: 4014` is normal in backtests and is not a bug.
 
-SL is sourced from `FindSLFromNearestOppositeHAPair()`: scans back up to `SL_LookbackBars` for two consecutive opposite-color HA candles, then sets SL at their low/high ± `BufferPips`.
+## Working conventions
 
-TP on M1: `entry ± RiskReward × risk_distance`. On HTF (non-M1 timeframes): `entry ± HTF_TP_Prices`.
+- **`.set` files are UTF-16LE with BOM.** Format is `Name=value||start||step||stop||optimize`. MT5 matches by name, not position, but keep code order and `.set` order in sync anyway — it makes diffing possible. After adding or removing an `input`, update the `.set` in the same change and verify the counts match.
+- **Cosmetic settings are `const`, not `input`.** Colors, widths, line styles, label toggles, extend-bars. The user wants the Inputs screen to carry operational parameters only. Input descriptions are written in plain Vietnamese, short enough to display fully.
+- **Enum identifiers cannot contain Vietnamese diacritics or spaces**; the comment beside them can.
+- **A function taking a struct parameter must be declared after that struct** — MQL5 has no forward declaration for this.
+- **Gold pip convention on this broker:** 1 pip = $0.1 = 100 × point. Quotes show 3 decimals but pips behave like a 2-decimal broker.
+- **Every order/position loop filters on magic number** so the bot ignores manually placed trades and the other source's trades.
+- **Log lines are prefixed** `[BOT][module]` for terminal filtering.
+- **Journal and backup zip are opt-in.** Write them only when the user asks — never as an automatic follow-up to a code change.
 
-### Session Gating (`TradeWindowMode`)
+## Secrets
 
-- **FULLDAY** — trades during broker session hours; blocks entries within `NoNewTradesBeforeEndH` hours of session end; force-closes all positions at session end.
-- **SESSIONS** — trades only during configured VN-timezone windows (Asia/EU/NY). Breakouts that form outside the allowed window are marked as used (anti-FOMO) rather than held for later.
-
-DD gate: Blocks new trades when realized session loss ≥ `DailyDD_Percent%` of session opening balance, or when the next trade would push over the limit.
-
-Profit gate: Blocks new trades once `DailyProfitTargetUSD` is reached for the session.
-
-### Position Management (`ManageBreakEvenAndCrossRules`)
-
-- **M1**: Optional break-even at ~1R (`IsAllowBE`). On opposite cross, modify SL to entry if the position is profitable, or set TP to entry if not.
-- **HTF**: Close position on opposite cross if currently profitable.
-
-### Indicator Buffer Layout
-
-| Handle | Buffer 0 | Buffer 1 | Buffer 2 | Buffer 3 | Buffer 4 |
-|--------|----------|----------|----------|----------|----------|
-| `haHandle` (TLS_HA) | HA Open | HA High | HA Low | HA Close | Color (0=bull, 1=bear) |
-| `emaHandle` (TLS_EMA) | Short MA | Long MA | Cross Dot | HighLine | LowLine |
-
-All buffers are read with `CopyBuffer()` using series indexing (index 0 = current bar, 1 = last closed bar).
-
-### Telegram Module
-
-`OnTradeTransaction()` handles order creation, fills, and TP/SL exits. Messages are deduplicated via MT5 `GlobalVariable` flags keyed by `_Symbol + _Period + kind + orderID`. Configure `TG_BotToken` and `TG_ChatID` inputs; set `EnableTelegram = false` to disable entirely.
-
-## Key Conventions
-
-- `PipSize()` normalizes pip units across Forex (5-digit), gold (3-digit), and CFD instruments.
-- All order/position iteration checks `MagicNumber` so the EA ignores manually placed trades.
-- Core logic runs once per bar inside `IsNewBar()`, not on every tick.
-- Log lines follow `[SYMBOL][MODULE][SIDE]` prefix format for easy terminal filtering.
-- `IndicatorsReady()` auto-recreates indicator handles if they stall for > 30 retries.
+Telegram bot tokens and channel IDs are currently **hardcoded** in some bot sources and `.set` files at the user's explicit request. This repo is a git repository — pushing it to a public remote would expose them. Flag this before any operation that publishes the repo; do not silently rewrite the credentials out.
