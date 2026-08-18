@@ -1,4 +1,4 @@
-Nhật ký 2026-08-17/18 — BOT_CRT  (CRT_MultiTF_EA v1.50 -> v1.61)
+Nhật ký 2026-08-17/18 — BOT_CRT  (CRT_MultiTF_EA v1.50 -> v1.62)
 
 Chặng này gần như chỉ làm MỘT việc: truy cho ra vì sao bot nhận nhầm "quét thanh
 khoản" ở những chỗ không hề có cú quét nào, rồi nhân đó rút gọn mô hình cho dễ kiểm
@@ -267,6 +267,32 @@ K. VIỆC CÒN LẠI
 · Token Telegram vẫn hardcode trong cả .mq5 lẫn .set. EA_TLS là git repo -> đẩy public
   là lộ. Đã báo, người dùng chọn giữ.
 
+=====================================================================
+L. [v1.62] MỐC HUỶ LỆNH CHỜ CÓ THỂ CHỌN + GHI CHÚ DỜI SL THẤT BẠI
+=====================================================================
+
+1. Thêm input Inp_CancelPendingAt (enum ENUM_CRT_CANCEL_AT: CancelAt_Middle
+   [mặc định, giữ đúng hành vi cũ] / CancelAt_BienDoiDien) — cho chọn mốc
+   giá mà tới đó lệnh CHỜ chưa khớp coi như hết cơ hội và bị huỷ. Middle
+   chặt hơn (huỷ sớm, coi như setup đã ăn nửa đường thì thôi); Biên đối
+   diện rộng hơn (để lệnh chờ sống tới tận đích cuối của cú CRT).
+2. Đổi tên CancelPendingsAtMiddle() -> CancelPendingsAtTarget() cho khớp
+   nghĩa mới (không còn cứng luôn là Middle) — target tính theo input trên:
+   Middle, hoặc s.boundHigh/s.boundLow tương ứng phía BUY/SELL.
+3. Ghi chú mới tại HandlePairAfterTP(): dời SL về entry cho lệnh còn lại khi
+   1 lệnh trong cặp đã chạm TP CHỈ thành công nếu lệnh còn lại đang LÃI. Với
+   cặp BUY, lệnh limit vào THẤP hơn lệnh market nên TP của nó có thể nằm
+   dưới cả entry của market (vd market 4400.86, limit 4382.60, TP 4387.60)
+   — lúc limit ăn TP thì market có thể đang âm, dời SL lúc đó là đặt SL
+   TRÊN giá hiện tại -> sàn trả lỗi invalid stops. Cặp SELL không gặp vì
+   lệnh chờ luôn vào CAO hơn market.
+   CỐ Ý ĐỂ NGUYÊN (quyết định người dùng 2026-08-18): lệnh đang âm cứ chạy
+   tiếp tới SL/TP của chính nó — đã cân nhắc 2 hướng khác (đóng luôn lệnh
+   âm, hoặc nuốt dòng log lỗi) và bỏ cả hai. Dòng log "dời SL THẤT BẠI" ở
+   đây là BÌNH THƯỜNG, không phải lỗi cần vá.
+4. Dọn comment ở mục C: gộp 2 gạch đầu dòng "đã cân nhắc và chủ động bỏ qua"
+   (nến thuận chiều qua thẳng + ngưỡng râu theo % chiều dài nến) thành 1 —
+   ý ngưỡng râu theo % chiều dài giờ đã có ghi chú đầy đủ riêng ở mục J.3.
 
 Nhật ký 2026-08-16/17 — BOT_CRT  (CRT_MultiTF_EA v1.36 -> v1.50)
 
