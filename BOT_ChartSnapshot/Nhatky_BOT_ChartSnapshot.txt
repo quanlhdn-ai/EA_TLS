@@ -1,3 +1,78 @@
+Nhật ký 2026-08-27 — BOT_ChartSnapshot
+
+[Combo_Structure_ChartSnapshot_Bot.mq5]
+1. SendSignal(): đổi toàn bộ định dạng tin tín hiệu sang ĐÚNG khung tin
+   public của BOT_CRT (SendPublicSignal() trong CRT_MultiTF_EA.mq5) theo yêu
+   cầu người dùng "giống hoàn toàn cách thông báo setup vào lệnh của bot
+   CRT" — tiêu đề 🟩/🟥 "TÍN HIỆU MUA/BÁN", 2 đường kẻ ━━━ kẹp thân tin,
+   dòng miễn trừ trách nhiệm ở cuối. Bản cũ (4 dòng 🕐 / 👉 / 🆘 / 💰) bỏ hẳn.
+2. Sao y luôn 2 luật xử lý biên của CRT chứ không chỉ chép khung: 2 mép Zone
+   làm tròn ra CÙNG 1 số nguyên (Zone quá hẹp) thì rút "📍 Entry vùng: 4600 –
+   4600" về "📍 Entry: 4600"; 2 khoảng pip bằng nhau thì rút "khoảng 30 – 30
+   pips" về "khoảng 30 pips".
+3. Dòng SL đổi từ "🆘 SL: 4597" (số nguyên) sang "🛡️ SL tham khảo: 4597.00
+   (khoảng 30 – 130 pips)" — để 2 số lẻ giống CRT vì đó là mốc người đọc
+   phải đặt chính xác. Khoảng pip tính từ SL ĐÃ ĐỆM (ComputeAdjustedSL) tới
+   TỪNG mép Zone: số nhỏ chính là khoảng đệm của ComputeSLPadPips (30-50
+   pips) vì mép SL gốc nằm gần, số lớn = đệm + độ rộng Zone. GIÁ TRỊ SL
+   không đổi, chỉ đổi cách hiển thị.
+4. Vùng Entry giờ in TĂNG DẦN (4600 – 4610) — huỷ quy tắc cũ "in đúng thứ tự
+   buffer indicator, KHÔNG sắp xếp lại theo min/max" (Buy ra cao->thấp, Sell
+   ra thấp->cao) ghi ngày 14/08. Lý do: CRT in dạng "vùng" nên thứ tự đó
+   không còn mang thông tin; muốn biết mép nào là Entry thì đọc dòng SL tham
+   khảo ngay bên dưới. Đã nêu rõ đây là thay đổi tự quyết khi báo cáo lại.
+5. Khung CRT không có chỗ chứa 2 thông tin mà bot này đang có — đã hỏi và
+   người dùng chọn cách xử lý:
+   - Khung thời gian (label): nối vào tiêu đề -> "🟩 TÍN HIỆU MUA — XAUUSDm
+     M1". CRT chỉ chạy 1 bộ khung cố định nên không cần ghi, còn bot này báo
+     song song nhiều TF, bỏ đi thì đọc tin không biết tín hiệu thuộc khung
+     nào (ảnh kèm theo cũng không phải lúc nào cũng có).
+   - Phân biệt Limit / đã chạm: thay chữ "LIMIT" trong dòng "👉 BUY LIMIT"
+     của bản cũ bằng 1 DÒNG TRẠNG THÁI ngay dưới đường kẻ trên — "⏳ Đặt
+     LIMIT chờ trong vùng" (isLimit=true, Zone mới hình thành, giá chưa tới)
+     / "⚡ Giá đã chạm vùng Entry" (isLimit=false).
+6. Thêm input Inp_TP_Text (group mới "--- Signal Message Settings ---"), mặc
+   định "10-20-30 giá" — sao y cách làm của Inp_TG_TP_Text bên BOT_CRT: dòng
+   TP in NGUYÊN VĂN, cố ý không tính ra giá cụ thể (bot này không đặt lệnh,
+   TP chỉ là gợi ý chung cho người đọc kênh), và để dạng input để đổi được
+   ngay trong bảng Inputs MT5 mà không phải compile lại. Lý do phát sinh:
+   tin bot đang chạy thực tế trên VPS hiện ghi "TP: 1R-2R-3R", lệch với
+   "10-20-30 giá" hardcode trong repo -> bản trên VPS đã bị sửa tay; để dạng
+   input thì hết cảnh 2 bản lệch nhau.
+7. SendSignalMessage(): bỏ prefix "📸 " (nhánh gửi kèm ảnh) và "🔔 " (nhánh
+   text-only) khỏi caption để tiêu đề 🟩/🟥 đứng đầu tin đúng như CRT. Caption
+   của lệnh /chart_xx thủ công KHÔNG đụng tới — nó dựng riêng trong
+   ProcessCommand() và vẫn giữ "📸".
+
+[config_bot_getchart.set]
+1. Thêm Inp_TP_Text=10-20-30 giá, giữ nguyên UTF-16LE + BOM + CRLF.
+2. LƯU Ý QUAN TRỌNG: preset THẬT đang chạy trên VPS là config_bot_getchart
+   .set (CÓ gạch dưới giữa bot và getchart), do người dùng cung cấp trong
+   ngày. File config_botgetchart.set (KHÔNG gạch dưới) vốn có sẵn trong thư
+   mục từ 02/08 mang bot token KHÁC (8953133302:... thay vì 8828449930:...)
+   — ĐÍNH CHÍNH: đây KHÔNG phải lỗi/lệch dữ liệu như nghi ban đầu, người dùng
+   xác nhận file này chạy cho 1 TÀI KHOẢN BOT TELEGRAM KHÁC (deploy riêng),
+   token khác nhau là đúng theo thiết kế. Vẫn thiếu 5 input mới (Inp_EnabledTF
+   / Inp_EnableZoneAlert / Inp_HideZoneInSignalPhoto / Inp_EnableZoneFormedAlert
+   / Inp_ZoneFormedTF) so với code hiện tại — không phải lỗi (.set khớp theo
+   TÊN, thiếu dòng nào thì input đó lấy mặc định trong code), chỉ là preset
+   chưa được cập nhật cho đủ. Người dùng nói xoá hay giữ đều được — GIỮ LẠI
+   (an toàn hơn, không phải dữ liệu của tôi để xoá khi không chắc chắn).
+3. Trên VPS Inp_EnableZoneAlert=false -> thực tế CHỈ nhánh "⏳ Đặt LIMIT chờ
+   trong vùng" bắn, nhánh "⚡ Giá đã chạm vùng Entry" hiện không chạy. Khớp
+   với việc mọi tin người dùng chụp lại đều có chữ "LIMIT".
+
+[Compile]
+- Đã compile kiểm tra: 0 errors, 1 warning ushort->uchar vốn có sẵn trong
+  Telegram_ChartBot.mqh (CLAUDE.md đã ghi là vô hại). Build trong cây MQL5
+  tạm ở scratchpad, KHÔNG đụng vào thư mục MT5 của máy.
+- MetaEditor trên máy này nằm ở "C:\Program Files\MetaTrader 5 EXNESS\
+  MetaEditor64.exe", data folder 53785E099C927DB68A545C249CDBCE06 — khác
+  đường dẫn ghi trong CLAUDE.md (viết cho máy khác, user Admin). Bản EA
+  trong data folder đó rất cũ (19/06), Include còn thiếu Telegram_ChartBot
+  .mqh và Indicators còn tên cũ chưa đổi sang TLS_SMC_Indicator, nên KHÔNG
+  dùng làm nơi đối chiếu được.
+
 Nhật ký 2026-08-15 — BOT_ChartSnapshot
 
 [Combo_Structure_ChartSnapshot_Bot.mq5]

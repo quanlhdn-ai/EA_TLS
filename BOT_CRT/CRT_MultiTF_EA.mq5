@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.62"
+#property version   "1.65"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -550,6 +550,94 @@
 //     Nến gần doji (thân ~ 0) vẫn luôn qua bất kể tỷ lệ, vì ngưỡng cần đạt cũng ~ 0 —
 //     không hại, doji có râu dài đúng là nến từ chối giá.
 //
+//   [1.63] TIN TELEGRAM DẠNG CHIA SẺ CỘNG ĐỒNG + NHÃN ĐƯỜNG GỌN LẠI.
+//     (a) Inp_ShowLineName (input mới, mặc định TẮT): nhãn cạnh đường biên nay chỉ in GIÁ.
+//         Bật lên mới hiện tên đầy đủ ("H4 High: 4680.98", "Last Major Low: 4594.43").
+//         Ở chế độ gọn KHÔNG in thêm chữ "· đã dùng" — trạng thái đó đã đọc được bằng màu
+//         xám của chính đường kẻ (v1.59), in thêm chữ là phá mất mục đích "chỉ giá".
+//         Khoảng chừa mép phải khung nhìn cũng co lại theo, nếu không nhãn ngắn mà line
+//         vẫn cụt sớm như cũ.
+//     (b) Inp_TG_TinPublic (input mới, mặc định BẬT): đổi toàn bộ tin Telegram sang dạng
+//         PUBLIC gọn — chỉ Entry / SL / TP / giờ / miễn trừ trách nhiệm. Bỏ hẳn Nguồn,
+//         Biên H4, Râu quét, khối lượng, TP tính bằng pip, Balance và P&L: đây là kênh
+//         chia sẻ cho cộng đồng, không phải nhật ký tài khoản. Tắt input này thì mọi tin
+//         trở lại y nguyên bản 1.62 — không phải compile lại để đổi ý.
+//     (c) GỘP 2 TIN THÀNH 1, VÀ CHỈ PHÁT KHI LỆNH ĐÃ VÀO THẬT. Trước đây NotifySignal()
+//         bắn tin (kèm chart) NGAY khi xác nhận quét râu — tức TRƯỚC ExecutePairEntry().
+//         Mà ExecutePairEntry có thể không đặt được lệnh nào (spread, khung tin, Shield,
+//         quá xa biên, giá đã vượt Middle, SL quá rộng, lot = 0, sai stops level) -> kênh
+//         public lãnh một tín hiệu "ma" mà bot không hề vào. Nay tin public phát Ở CUỐI
+//         ExecutePairEntry, dựng từ ĐÚNG những lệnh đặt thành công; không lệnh nào vào
+//         thì im lặng, chỉ ghi log. Riêng chế độ CHỈ THEO DÕI vẫn phát (giá dự kiến).
+//     (d) "Entry vùng" = [giá lệnh market, giá lệnh limit 50%] làm tròn số nguyên, và
+//         "khoảng X – Y pips" = khoảng cách từ SL tới hai giá đó (limit gần SL hơn -> số
+//         nhỏ). Nếu chỉ vào được 1 lệnh thì in 1 giá + 1 con số pip.
+//     (e) TP in nguyên văn theo Inp_TG_TP_Text ("5 - 10 - 30 giá") — cố ý KHÔNG tính từ
+//         TP thật của lệnh: TP của bot bám Middle/biên nên mỗi kèo một số, không dùng làm
+//         hướng dẫn chung cho người đọc được.
+//     (f) TIN KẾT THÚC TÍN HIỆU (đề nghị của người dùng): mỗi lần lệnh CHỜ bị huỷ, hoặc
+//         một vị thế đóng, kênh nhận một tin "vùng entry hết hiệu lực" kèm lý do — tránh
+//         việc người theo tín hiệu vào muộn ở vùng giá đã chạy xong. CancelEAPendings()
+//         nay TRẢ VỀ số lệnh xoá được để chỉ báo khi thực sự có cái để huỷ; gọi từ
+//         CloseAllBotOrders() thì cố ý KHÔNG báo vì Shield/Account SL đã có tin riêng.
+//     (g) GIỜ IN TRONG TIN LÀ GIỜ VIỆT NAM (GMT+7), không phải giờ server sàn. Lý do đầy
+//         đủ ở GioVietNam(). Chỉ đụng tin Telegram — log terminal và mọi mốc thời gian
+//         dùng cho LOGIC vẫn là giờ server, không được đổi.
+//
+//   [1.64] DỌN ẢNH CHỤP TRƯỚC KHI LÊN KÊNH PUBLIC — 2 input mới, cả hai mặc định BẬT.
+//     (a) Inp_TG_AnMucLenh: tắt CHART_SHOW_TRADE_LEVELS lúc chụp. Ảnh cũ in nguyên
+//         "BUY 0.1 at 4614.00 / BUY LIMIT 0.1 at 4609.79" ở mép trái — tức vẫn LỘ KHỐI
+//         LƯỢNG dù dòng "Khối lượng" đã bị bỏ khỏi tin ở 1.63. Sót chỗ này thì công bỏ
+//         dòng kia thành vô nghĩa.
+//     (b) Inp_TG_CheTenEA: đè OBJ_RECTANGLE_LABEL màu nền lên nhãn "tên EA + icon" mà
+//         terminal vẽ ở góc phải trên. KHÔNG có chart property nào tắt được nhãn đó —
+//         đã tra tài liệu và diễn đàn MQL5, đè object là cách duy nhất.
+//         ĐÃ KIỂM CHỨNG THẬT ngày 27/08 bằng script Test_CheNhanEA (nằm trong
+//         MQL5\Scripts của terminal, không thuộc repo): chụp thử với tấm che ĐỎ CHÓI,
+//         nhãn "TLS_SMC_CSV_BOT_QUY" biến mất hoàn toàn -> object vẽ ĐÈ LÊN được nhãn
+//         của terminal. Lần chụp thứ 2 với màu nền thì không nhìn ra vết gì.
+//         Thanh giá bên phải KHÔNG bị che: XDISTANCE đo từ mép phải VÙNG VẼ, không tính
+//         thanh giá.
+//     (c) Cả hai làm trong SendPhotoSach() của chính bot, CỐ Ý không sửa Telegram_Radar.mqh
+//         — file đó byte-identical với BOT_TLS và BOT_OB_Radar, sửa là phải mirror cả 3.
+//         Dựng tạm -> chụp -> trả lại nguyên trạng, chart người dùng không đổi lâu dài.
+//     (d) CẠM BẪY đã trả giá một lần test: OBJ_RECTANGLE_LABEL neo bằng góc trên-TRÁI
+//         CỦA CHÍNH NÓ, nên với CORNER_RIGHT_UPPER phải đặt XDISTANCE = ĐÚNG BỀ RỘNG
+//         tấm che. Đặt 0 là nó nằm gọn ngoài màn hình, chụp ra không thấy gì.
+//     (e) Kích thước 190x24 vừa đủ ôm "CRT_MultiTF_EA" + icon (đo được ~120px). ĐỪNG nới
+//         rộng thêm cho "chắc ăn": tấm che xoá thật vùng chart nằm dưới nó, nới quá là
+//         ăn mất nhãn giá của đường biên khi đường đó nằm gần đỉnh chart.
+//
+//   [1.65] TIN CHI TIẾT QUAY LẠI, NHƯNG TÁCH RIÊNG THÀNH TIN THỨ HAI.
+//     BỐI CẢNH VẬN HÀNH (không có chỗ này thì thiết kế dưới đây trông vô lý): bot bắn tin
+//     vào GROUP RIÊNG của chủ bot, rồi chủ bot FORWARD TAY tin public sang group member.
+//     Nên hai loại tin sống chung một kênh là bình thường — chỉ tin public mới đi ra ngoài.
+//     Vì vậy tin chi tiết CỐ Ý giữ nguyên lot và Balance: nó không bao giờ tự lộ.
+//     · Inp_TG_TinChiTiet (input mới, mặc định BẬT): gửi thêm tin chi tiết ở 2 thời điểm
+//       — lúc vào lệnh và lúc đóng lệnh.
+//     · LUẬT SỐNG CÒN CỦA TIN CHI TIẾT: chỉ chứa thứ tin public KHÔNG có. Không lặp lại
+//       chiều lệnh, symbol, giá entry, SL, TP. Yêu cầu người dùng 27/08 sau khi thử bản
+//       đầu: hai tin liên tiếp mà cùng in giá thì nhìn tưởng bot vào 2 kèo khác nhau.
+//       Còn lại đúng 3 thứ: nhánh setup, khối lượng, tiền. Mở đầu bằng "⚙️ chi tiết nội
+//       bộ" để nhìn phát biết không phải tín hiệu, tránh forward nhầm sang group member.
+//     · GỘP CẢ CẶP VÀO 1 TIN. NotifyOrderPlaced chạy mỗi lệnh một lần nên KHÔNG dùng nó
+//       để bắn tin chi tiết ở Mode nến quét (giữ nguyên im lặng như 1.63) — tin chi tiết
+//       phát ở cuối ExecutePairEntry, một tin cho cả cặp, ghi lot của TỪNG lệnh.
+//       Lot 2 lệnh có thể KHÁC NHAU thật: CalcLots() tính theo khoảng cách tới SL, mà
+//       market và limit 50% cách SL khác nhau — nên phải ghi riêng, không gộp một số.
+//     · Lot lấy qua biến dùng chung g_lotVuaDat thay vì đổi chữ ký PlaceOneOrder (hàm đó
+//       có 4 chỗ gọi ở 2 mode). An toàn vì mọi thứ chạy tuần tự trong cùng luồng OnTick.
+//     · Tin ĐÓNG LỆNH chi tiết: "vào X → đóng Y" + lot + P&L + Balance. Cặp giá vào->đóng
+//       là thứ DUY NHẤT phân biệt được vừa chốt lệnh market hay lệnh limit 50%, vì comment
+//       lệnh ("CRT buy Swing") không ghi nhánh setup lẫn loại lệnh. Giá vào lấy bằng
+//       GiaVaoCuaViThe() truy ngược từ DEAL_POSITION_ID.
+//       Lý do đóng CHỈ in khi tin public nói không rõ: TP/SL đã thành tiêu đề tin public
+//       rồi, còn "bot tự đóng" / "đóng tay" bị public gộp thành "ĐÃ ĐÓNG LỆNH" nên phải
+//       nói thêm ở tin chi tiết mới biết chuyện gì xảy ra.
+//     · CẠM BẪY: GiaVaoCuaViThe() gọi HistorySelectByPosition() -> ĐỔI bộ nhớ đệm history
+//       mà HistoryDealGetX(trans.deal, ...) đang dựa vào. Mọi giá trị của trans.deal phải
+//       đọc XONG trước khi gọi nó. Đã gom sẵn lotDong/giaDong/posId lên đầu hàm.
+//
 //   GHI CHÚ MÔ HÌNH — chỉ còn 2 cổng, và một cửa sổ 2 cây:
 //     1. ĐI TỪ TRONG RA: nến LTF liền trước phải đóng cửa TRONG biên phía đang xét.
 //     2. CHẠM BIÊN: râu vượt qua line -> QUÉT CRT ĐÃ XONG, dù chỉ vượt 1 point.
@@ -696,6 +784,11 @@ input bool             Inp_EnableTelegram   = true;       // Bật gửi thông 
 input string           Inp_BotToken         = "8670907940:AAGkHoUQWn3hux6rUhdRF7291LVi_DUxvR0"; // Token của Bot Telegram
 input string           Inp_ChatID           = "-1003976929485";      // ID chat/group/channel nhận thông báo
 input bool             Inp_SendScreenshot   = true;      // Gửi kèm ảnh chart khi báo tín hiệu/vào lệnh
+input bool             Inp_TG_TinPublic     = true;      // Tin dạng CHIA SẺ CỘNG ĐỒNG (gọn, giấu số dư)
+input string           Inp_TG_TP_Text       = "5 - 10 - 30 giá"; // Dòng TP in nguyên văn trong tin public
+input bool             Inp_TG_CheTenEA      = true;      // Ảnh chụp: che tên EA ở góc phải trên
+input bool             Inp_TG_AnMucLenh     = true;      // Ảnh chụp: ẩn đường lệnh (tránh lộ khối lượng)
+input bool             Inp_TG_TinChiTiet    = true;      // Gửi thêm tin CHI TIẾT (setup/lot/PnL) cho chủ bot
 
 // ===================== 5. THAM SỐ THEO KHUNG THỜI GIAN: H4 -> M15 -> M1 =====================
 // Việc HIỂN THỊ đường H4 liền kề / Last Major đi theo Inp_EntrySource ở nhóm VẬN HÀNH —
@@ -717,6 +810,7 @@ input int              Inp_EntrySwingMinor = 9;          // Số nến M1 mỗi 
 
 // ===================== 6. Ít quan trọng / ít đụng đến =====================
 input group "=== 9. CHUNG · HIỂN THỊ ==="
+input bool             Inp_ShowLineName    = false;      // Nhãn đường: hiện tên chi tiết (tắt = chỉ giá)
 input bool             Inp_ShowMidLine     = true;       // Vẽ đường Middle 50% của H4
 input bool             Inp_ShowDashboard   = true;       // Hiện bảng dashboard trên chart
 input bool             Inp_ShowStructure   = false;      // Vẽ BOS/CHOCH của khung entry lên chart
@@ -1132,7 +1226,9 @@ void ResetSourceSweepAndArm(SCRTSource &s, bool highChanged, bool lowChanged)
    // chờ của phía kia tuy vẫn đúng tiền đề (đường biên của nó không thay đổi) nhưng đang
    // mang sẵn TP tính theo range CŨ -> đã lạc hậu, để lại còn hại hơn huỷ đi.
    // Quyết định của người dùng 2026-08-18, đã cân nhắc cả hướng ngược lại.
-   CancelEAPendings(s.magic);
+   // [v1.63] Huỷ cả 2 phía nên KHÔNG nêu chiều lệnh trong tin (dir = 0).
+   if(CancelEAPendings(s.magic) > 0)
+      NotifySignalClosed(0, "khung " + TFToString(Inp_HTF) + " sang biên mới, tín hiệu cũ hết hạn");
 }
 
 //+------------------------------------------------------------------+
@@ -1424,6 +1520,23 @@ string LineLabel(string base, bool used)
 }
 
 //+------------------------------------------------------------------+
+// [v1.63] Nội dung nhãn cạnh đường biên, theo Inp_ShowLineName.
+//   · TẮT (mặc định): CHỈ GIÁ — "4680.98". Không kèm tên đường, cũng không kèm chữ
+//     "· đã dùng": trạng thái đã xét xong vẫn đọc được qua màu xám của chính đường kẻ
+//     (v1.59). Thêm chữ vào đây là phá đúng thứ người dùng muốn gọn.
+//   · BẬT: tên đầy đủ + giá + hậu tố "· đã dùng" như bản 1.62 — "H4 High: 4680.98  · đã dùng".
+// Tên đường truyền vào là chuỗi đã dựng sẵn (tfName + "High"/"Low", hoặc "Last Major High")
+// nên hàm này không cần biết nguồn nào.
+//+------------------------------------------------------------------+
+string PriceTag(string tenDuong, double gia, bool used)
+{
+   string giaTxt = DoubleToString(gia, _Digits);
+   if(!Inp_ShowLineName)
+      return giaTxt;
+   return LineLabel(tenDuong + ": " + giaTxt, used);
+}
+
+//+------------------------------------------------------------------+
 // [v1.53] Mốc đầu mút line + vị trí nhãn, BÁM THEO VÙNG ĐANG NHÌN THẤY của chart.
 // Trước đây cả 2 gắn cứng ở "nến hiện tại + 50 nến": zoom to lên thì điểm đó nằm ngoài
 // màn hình -> nhãn biến mất. Nay chừa sẵn ở mép phải khung nhìn một khoảng vừa đủ chứa
@@ -1464,9 +1577,11 @@ void DrawAll()
    datetime labelTime = endTime + Inp_LabelOffsetBars * PeriodSeconds(PERIOD_CURRENT);
 
    // Nhãn dài nhất quyết định khoảng chừa: "Last Major High: " + giá + "  · đã dùng".
+   // [v1.63] Ở chế độ nhãn gọn (Inp_ShowLineName = false) nhãn chỉ còn con giá, nên khoảng
+   // chừa phải co lại theo — giữ nguyên số cũ thì line vẫn bị cắt cụt sớm y như khi có tên.
    if(Inp_ShowLabel || Inp_ShowLastMajorLabel)
    {
-      int maxLen = 18 + _Digits + 5 + 11;
+      int maxLen = Inp_ShowLineName ? (18 + _Digits + 5 + 11) : (_Digits + 6);
       datetime e2 = 0, l2 = 0;
       if(VisibleEdgeTimes(maxLen, e2, l2))
       {
@@ -1494,10 +1609,10 @@ void DrawAll()
       {
          string tfName = TFToString(Inp_HTF);
          DrawLevelLabel(g_nameHighLabel, labelTime, g_htfHigh,
-                         LineLabel(StringFormat("%s High: %s", tfName, DoubleToString(g_htfHigh, _Digits)), usedHi),
+                         PriceTag(tfName + " High", g_htfHigh, usedHi),
                          LineColor(Inp_ColorHigh, usedHi));
          DrawLevelLabel(g_nameLowLabel, labelTime, g_htfLow,
-                         LineLabel(StringFormat("%s Low: %s", tfName, DoubleToString(g_htfLow, _Digits)), usedLo),
+                         PriceTag(tfName + " Low", g_htfLow, usedLo),
                          LineColor(Inp_ColorLow, usedLo));
       }
       else
@@ -1524,10 +1639,10 @@ void DrawAll()
       if(Inp_ShowLastMajorLabel)
       {
          DrawLevelLabel(g_nameLastMajorHighLabel, labelTime, g_srcLM.boundHigh,
-                         LineLabel(StringFormat("Last Major High: %s", DoubleToString(g_srcLM.boundHigh, _Digits)), lmUsedHi),
+                         PriceTag("Last Major High", g_srcLM.boundHigh, lmUsedHi),
                          LineColor(Inp_ColorLastMajorHigh, lmUsedHi));
          DrawLevelLabel(g_nameLastMajorLowLabel, labelTime, g_srcLM.boundLow,
-                         LineLabel(StringFormat("Last Major Low: %s", DoubleToString(g_srcLM.boundLow, _Digits)), lmUsedLo),
+                         PriceTag("Last Major Low", g_srcLM.boundLow, lmUsedLo),
                          LineColor(Inp_ColorLastMajorLow, lmUsedLo));
       }
    }
@@ -1918,7 +2033,8 @@ void ProcessSourceSweep(SCRTSource &s, double highC, double lowC, double closeC,
                      s.armDir > 0 ? "THỦNG DƯỚI" : "VƯỢT TRÊN",
                      DoubleToString(s.armDir > 0 ? s.sweptLow : s.sweptHigh, _Digits));
          s.armed = false;
-         CancelEAPendings(s.magic);
+         if(CancelEAPendings(s.magic) > 0)
+            NotifySignalClosed(s.armDir, "nến đóng thủng mốc râu quét — setup đã hỏng");
       }
    }
 
@@ -2022,15 +2138,239 @@ void ConfirmHighSweep(SCRTSource &s, datetime tConfirm)
 }
 
 //+------------------------------------------------------------------+
+// [v1.63] Giờ VIỆT NAM cho mọi tin Telegram.
+// KHÔNG dùng TimeCurrent(): đó là giờ SERVER của sàn — Exness chạy GMT+2 và tự nhảy sang
+// GMT+3 mùa hè, người đọc kênh phải tự nhẩm bù, còn nhẩm sai vào 2 lần chuyển mùa.
+// KHÔNG dùng TimeLocal(): giờ đó theo múi giờ cài trên VPS, đổi VPS là lệch mà không ai
+// biết. TimeGMT() + 7 là mốc duy nhất luôn đúng — Việt Nam không có giờ mùa hè nên số 7
+// cố định quanh năm.
+// Khai báo hằng số ngay tại đây (cùng lối với Inp_WickBodyRatio) thay vì thêm vào màn
+// hình Input: đây không phải tham số vận hành, chẳng ai đổi múi giờ của một kênh.
+//+------------------------------------------------------------------+
+const int VN_GMT_OFFSET_HOURS = 7;
+
+string GioVietNam()
+{
+   return TimeToString(TimeGMT() + VN_GMT_OFFSET_HOURS * 3600, TIME_DATE|TIME_MINUTES);
+}
+
+//+------------------------------------------------------------------+
+// [v1.64] DỌN ẢNH CHỤP TRƯỚC KHI GỬI LÊN KÊNH PUBLIC.
+// Hai thứ trong ảnh không nên để người lạ thấy:
+//   1. Tên EA + icon terminal vẽ ở GÓC PHẢI TRÊN -> lộ luôn tên/chiến lược của bot.
+//   2. Đường lệnh (trade levels) ở mép trái -> in rõ "BUY 0.1 at 4614.00", tức lộ KHỐI
+//      LƯỢNG và giá vào thật. Đã cất công bỏ dòng "Khối lượng" khỏi tin, mà ảnh vẫn in
+//      thì bằng thừa.
+//
+// Mục 2 tắt bằng CHART_SHOW_TRADE_LEVELS, có sẵn trong API.
+// Mục 1 KHÔNG có chart property nào tắt được — nhãn đó do terminal vẽ, không phải object
+// của bot. Cách duy nhất là ĐÈ một OBJ_RECTANGLE_LABEL màu nền lên. Đã kiểm chứng bằng
+// script Test_CheNhanEA ngày 27/08: object vẽ ĐÈ LÊN được nhãn EA (chụp thử với tấm che
+// đỏ, nhãn "TLS_SMC_CSV_BOT_QUY" biến mất hoàn toàn).
+//
+// CẠM BẪY TOẠ ĐỘ — mất một lần test mới ra: OBJ_RECTANGLE_LABEL neo bằng góc trên-TRÁI
+// CỦA CHÍNH NÓ. Với CORNER_RIGHT_UPPER thì XDISTANCE là khoảng cách từ mép phải đo NGƯỢC
+// VÀO TRONG tới cái góc trái đó. Đặt XDISTANCE = 0 là tấm che nằm gọn NGOÀI màn hình,
+// chụp ra chẳng thấy gì. Phải đặt XDISTANCE = ĐÚNG BỀ RỘNG của nó.
+//
+// Kích thước để vừa đủ ôm chữ, đừng nới thêm: tấm che xoá thật vùng chart nằm dưới nó,
+// nới rộng quá là ăn mất nhãn giá của đường biên nếu đường đó nằm gần đỉnh chart.
+// "CRT_MultiTF_EA" + icon đo được ~120px, lấy 190x24 là thoải mái.
+//+------------------------------------------------------------------+
+const int CHE_X = 0;     // chừa thêm so với mép phải vùng vẽ (0 = sát mép)
+const int CHE_Y = 0;
+const int CHE_W = 190;
+const int CHE_H = 24;
+
+string CheTenEA_Name() { return g_prefix + "CheTenEA"; }
+
+void VeTamCheTenEA()
+{
+   string n = CheTenEA_Name();
+   if(ObjectFind(0, n) < 0)
+      ObjectCreate(0, n, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+   color mauNen = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+
+   ObjectSetInteger(0, n, OBJPROP_CORNER,      CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, n, OBJPROP_XDISTANCE,   CHE_X + CHE_W);   // xem cạm bẫy toạ độ ở trên
+   ObjectSetInteger(0, n, OBJPROP_YDISTANCE,   CHE_Y);
+   ObjectSetInteger(0, n, OBJPROP_XSIZE,       CHE_W);
+   ObjectSetInteger(0, n, OBJPROP_YSIZE,       CHE_H);
+   ObjectSetInteger(0, n, OBJPROP_BGCOLOR,     mauNen);
+   ObjectSetInteger(0, n, OBJPROP_COLOR,       mauNen);
+   ObjectSetInteger(0, n, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, n, OBJPROP_BACK,        false);  // phải vẽ ĐÈ LÊN, không chui xuống nền
+   ObjectSetInteger(0, n, OBJPROP_SELECTABLE,  false);
+   ObjectSetInteger(0, n, OBJPROP_HIDDEN,      true);
+   ObjectSetInteger(0, n, OBJPROP_ZORDER,      1000);
+}
+
+//+------------------------------------------------------------------+
+// [v1.64] Gửi tin KÈM ẢNH qua bộ lọc dọn dẹp trên. Dựng tạm — chụp — trả lại nguyên
+// trạng, nên chart của người dùng không bị đổi gì lâu dài.
+// CỐ Ý làm ở đây chứ KHÔNG sửa Telegram_Radar.mqh: file đó là bản dùng chung byte-identical
+// với BOT_TLS và BOT_OB_Radar, đụng vào là phải mirror sang cả 3 bot.
+//+------------------------------------------------------------------+
+void SendPhotoSach(string msg)
+{
+   // Tắt gửi ảnh -> SendMessageWithPhoto tự lùi về gửi text, dọn dẹp làm gì cho phí.
+   bool canDon = Inp_SendScreenshot && (Inp_TG_CheTenEA || Inp_TG_AnMucLenh);
+   if(!canDon)
+   {
+      g_radar.SendMessageWithPhoto(msg);
+      return;
+   }
+
+   bool tradeLevelsCu = (bool)ChartGetInteger(0, CHART_SHOW_TRADE_LEVELS);
+   bool gridCu        = (bool)ChartGetInteger(0, CHART_SHOW_GRID);
+
+   if(Inp_TG_AnMucLenh)
+      ChartSetInteger(0, CHART_SHOW_TRADE_LEVELS, false);
+
+   if(Inp_TG_CheTenEA)
+   {
+      // [v1.64] Tấm che XOÁ THẬT vùng chart nằm dưới nó. Nếu lưới đang bật, đường lưới đi
+      // qua góc phải trên sẽ bị ĐỨT một đoạn — trên nền trắng nhìn ra ngay, mà đứt lưới
+      // còn đáng ngờ hơn cả cái tên EA định giấu. Tắt lưới trong lúc chụp thì ảnh ra là
+      // một chart không lưới, hoàn toàn bình thường, không ai thấy có gì bị che.
+      // KHÔNG làm thành input riêng: bật che mà để lưới đứt thì việc che thành công cốc,
+      // đây không phải lựa chọn để cân nhắc.
+      ChartSetInteger(0, CHART_SHOW_GRID, false);
+      VeTamCheTenEA();
+   }
+
+   ChartRedraw(0);
+   Sleep(300);          // chờ terminal vẽ xong hẳn rồi mới để bên trong chụp
+
+   g_radar.SendMessageWithPhoto(msg);
+
+   // Trả lại nguyên trạng dù ảnh có gửi được hay không.
+   ObjectDelete(0, CheTenEA_Name());
+   if(Inp_TG_CheTenEA)
+      ChartSetInteger(0, CHART_SHOW_GRID, gridCu);
+   if(Inp_TG_AnMucLenh)
+      ChartSetInteger(0, CHART_SHOW_TRADE_LEVELS, tradeLevelsCu);
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+// [v1.65] TIN CHI TIẾT — phụ lục nội bộ, đi kèm ngay sau tin public.
+// NGUYÊN TẮC: CHỈ chứa thứ tin public KHÔNG có. Tuyệt đối không lặp lại chiều lệnh, giá
+// entry, SL, TP — lặp là chủ bot nhìn 2 tin có giá lại tưởng bot vào 2 kèo khác nhau.
+// Còn lại đúng 3 thứ: nhánh setup, khối lượng, Balance.
+// Mở đầu bằng "⚙️ chi tiết nội bộ" để nhìn phát biết ngay đây không phải tín hiệu, tránh
+// forward nhầm sang group member.
+//+------------------------------------------------------------------+
+void SendChiTiet(string body)
+{
+   if(!Inp_EnableTelegram || !Inp_TG_TinChiTiet)
+      return;
+   g_radar.SendMessage("⚙️ <i>chi tiết nội bộ</i>\n" + body);
+}
+
+//+------------------------------------------------------------------+
+// [v1.63] TIN PUBLIC — bản tin chia sẻ cho cộng đồng.
+// Cố ý CHỈ có 4 dòng: chiều lệnh, vùng entry, SL, TP. Không Nguồn / Biên H4 / Râu quét /
+// khối lượng / Balance — người đọc kênh không cần biết bot chạy nguồn nào, còn số dư tài
+// khoản thì tuyệt đối không được lên kênh công khai.
+//
+// eA, eB = giá 2 lệnh của cặp (market + limit 50%). hasB = false khi chỉ vào được 1 lệnh.
+// Bên gọi phải truyền giá của những lệnh ĐÃ ĐẶT THÀNH CÔNG — xem ExecutePairEntry().
+//
+// Vùng entry làm tròn về số nguyên (4679 – 4681) cho dễ đọc; SL giữ 2 số lẻ vì đó là mốc
+// người đọc phải đặt chính xác. Khoảng pip tính từ SL tới TỪNG giá entry: lệnh limit nằm
+// gần SL hơn nên ra số nhỏ, lệnh market ra số lớn -> "khoảng 47 – 65 pips".
+//+------------------------------------------------------------------+
+void SendPublicSignal(int dir, double eA, double eB, bool hasB, double sl, bool kemChart)
+{
+   if(!Inp_EnableTelegram || !Inp_TG_TinPublic)
+      return;
+
+   bool   isBuy = (dir > 0);
+   double pip   = GetPipSize();
+
+   int rA = (int)MathRound(eA);
+   int rB = hasB ? (int)MathRound(eB) : rA;
+   int rLo = (rA < rB) ? rA : rB;
+   int rHi = (rA < rB) ? rB : rA;
+
+   int pA = (int)MathRound(MathAbs(eA - sl) / pip);
+   int pB = hasB ? (int)MathRound(MathAbs(eB - sl) / pip) : pA;
+   int pLo = (pA < pB) ? pA : pB;
+   int pHi = (pA < pB) ? pB : pA;
+
+   // Cặp lệnh có thể làm tròn ra CÙNG một số nguyên (market 4679.17 / limit 4679.42) —
+   // lúc đó in "vùng 4679 – 4679" là vô nghĩa, rút về một giá.
+   string dongEntry = (rLo == rHi)
+      ? StringFormat("📍 <b>Entry:</b> %d", rLo)
+      : StringFormat("📍 <b>Entry vùng:</b> %d – %d", rLo, rHi);
+
+   string dongSL = (pLo == pHi)
+      ? StringFormat("🛡️ <b>SL tham khảo:</b> %s (khoảng %d pips)", DoubleToString(sl, 2), pLo)
+      : StringFormat("🛡️ <b>SL tham khảo:</b> %s (khoảng %d – %d pips)", DoubleToString(sl, 2), pLo, pHi);
+
+   string msg = StringFormat(
+      "%s <b>TÍN HIỆU %s — %s</b>\n━━━━━━━━━━━━━━━\n"
+      "%s\n"
+      "%s\n"
+      "🎯 <b>TP:</b> %s\n"
+      "🕒 %s (giờ VN)\n"
+      "━━━━━━━━━━━━━━━\n"
+      "⚠️ <i>Tín hiệu chia sẻ mang tính tham khảo, không phải lời khuyên đầu tư. "
+      "Anh em tự quản lý vốn và rủi ro của mình.</i>",
+      isBuy ? "🟩" : "🟥",
+      isBuy ? "MUA" : "BÁN",
+      _Symbol,
+      dongEntry,
+      dongSL,
+      Inp_TG_TP_Text,
+      GioVietNam());
+
+   if(kemChart)
+      SendPhotoSach(msg);
+   else
+      g_radar.SendMessage(msg);
+}
+
+//+------------------------------------------------------------------+
+// [v1.63] TIN KẾT THÚC TÍN HIỆU — phát khi vùng entry vừa công bố không còn vào được nữa.
+// Mục đích DUY NHẤT: chặn người đọc kênh vào muộn ở một vùng giá đã chạy xong hoặc đã bị
+// bot huỷ. Vì vậy chỉ gọi khi THỰC SỰ có lệnh chờ bị xoá (CancelEAPendings trả về > 0)
+// hoặc có vị thế vừa đóng — gọi vô điều kiện sẽ thành spam mỗi lần biên H4 sang nến mới.
+// dir = 0 khi không xác định được chiều (vd huỷ cả 2 phía lúc biên đổi) -> bỏ chữ MUA/BÁN.
+//+------------------------------------------------------------------+
+void NotifySignalClosed(int dir, string lyDo)
+{
+   if(!Inp_EnableTelegram)
+      return;
+
+   string chieu = (dir > 0) ? " MUA" : ((dir < 0) ? " BÁN" : "");
+
+   g_radar.SendMessage(StringFormat(
+      "⛔ <b>KẾT THÚC TÍN HIỆU%s — %s</b>\n━━━━━━━━━━━━━━━\n"
+      "📝 <b>Lý do:</b> %s\n"
+      "🚫 Vùng entry đã công bố KHÔNG còn hiệu lực — anh em đừng vào thêm.\n"
+      "🕒 %s (giờ VN)",
+      chieu, _Symbol, lyDo,
+      GioVietNam()));
+}
+
+//+------------------------------------------------------------------+
 // Báo Telegram khi có tín hiệu quét râu xác nhận.
 //   - Chế độ CHỈ THEO DÕI (Inp_EnableTrading = false): đây là thông báo DUY NHẤT,
 //     nên ghi đủ thông tin để vào tay (biên, râu quét, SL dự kiến).
 //   - Chế độ VÀO LỆNH: báo sớm "đã có tín hiệu, đang chờ BOS/CHOCH xác nhận",
 //     thông tin lệnh thật sẽ báo tiếp ở NotifyOrderPlaced().
+//
+// [v1.63] Ở chế độ tin PUBLIC hàm này IM LẶNG hoàn toàn. Tin public phải mang được vùng
+// entry, mà lúc này chưa đặt lệnh nên chưa biết giá — và quan trọng hơn, chưa biết lệnh
+// có vào được hay không. Việc phát tin chuyển hẳn xuống ExecutePairEntry() (Mode nến quét,
+// kể cả chế độ chỉ theo dõi) và NotifyOrderPlaced() (Mode BOS/CHOCH).
 //+------------------------------------------------------------------+
 void NotifySignal(SCRTSource &s, int dir)
 {
-   if(!Inp_EnableTelegram)
+   if(!Inp_EnableTelegram || Inp_TG_TinPublic)
       return;
 
    bool   isBuy = (dir > 0);
@@ -2060,7 +2400,7 @@ void NotifySignal(SCRTSource &s, int dir)
               ? "⚡ Đang vào cặp lệnh ngay theo nến quét (market + limit 50%)..."
               : ("⏳ Đang chờ BOS/CHOCH " + TFToString(Inp_EntryTF) + " xác nhận để vào lệnh...")));
 
-   g_radar.SendMessageWithPhoto(msg);
+   SendPhotoSach(msg);
 }
 
 //+------------------------------------------------------------------+
@@ -2136,7 +2476,8 @@ void CheckDisarmSource(SCRTSource &s, double bid, double ask)
       PrintFormat("[CRT][%s] Giá chạm biên đối diện %s -> ngừng arming, huỷ pending.",
                   s.tag, DoubleToString(s.armOppBoundary, _Digits));
       s.armed = false;
-      CancelEAPendings(s.magic);
+      if(CancelEAPendings(s.magic) > 0)
+         NotifySignalClosed(s.armDir, "giá đã chạm biên đối diện — cú chạy coi như xong");
       return;
    }
 
@@ -2152,7 +2493,8 @@ void CheckDisarmSource(SCRTSource &s, double bid, double ask)
          PrintFormat("[CRT][%s] Giá cách đường tín hiệu %.1f pip (> %.1f) -> ngừng arming, chờ tín hiệu mới.",
                      s.tag, dist, Inp_MaxDistFromLine_Pips);
          s.armed = false;
-         CancelEAPendings(s.magic);
+         if(CancelEAPendings(s.magic) > 0)
+            NotifySignalClosed(s.armDir, "giá đã chạy quá xa vùng entry, tín hiệu không còn tươi");
       }
    }
 }
@@ -2272,8 +2614,26 @@ void ExecuteEntry(SCRTSource &s, int dir)
 //+------------------------------------------------------------------+
 void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupName, STPConfig &cfg)
 {
+   // [v1.63] Giá + SL tính TRƯỚC mọi chốt chặn: chế độ chỉ theo dõi cần chúng để phát tin
+   // với giá dự kiến. Đây chỉ là mấy phép đọc giá, không đụng gì tới lệnh.
+   double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool   isBuy = (dir > 0);
+   double line  = isBuy ? s.boundLow : s.boundHigh;
+   double mkt   = isBuy ? ask : bid;
+
+   // Cùng công thức SL với PlaceOneOrder() (râu quét ± đệm). Tính lại ở đây thay vì đợi
+   // PlaceOneOrder trả ra, vì tin public cần một mốc SL DUY NHẤT cho cả cặp lệnh.
+   double slPub = isBuy ? s.sweptLow - Inp_SL_BufferPips * GetPipSize()
+                        : s.sweptHigh + Inp_SL_BufferPips * GetPipSize();
+
    if(!Inp_EnableTrading)
-      return;                                  // chế độ chỉ theo dõi: đã báo Telegram, không vào lệnh
+   {
+      // Chế độ chỉ theo dõi: không vào lệnh, nhưng vẫn phát tín hiệu cho cộng đồng vào tay.
+      // Giá là DỰ KIẾN (market = giá hiện tại, limit = mốc 50%) vì không có lệnh thật nào.
+      SendPublicSignal(dir, mkt, limitPrice, true, slPub, true);
+      return;
+   }
    if(g_halted || g_shieldStopped || g_accountPassed)
    { PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (Shield/halt đang chặn).", s.tag, setupName); return; }
    if(IsInNewsWindow())
@@ -2282,11 +2642,13 @@ void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupNam
    { PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (spread %.1f > %d).", s.tag, setupName,
                  CurrentSpreadPoints(), Inp_MaxSpreadPoints); return; }
 
-   double ask  = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid  = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   bool   isBuy = (dir > 0);
-   double line  = isBuy ? s.boundLow : s.boundHigh;
-   double mkt   = isBuy ? ask : bid;
+   // [v1.63] Giá của những lệnh ĐẶT THÀNH CÔNG — tin public dựng từ đây, không dựng từ ý
+   // định ban đầu. PlaceOneOrder còn từ chối vì nhiều lý do riêng (vượt Middle, SL quá
+   // rộng, lot = 0, sai stops level) nên "đã gọi" khác hẳn "đã vào".
+   double eMkt = 0, eLim = 0;
+   bool   okMkt = false, okLim = false;
+   double lotMkt = 0, lotLim = 0;      // [v1.65] lot từng lệnh, cho tin chi tiết
+   string nhanMkt = "Market";          // đổi thành "Limit tại biên" nếu rơi vào nhánh đó
 
    // Giá đã chạy quá xa đường biên -> vào market lúc này là R:R xấu (SL vẫn nằm ở
    // râu quét, còn entry thì đã cách rất xa). Xử lý theo Inp_FarFromLine_Action.
@@ -2295,14 +2657,16 @@ void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupNam
 
    if(!marketTooFar || Inp_FarFromLine_Action == Far_VanVaoMarket)
    {
-      PlaceOneOrder(s, dir, mkt, false, "", setupName + " · market", cfg);
+      if(PlaceOneOrder(s, dir, mkt, false, "", setupName + " · market", cfg))
+      { eMkt = mkt; okMkt = true; lotMkt = g_lotVuaDat; }
    }
    else if(Inp_FarFromLine_Action == Far_ChuyenThanhLimitTaiLine)
    {
       PrintFormat("[CRT][%s] %s: giá cách biên %.1f pip (> %.1f) -> đổi lệnh market thành LIMIT tại biên %s.",
                   s.tag, setupName, MathAbs(mkt - line) / GetPipSize(), Inp_MaxDistFromLine_Pips,
                   DoubleToString(line, _Digits));
-      PlaceOneOrder(s, dir, line, true, "biên " + TFToString(Inp_HTF), setupName + " · limit tại biên", cfg);
+      if(PlaceOneOrder(s, dir, line, true, "biên " + TFToString(Inp_HTF), setupName + " · limit tại biên", cfg))
+      { eMkt = line; okMkt = true; lotMkt = g_lotVuaDat; nhanMkt = "Limit tại biên " + TFToString(Inp_HTF); }
    }
    else // Far_BoLenhMarket
    {
@@ -2310,8 +2674,46 @@ void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupNam
                   s.tag, setupName, MathAbs(mkt - line) / GetPipSize(), Inp_MaxDistFromLine_Pips);
    }
 
-   PlaceOneOrder(s, dir, limitPrice, true, "mốc 50%", setupName + " · limit 50%", cfg);
+   if(PlaceOneOrder(s, dir, limitPrice, true, "mốc 50%", setupName + " · limit 50%", cfg))
+   { eLim = limitPrice; okLim = true; lotLim = g_lotVuaDat; }
+
+   // Không lệnh nào vào -> IM LẶNG. Log đã ghi rõ lý do ở PlaceOneOrder; kênh public không
+   // được nhận tín hiệu mà bot không hề tham gia.
+   if(!okMkt && !okLim)
+   {
+      PrintFormat("[CRT][%s] %s: không đặt được lệnh nào -> không phát tin Telegram.", s.tag, setupName);
+      return;
+   }
+
+   double eA = okMkt ? eMkt : eLim;
+   double eB = okLim ? eLim : eMkt;
+   SendPublicSignal(dir, eA, eB, (okMkt && okLim), slPub, true);
+
+   // [v1.65] Tin chi tiết: gộp CẢ CẶP vào MỘT tin. Cố ý không để NotifyOrderPlaced tự bắn
+   // theo từng lệnh — hai tin liên tiếp cho cùng một setup dễ bị đọc nhầm thành hai kèo.
+   string dongLenh = "";
+   if(okMkt) dongLenh += StringFormat("%s %s lot", nhanMkt, DoubleToString(lotMkt, 2));
+   if(okMkt && okLim) dongLenh += "  ·  ";
+   if(okLim) dongLenh += StringFormat("Limit 50%% %s lot", DoubleToString(lotLim, 2));
+
+   SendChiTiet(StringFormat(
+      "🔎 %s · %s\n"
+      "📦 %s\n"
+      "💳 Balance: %s$",
+      s.tag, setupName, dongLenh,
+      DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2)));
 }
+
+//+------------------------------------------------------------------+
+// [v1.65] Khối lượng của lệnh VỪA đặt thành công. ExecutePairEntry đọc ngay sau mỗi lần
+// gọi PlaceOneOrder để gộp cả cặp vào MỘT tin chi tiết.
+// Dùng biến dùng chung thay vì thêm tham số tham chiếu vào PlaceOneOrder: hàm đó có 4 chỗ
+// gọi ở 2 mode, đổi chữ ký là đụng hết. Không có rủi ro chồng lệnh — mọi thứ chạy tuần tự
+// trong cùng một luồng OnTick, đọc xong dùng liền.
+// Lot của 2 lệnh trong cặp CÓ THỂ KHÁC NHAU: CalcLots() tính theo khoảng cách tới SL, mà
+// lệnh market và lệnh limit 50% cách SL khác nhau. Nên phải ghi riêng từng lệnh.
+//+------------------------------------------------------------------+
+double g_lotVuaDat = 0;
 
 //+------------------------------------------------------------------+
 // Lõi đặt 1 lệnh, dùng chung cho cả 2 mode: validate -> tính SL/TP/lot -> gửi lệnh.
@@ -2407,6 +2809,7 @@ bool PlaceOneOrder(SCRTSource &s, int dir, double entry, bool useLimit, string m
                  : g_trade.Sell(lots, _Symbol, entry, slOrder, tp, cmt);
    if(ok)
    {
+      g_lotVuaDat = lots;      // [v1.65] cho ExecutePairEntry gộp tin chi tiết
       s.ordersThisRound++;
       PrintFormat("[CRT][%s] ✅ %s%s %.2f lot @%s SL %s TP %s%s", s.tag,
                   isBuy ? "BUY" : "SELL", useLimit ? " LIMIT" : "",
@@ -2431,6 +2834,31 @@ void NotifyOrderPlaced(SCRTSource &s, int dir, double lots, double entry, double
    if(!Inp_EnableTelegram)
       return;
 
+   // [v1.63] TIN PUBLIC:
+   //   · Mode nến quét — cả CẶP lệnh gộp thành 1 tin do ExecutePairEntry phát sau khi đặt
+   //     xong. Ở đây im lặng, nếu không mỗi setup sẽ ra 3 tin gần như trùng nhau.
+   //   · Mode BOS/CHOCH — mỗi lần vào là 1 lệnh đơn, đây mới là chỗ biết chắc lệnh đã vào
+   //     nên tin public phát tại đây, chỉ có 1 giá entry (hasB = false).
+   // [v1.65] Ở Mode nến quét, CẢ tin public LẪN tin chi tiết đều do ExecutePairEntry gộp
+   // phát cho cả cặp. Hàm này im lặng hoàn toàn — nó chạy mỗi lệnh một lần, để nó bắn tin
+   // là mỗi setup ra 2 tin liên tiếp, đúng thứ dễ bị đọc nhầm thành 2 kèo.
+   if(Inp_TG_TinPublic)
+   {
+      if(Inp_TradeMode == TradeMode_NenQuet_LTF)
+         return;
+
+      // Mode BOS/CHOCH: mỗi lần vào là 1 lệnh đơn, đây mới là chỗ biết chắc lệnh đã vào.
+      SendPublicSignal(dir, entry, 0, false, sl, true);
+      SendChiTiet(StringFormat(
+         "🔎 %s%s\n"
+         "📦 %s lot\n"
+         "💳 Balance: %s$",
+         s.tag, setupName == "" ? "" : (" · " + setupName),
+         DoubleToString(lots, 2),
+         DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2)));
+      return;
+   }
+
    double slPips = MathAbs(entry - sl) / GetPipSize();
    double tpPips = MathAbs(tp - entry) / GetPipSize();
 
@@ -2451,7 +2879,9 @@ void NotifyOrderPlaced(SCRTSource &s, int dir, double lots, double entry, double
    else
       priceLabel = "Entry";
 
-   g_radar.SendMessageWithPhoto(StringFormat(
+   // [v1.63] Không kèm chart nữa: tin tín hiệu ngay trước đó đã có ảnh chart của cùng
+   // cây nến, chụp lại lần hai chỉ tốn thời gian và làm dài kênh.
+   g_radar.SendMessage(StringFormat(
       "🛒 <b>%s %s — %s</b>\n━━━━━━━━━━━━━━━\n"
       "🔎 <b>Nguồn:</b> %s%s\n"
       "📦 <b>Khối lượng:</b> %s lot\n"
@@ -2605,6 +3035,13 @@ void CancelPendingsAtTarget(SCRTSource &s)
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
+   // [v1.63] Gom lại rồi báo MỘT tin sau vòng lặp. Một nguồn có thể còn 2 lệnh chờ cùng
+   // chiều (limit tại biên + limit 50%) và chúng chạm mốc cùng lúc -> báo trong vòng lặp
+   // sẽ ra 2 tin y hệt nhau trên kênh.
+   int    nHuy = 0;
+   int    dirHuy = 0;
+   string lyDoHuy = "";
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       ulong tk = OrderGetTicket(i);
@@ -2629,22 +3066,41 @@ void CancelPendingsAtTarget(SCRTSource &s)
       if(!reached) continue;
 
       if(g_trade.OrderDelete(tk))
+      {
          PrintFormat("[CRT][%s] Giá chạm %s %s -> huỷ lệnh chờ %s #%I64u (coi như đã chạm TP trước khi khớp).",
                      s.tag, tenMoc, DoubleToString(target, _Digits), isBuy ? "BUY" : "SELL", tk);
+         nHuy++;
+         dirHuy  = isBuy ? +1 : -1;
+         lyDoHuy = "giá đã chạy tới " + tenMoc + " " + DoubleToString(target, 2)
+                 + " — vùng entry coi như đã xong";
+      }
    }
+
+   // [v1.63] Đây là ca dễ hại người theo tín hiệu nhất: giá đã đi tới đích mà lệnh chờ
+   // chưa kịp khớp — ai vào muộn là mua/bán ngay chỗ đáng lẽ phải chốt lời.
+   if(nHuy > 0)
+      NotifySignalClosed(dirHuy, lyDoHuy);
 }
 
 //+------------------------------------------------------------------+
-void CancelEAPendings(long magic)
+// [v1.63] Trả về SỐ LỆNH CHỜ XOÁ ĐƯỢC. Bên gọi dùng con số này để quyết định có phát tin
+// "kết thúc tín hiệu" hay không — hàm được gọi vô điều kiện ở nhiều chỗ (mỗi lần biên H4
+// sang nến mới chẳng hạn), phần lớn các lần đó chẳng có lệnh chờ nào để huỷ.
+int CancelEAPendings(long magic)
 {
+   int n = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       ulong tk = OrderGetTicket(i);
       if(tk == 0) continue;
       if(OrderGetString(ORDER_SYMBOL) == _Symbol &&
          OrderGetInteger(ORDER_MAGIC) == magic)
-         g_trade.OrderDelete(tk);
+      {
+         if(g_trade.OrderDelete(tk))
+            n++;
+      }
    }
+   return n;
 }
 
 //+------------------------------------------------------------------+
@@ -2934,6 +3390,7 @@ string EntrySourceText()
 void HandlePairAfterTP(long magic, int dir)
 {
    bool isBuy = (dir > 0);
+   int  nHuy  = 0;   // [v1.63] gom lại, báo 1 tin sau vòng lặp
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
@@ -2947,8 +3404,15 @@ void HandlePairAfterTP(long magic, int dir)
       if(!sameDir) continue;
 
       if(g_trade.OrderDelete(tk))
+      {
          PrintFormat("[CRT] Cặp lệnh: 1 lệnh đã chạm TP -> huỷ lệnh chờ #%I64u cùng chiều.", tk);
+         nHuy++;
+      }
    }
+
+   // [v1.63] Kèo đã ăn TP mà lệnh chờ chưa khớp -> báo ngay để không ai vào muộn.
+   if(nHuy > 0)
+      NotifySignalClosed(dir, "lệnh trong cặp đã chạm Take Profit");
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
@@ -3035,6 +3499,29 @@ void MoveSLToEntryAtOppositeBound(SCRTSource &s)
 }
 
 //+------------------------------------------------------------------+
+// [v1.65] Giá VÀO LỆNH của một vị thế đã đóng, truy ngược từ position id.
+// Dùng để biết lệnh nào trong CẶP vừa chốt: lệnh market hay lệnh limit 50%. Comment lệnh
+// ("CRT buy Swing") không ghi nhánh setup lẫn loại lệnh, nên giá vào là manh mối duy nhất.
+// LƯU Ý cho người sửa sau: hàm này gọi HistorySelectByPosition() -> ĐỔI luôn bộ nhớ đệm
+// history mà HistoryDealGetX(trans.deal, ...) đang dựa vào. Phải đọc xong mọi giá trị của
+// trans.deal RỒI mới được gọi hàm này, đừng xen kẽ.
+double GiaVaoCuaViThe(long posId)
+{
+   if(posId <= 0)                      return 0;
+   if(!HistorySelectByPosition(posId)) return 0;
+
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0) continue;
+      if(HistoryDealGetInteger(d, DEAL_ENTRY) == DEAL_ENTRY_IN)
+         return HistoryDealGetDouble(d, DEAL_PRICE);
+   }
+   return 0;
+}
+
+//+------------------------------------------------------------------+
 void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest &request, const MqlTradeResult &result)
 {
    if(trans.type != TRADE_TRANSACTION_DEAL_ADD)
@@ -3053,6 +3540,12 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
    double pnl = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
               + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
               + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+
+   // [v1.65] Đọc HẾT các giá trị của trans.deal ở đây, TRƯỚC khi gọi GiaVaoCuaViThe() —
+   // hàm đó đổi bộ nhớ đệm history nên sau nó mọi HistoryDealGetX(trans.deal,...) đều hỏng.
+   double lotDong  = HistoryDealGetDouble(trans.deal,  DEAL_VOLUME);
+   double giaDong  = HistoryDealGetDouble(trans.deal,  DEAL_PRICE);
+   long   posId    = HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
 
    long   reason    = HistoryDealGetInteger(trans.deal, DEAL_REASON);
    string reasonTxt = "👤 Đóng tay / force close";
@@ -3073,6 +3566,49 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
    if(!Inp_EnableTelegram)
       return;
 
+   // [v1.63] Tin public: TUYỆT ĐỐI không đưa P&L và Balance lên kênh cộng đồng. Người đọc
+   // chỉ cần biết kèo đã đóng theo hướng nào để ngừng vào thêm ở vùng entry cũ.
+   // Cặp lệnh khớp cả 2 rồi cùng ăn TP sẽ ra 2 tin — cố ý giữ vậy, mỗi tin là một lệnh
+   // thật đã đóng, gộp lại phải nuôi thêm trạng thái mà chẳng rõ ràng hơn.
+   if(Inp_TG_TinPublic)
+   {
+      string tieuDe = "🏁 <b>ĐÃ ĐÓNG LỆNH — " + _Symbol + "</b>";
+      if(reason == DEAL_REASON_TP) tieuDe = "✅ <b>CHỐT LỜI — " + _Symbol + "</b>";
+      if(reason == DEAL_REASON_SL) tieuDe = "🔴 <b>DÍNH STOP LOSS — " + _Symbol + "</b>";
+
+      g_radar.SendMessage(StringFormat(
+         "%s\n━━━━━━━━━━━━━━━\n"
+         "🚫 Tín hiệu đã kết thúc — anh em đừng vào thêm ở vùng entry cũ.\n"
+         "🕒 %s (giờ VN)",
+         tieuDe, GioVietNam()));
+
+      // [v1.65] Phụ lục nội bộ, KHÔNG lặp lại thứ tin public vừa nói (chiều lệnh, symbol,
+      // TP hay SL). Chỉ 3 thứ tin public không có: lệnh nào trong cặp vừa chốt (đọc qua
+      // cặp giá vào->đóng), khối lượng, và tiền.
+      // Lý do đóng chỉ in khi tin public nói KHÔNG rõ: TP/SL đã thành tiêu đề ở trên rồi,
+      // còn "bot tự đóng" / "đóng tay" thì public gộp chung thành "ĐÃ ĐÓNG LỆNH" nên phải
+      // nói thêm ở đây mới biết chuyện gì xảy ra.
+      double giaVaoP = GiaVaoCuaViThe(posId);
+      string moTaP   = (giaVaoP > 0)
+         ? StringFormat("vào %s → đóng %s", DoubleToString(giaVaoP, _Digits), DoubleToString(giaDong, _Digits))
+         : StringFormat("đóng %s", DoubleToString(giaDong, _Digits));
+
+      bool reasonRo = (reason == DEAL_REASON_TP || reason == DEAL_REASON_SL);
+
+      SendChiTiet(StringFormat(
+         "🔎 %s · %s · %s lot%s\n"
+         "%s P&L: %s$  ·  💳 Balance: %s$",
+         (magic == g_srcAdj.magic) ? g_srcAdj.tag : g_srcLM.tag,
+         moTaP,
+         DoubleToString(lotDong, 2),
+         reasonRo ? "" : ("\n📝 " + reasonTxt),
+         pnl >= 0 ? "💰" : "💸",
+         DoubleToString(pnl, 2),
+         DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2)));
+      return;
+   }
+
+   // --- Chế độ CŨ (Inp_TG_TinPublic tắt): giữ nguyên tin đầy đủ của bản 1.62 ---
    g_radar.SendMessage(StringFormat(
       "🏁 <b>ĐÓNG LỆNH — %s</b>\n━━━━━━━━━━━━━━━\n"
       "🔎 <b>Nguồn:</b> %s\n"

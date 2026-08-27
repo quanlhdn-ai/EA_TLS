@@ -1,3 +1,481 @@
+Nhật ký 2026-08-27 (bổ sung) — BOT_CRT · ĐỐI SOÁT LIÊN MÁY
+
+Không sửa dòng code nào. Đây là lần đối soát đầu tiên sau khi bản v1.63->v1.65 được làm
+trên MÁY KHÁC rồi chép về máy này. Người dùng chốt: MÁY NÀY LÀ BẢN CHÍNH, mọi thay đổi
+làm ở bất kỳ máy nào cũng phải về đây và được ghi nhận đầy đủ.
+
+=====================================================================
+A. KẾT QUẢ KIỂM CHỨNG BẢN CHÉP VỀ
+=====================================================================
+
+Code viết ở máy khác thì chưa từng được build ở máy này, nên việc đầu tiên là compile:
+
+  · compile SẠCH: 0 lỗi, 3 warning cũ (POSITION_COMMISSION deprecated x2, ushort->uchar
+    trong Telegram_Radar.mqh). Ngoặc cân 243/243 và 1962/1962.
+  · 80 input trong code, và CẢ HAI file .set đều khớp đủ 80 tên:
+      - CRT_MultiTF_EA.set  (preset repo)
+      - crt.set             (cấu hình bot đang chạy thật, chép vào 25/08)
+    Hai file lệch nhau 13 giá trị — ĐÚNG NHƯ THIẾT KẾ, không phải lỗi:
+      ChatID, CancelPendingAt, FarFromLine_Action, MaxDistFromLine_Pips, MaxSL_Pips,
+      ShowDashboard, SL_BufferPips, TP21_Mode_LK/SW, TP22_Mode_LK/SW, TP22_Pips_LK/SW.
+    ĐỪNG "sửa" file này cho giống file kia.
+  · CSMC_Engine.mqh và Telegram_Radar.mqh vẫn byte-identical ở cả 3 bot (CRT / TLS /
+    OB_Radar) — bản chép về không làm lệch file dùng chung. Đây là thứ dễ hỏng nhất khi
+    chép tay giữa 2 máy nên lần nào cũng phải kiểm lại bằng md5sum.
+
+=====================================================================
+B. VÁ HAI CHỖ NHẬT KÝ NÓI SAI SỰ THẬT
+=====================================================================
+
+Cả hai đều là dạng nguy hiểm nhất: mục "việc còn lại" ghi một việc ĐÃ LÀM XONG, khiến
+lần sau đọc lại tưởng còn treo rồi đi làm lại từ đầu.
+
+B.1. Entry 17/18-08 ghi "CLAUDE.md vẫn ghi sai, nên sửa khi có dịp" — nhưng CLAUDE.md
+     ĐÃ ĐƯỢC VIẾT LẠI ngay cuối ngày 18/08. Đã chú thích lại tại chỗ.
+
+B.2. Entry 17/18-08 ghi "bản v1.61 đã chạy đúng" trong khi phiên đó kết thúc ở v1.62 —
+     mục L của chính entry đó đã ghi v1.62. Câu chữ cũ khiến người đọc tưởng v1.62 chưa
+     được nghiệm thu.
+
+=====================================================================
+C. CLAUDE.md — GỠ ĐƯỜNG DẪN CỨNG CỦA RIÊNG MỘT MÁY
+=====================================================================
+
+Mục A của entry 25/08 đã phát hiện: CLAUDE.md chép cứng đường dẫn MetaEditor và GUID
+data folder của MÁY NÀY, trong khi máy kia khác ở CẢ HAI chỗ. Mà CLAUDE.md được đọc ở
+CẢ HAI máy (cùng tài khoản Claude) -> ai đọc ở máy kia cũng bị dẫn sai.
+
+Đã sửa CLAUDE.md: phần build nay bắt đầu bằng 2 lệnh TỰ DÒ đường dẫn, đường dẫn cụ thể
+chỉ còn là ví dụ và có ghi rõ "của một máy, máy khác sẽ khác". Kèm luôn cảnh báo chờ
+log compile ghi xong (mục A entry 25/08 đã đo: CLI trả control TRƯỚC khi log ghi xong,
+đọc sớm là thấy log cụt, tưởng compile hỏng).
+
+=====================================================================
+D. QUY TRÌNH TỪ NAY KHI CHÉP BẢN TỪ MÁY KHÁC VỀ
+=====================================================================
+
+Chép file về xong thì chạy đúng 4 bước, theo thứ tự:
+
+  1. Đọc header nhật ký mới nhất + khối changelog đầu file .mq5 -> biết đã đổi những gì.
+  2. COMPILE. Đây là bước không được bỏ: code từ máy khác chưa hề được build ở đây.
+  3. Đối chiếu số input trong code với TỪNG file .set, và md5sum 2 file dùng chung
+     across 3 bot.
+  4. Soát mục "việc còn lại" của các entry CŨ — việc nào đã làm xong ở máy kia thì đánh
+     dấu ngay, đừng để nó nằm đó gây hiểu nhầm.
+
+Sau đó mới nén backup, để bản zip là ảnh chụp của trạng thái ĐÃ KIỂM CHỨNG.
+
+=====================================================================
+E. VIỆC CÒN LẠI — HỢP NHẤT TỪ MỌI MÁY
+=====================================================================
+
+Từ entry 27/08 (máy kia), vẫn còn nguyên:
+  · CHƯA NẠP LÊN VPS — vẫn đang chạy bản cũ.
+  · CHƯA nghiệm thu tin public + tin chi tiết trên kèo thật (Tester chặn WebRequest).
+  · Chưa chốt: Inp_TG_MaNguon, và đổi định dạng giờ "15:57 · 27/08".
+  · Script Test_CheNhanEA còn trong MQL5\Scripts của máy kia.
+
+Từ máy này:
+  · Bản đặc tả (artifact) đang ở trạng thái v1.62, CHƯA cập nhật cho v1.63->v1.65. Ba
+    bản đó không đụng logic vào lệnh nên nội dung luật vẫn đúng — nhưng phần mô tả tin
+    Telegram thì đã lạc hậu. Link: mục G entry 16/17-08.
+  · Token Telegram vẫn hardcode trong .mq5 và cả 2 file .set.
+
+
+Nhật ký 2026-08-27 — BOT_CRT  (CRT_MultiTF_EA v1.63 -> v1.65)
+
+Chặng này vẫn KHÔNG đụng logic vào lệnh. Làm nốt hai việc mà 1.63 để hở, cả hai lộ ra
+khi nhìn tin thật chạy trên kênh chứ không phải khi đọc code:
+  · Ảnh chụp gửi kèm vẫn phơi ra tên EA và KHỐI LƯỢNG lệnh -> 1.64.
+  · Gộp hết vào tin public thì chủ bot mất luôn thông tin vận hành -> 1.65.
+
+BỐI CẢNH VẬN HÀNH — chép lại vì thiếu nó thì thiết kế mục B trông vô lý:
+bot bắn tin vào GROUP RIÊNG của chủ bot, rồi chủ bot FORWARD TAY tin public sang group
+member. Nên hai loại tin sống chung một kênh là bình thường; chỉ tin public mới đi ra
+ngoài. Vì vậy tin chi tiết được phép giữ nguyên lot và Balance — nó không bao giờ tự lộ.
+
+=====================================================================
+A. [v1.64] DỌN ẢNH CHỤP TRƯỚC KHI LÊN KÊNH
+=====================================================================
+
+Hai thứ trong ảnh không nên để người lạ thấy. Cả hai đều mặc định BẬT.
+
+--- A.1. Inp_TG_AnMucLenh — ẩn đường lệnh ---
+
+Ảnh cũ in nguyên ở mép trái: "BUY 0.1 at 4614.00 / BUY LIMIT 0.1 at 4609.79". Tức vẫn
+LỘ KHỐI LƯỢNG dù dòng "Khối lượng" đã bị bỏ khỏi tin từ 1.63 — sót chỗ này thì công bỏ
+dòng kia thành vô nghĩa. Tắt bằng CHART_SHOW_TRADE_LEVELS, có sẵn trong API.
+
+--- A.2. Inp_TG_CheTenEA — che tên EA góc phải trên ---
+
+KHÔNG có chart property nào tắt được nhãn đó: nó do TERMINAL vẽ, không phải object của
+bot. Đã tra tài liệu MQL5 và 3 thread diễn đàn. Cách duy nhất là ĐÈ một
+OBJ_RECTANGLE_LABEL màu nền lên.
+
+ĐÃ KIỂM CHỨNG THẬT, không phải suy đoán. Viết script Test_CheNhanEA (nằm trong
+MQL5\Scripts của terminal, KHÔNG thuộc repo) chụp 3 ảnh so sánh, tấm che ảnh 2 để MÀU ĐỎ
+CHÓI để phân biệt được 3 khả năng thay vì đoán mò:
+  · thấy khối đỏ, không thấy chữ -> che được
+  · thấy khối đỏ, chữ đè lên     -> terminal vẽ trên lớp object, vô vọng
+  · không thấy khối đỏ           -> sai toạ độ
+
+Lần chạy 1 ra ca thứ 3. LỖI: OBJ_RECTANGLE_LABEL neo bằng góc trên-TRÁI CỦA CHÍNH NÓ,
+nên với CORNER_RIGHT_UPPER thì XDISTANCE = 0 đẩy tấm che nằm gọn NGOÀI màn hình. Phải
+đặt XDISTANCE = ĐÚNG BỀ RỘNG tấm che. Sửa xong chạy lại: nhãn "TLS_SMC_CSV_BOT_QUY"
+biến mất hoàn toàn dưới khối đỏ -> object ĐÈ ĐƯỢC lên nhãn terminal.
+Người dùng chạy lại trên chính VPS ngày 27/08: cũng che được.
+
+Thu hoạch phụ: thanh giá bên phải KHÔNG bị che — XDISTANCE đo từ mép phải VÙNG VẼ, không
+tính thanh giá. Và bản thân SCRIPT đang chạy cũng hiện nhãn ở góc đó (dòng thứ 2), nhưng
+bot thật chỉ có 1 dòng.
+
+--- A.3. Tự tắt lưới khi che, KHÔNG làm thành input ---
+
+Tấm che XOÁ THẬT vùng chart nằm dưới nó. Lưới đang bật thì đường lưới qua góc đó bị ĐỨT
+một đoạn — trên nền trắng nhìn ra ngay, mà lưới đứt quãng còn đáng ngờ hơn chính cái tên
+định giấu. Nên bật che là tự tắt lưới lúc chụp rồi bật lại. Cố ý không cho chọn: bật che
+mà để lưới đứt thì việc che thành công cốc, đây không phải thứ để cân nhắc.
+
+--- A.4. Những chỗ đã cân nhắc và BỎ ---
+
+  · Đổi tên file .ex5 thành tên thương hiệu (nhãn góc phải hiện đúng tên file, không cần
+    code gì). Người dùng bỏ: chạy nhiều bot, đặt trùng tên là không phân biệt được.
+  · Chụp từ chart thứ 2 không gắn EA. Chắc ăn 100% nhưng phải vẽ nhân bản toàn bộ đường
+    biên/mũi tên sang chart đó — sửa 20-30 chỗ gọi vẽ, thêm một bộ object phải quản lý
+    song song. Không đáng khi cách đè object đã chạy.
+  · Sửa Telegram_Radar.mqh cho gọn. KHÔNG được: file đó byte-identical với BOT_TLS và
+    BOT_OB_Radar, đụng là phải mirror cả 3 bot. Toàn bộ nằm trong SendPhotoSach() của EA.
+
+--- A.5. Kích thước 190x24 — ĐỪNG nới rộng ---
+
+Vừa đủ ôm "CRT_MultiTF_EA" + icon (đo được ~120px). Nới thêm cho "chắc ăn" là có ngày ăn
+mất nhãn giá của đường biên khi đường đó nằm gần đỉnh chart.
+RỦI RO CÒN LẠI, chưa xử lý được: nến chạm góc phải trên (giá tạo đỉnh ngay mép phải) sẽ
+bị tấm che ăn mất một góc. Không có cách vừa che chữ vừa chừa nến vì chúng chồng nhau.
+Gặp thì giảm CHE_H 24 -> 20.
+
+=====================================================================
+B. [v1.65] TIN CHI TIẾT QUAY LẠI, DẠNG PHỤ LỤC
+=====================================================================
+
+1.63 gộp hết vào tin public nên chủ bot mất thông tin vận hành: bot vào theo nhánh nào,
+lot bao nhiêu, chốt lệnh nào trong cặp, P&L. Nay có lại, qua input Inp_TG_TinChiTiet
+(mặc định BẬT).
+
+--- B.1. LÀM SAI LẦN ĐẦU, GHI LẠI VÌ NÓ GIẢI THÍCH THIẾT KẾ CUỐI ---
+
+Bản đầu: bê nguyên tin chi tiết cũ của 1.62 (có chiều lệnh, giá entry, SL, TP, lot,
+Balance) và cho NotifyOrderPlaced bắn theo TỪNG LỆNH.
+
+Người dùng bác ngay: hai tin liên tiếp mà cùng in giá thì nhìn TƯỞNG BOT VÀO 2 KÈO KHÁC
+NHAU. Mà cặp lệnh còn ra 2 tin chi tiết nữa -> 3 tin cho một setup.
+
+LUẬT SỐNG CÒN rút ra: tin chi tiết CHỈ chứa thứ tin public KHÔNG có. Không chiều lệnh,
+không symbol, không entry, không SL, không TP. Còn lại đúng 3 thứ: nhánh setup, khối
+lượng, tiền. Mở đầu bằng "⚙️ chi tiết nội bộ" để nhìn phát biết không phải tín hiệu,
+tránh forward nhầm sang group member.
+
+--- B.2. GỘP CẢ CẶP VÀO 1 TIN ---
+
+NotifyOrderPlaced chạy MỖI LỆNH MỘT LẦN nên KHÔNG dùng nó để bắn tin chi tiết ở Mode nến
+quét — giữ nguyên im lặng như 1.63. Tin chi tiết phát ở CUỐI ExecutePairEntry, một tin
+cho cả cặp:
+
+  ⚙️ chi tiết nội bộ
+  🔎 Swing · 2.1 pinbar
+  📦 Market 0.10 lot  ·  Limit 50% 0.12 lot
+  💳 Balance: 100261.25$
+
+VẪN GHI LOT RIÊNG TỪNG LỆNH, đừng "gọn lại" thành một số: CalcLots() tính theo khoảng
+cách tới SL, mà market và limit 50% cách SL khác nhau -> lot hai lệnh CÓ THỂ KHÁC NHAU
+thật.
+
+Lot lấy qua biến dùng chung g_lotVuaDat (PlaceOneOrder set khi đặt thành công) thay vì
+đổi chữ ký PlaceOneOrder — hàm đó có 4 chỗ gọi ở 2 mode. An toàn vì mọi thứ chạy tuần tự
+trong cùng luồng OnTick, đọc xong dùng liền.
+
+--- B.3. TIN ĐÓNG LỆNH: "vào X -> đóng Y" ---
+
+  ⚙️ chi tiết nội bộ
+  🔎 Swing · vào 4603.69 → đóng 4608.69 · 0.10 lot
+  💰 P&L: 52.65$  ·  💳 Balance: 100313.55$
+
+Cặp giá vào->đóng là thứ DUY NHẤT phân biệt được vừa chốt lệnh market hay lệnh limit 50%.
+Comment lệnh ("CRT buy Swing") không ghi nhánh setup lẫn loại lệnh — đây là hạn chế của
+1.62 trở về trước, không phải chỗ sót mới. Giá vào lấy bằng GiaVaoCuaViThe() truy ngược
+từ DEAL_POSITION_ID.
+
+LÝ DO ĐÓNG chỉ in khi tin public nói KHÔNG rõ. TP/SL đã thành tiêu đề tin public rồi;
+còn "bot tự đóng (Pool SL/Shield)" và "đóng tay" bị public gộp chung thành "ĐÃ ĐÓNG
+LỆNH" nên phải nói thêm ở tin chi tiết mới biết chuyện gì xảy ra.
+
+--- B.4. CẠM BẪY HISTORY CACHE ---
+
+GiaVaoCuaViThe() gọi HistorySelectByPosition() -> ĐỔI bộ nhớ đệm history mà
+HistoryDealGetX(trans.deal, ...) đang dựa vào. Mọi giá trị của trans.deal phải đọc XONG
+trước khi gọi nó. Đã gom sẵn lotDong/giaDong/posId lên đầu OnTradeTransaction.
+Người sửa sau đảo thứ tự là hỏng ÂM THẦM — không lỗi compile, không lỗi runtime, chỉ ra
+số 0 hoặc số rác.
+
+=====================================================================
+C. FILE .SET
+=====================================================================
+
+77 -> 80 input. Thêm: Inp_TG_CheTenEA, Inp_TG_AnMucLenh (v1.64), Inp_TG_TinChiTiet
+(v1.65). Cả 3 mặc định true, chèn sau Inp_TG_TP_Text trong nhóm 5 TELEGRAM.
+Cả crt.set (bản chạy thật, dạng không hậu tố) và CRT_MultiTF_EA.set (preset repo, dạng
+có ||start||step||stop||N) đều đã cập nhật.
+
+Nhắc lại vì hay quên: MT5 khớp THEO TÊN, .set cũ thiếu 3 dòng mới vẫn chạy đúng — EA lấy
+mặc định trong code, mà mặc định đã là hành vi mong muốn. Chép .set sang máy khác là việc
+TUỲ; chép mq5/ex5 mới bắt buộc.
+
+Hai file .mqh vẫn KHÔNG bị đụng suốt 1.63->1.65. MD5 còn khớp BOT_TLS và BOT_OB_Radar.
+
+=====================================================================
+D. VIỆC CÒN LẠI SAU v1.65
+=====================================================================
+
+· CHƯA NẠP LÊN VPS. Tính tới 27/08 người dùng vẫn chạy bản cũ, cố ý chờ làm xong đợt
+  này. Việc đầu tiên: chép CRT_MultiTF_EA.ex5 sang VPS, gỡ EA ra gắn lại.
+· CHƯA nghiệm thu tin public + tin chi tiết trên kèo thật. Strategy Tester chặn
+  WebRequest (lỗi 4014) nên không test bằng Tester được. Riêng phần ẢNH thì đã nghiệm
+  thu xong trên VPS bằng Test_CheNhanEA.
+· Backtest không cần chạy lại: 1.63->1.65 không đụng dòng logic vào lệnh nào.
+· Còn treo, người dùng chưa chốt:
+    - Inp_TG_MaNguon: mã ngắn kín đáo cuối tin để phân biệt khi chạy nhiều bot chung
+      1 nhóm. Đã đề xuất từ 25/08.
+    - Đổi định dạng giờ "2026.08.27 15:57" -> "15:57 · 27/08" cho gọn.
+· Token Telegram vẫn hardcode trong .mq5 và 2 file .set.
+· Script Test_CheNhanEA còn nằm trong MQL5\Scripts của terminal máy dev, chưa xoá. Giữ
+  lại thì lần sau đổi CHE_W/CHE_H là kiểm chứng được ngay, khỏi viết lại.
+
+Nhật ký 2026-08-25 — BOT_CRT  (CRT_MultiTF_EA v1.62 -> v1.63)
+
+Chặng này KHÔNG đụng một dòng nào của logic vào lệnh. Toàn bộ thay đổi nằm ở hai thứ
+người ngoài nhìn thấy: nhãn đường kẻ trên chart, và nội dung tin Telegram. Lý do là
+kênh Telegram đổi mục đích — từ nhật ký riêng của tài khoản thành kênh CHIA SẺ TÍN
+HIỆU CHO CỘNG ĐỒNG. Đổi mục đích kéo theo mấy quyết định về THỜI ĐIỂM bắn tin mà nhìn
+code không đoán ra được, chép lại ở mục B.
+
+=====================================================================
+A. MÔI TRƯỜNG BUILD TRÊN MÁY NÀY — KHÁC ĐƯỜNG DẪN GHI TRONG CLAUDE.md
+=====================================================================
+
+CLAUDE.md ghi sẵn đường dẫn của máy cũ. Máy dùng ngày 25/08 khác ở CẢ HAI chỗ:
+
+  · MetaEditor : C:\Program Files\MetaTrader 5 EXNESS\MetaEditor64.exe
+                 (KHÔNG phải 'C:\Program Files\MetaTrader 5' như CLAUDE.md ghi)
+  · data folder: %APPDATA%\MetaQuotes\Terminal\53785E099C927DB68A545C249CDBCE06
+                 (CLAUDE.md ghi D0E8209F77C8CF37AD8BF550E51FF075 — của máy cũ)
+
+Đổi máy thì tự dò lại bằng 2 lệnh này, đừng chép cứng:
+
+  Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Filter MetaEditor64.exe -Recurse
+  Get-ChildItem "$env:APPDATA\MetaQuotes\Terminal" -Directory
+
+CẠM BẪY MỚI PHÁT HIỆN: MetaEditor trả quyền điều khiển về cho PowerShell TRƯỚC khi ghi
+xong file log. Đọc log ngay sau lệnh compile sẽ thấy nó cụt ở dòng "generating code
+95%" và KHÔNG có dòng "Result:" — rất dễ tưởng nhầm là compile hỏng. Phải Start-Sleep
+12-15 giây rồi mới đọc. (Mục A của nhật ký 17/18 đã ghi "đọc dòng Result", nhưng chưa
+ghi là phải chờ nó xuất hiện.)
+
+Kết quả v1.63: "Result: 0 errors, 3 warnings" — đúng 3 warning cố hữu (POSITION_COMMISSION
+deprecated x2 + ushort->uchar trong Telegram_Radar.mqh), không phát sinh cái mới.
+
+=====================================================================
+B. [v1.63] TIN TELEGRAM DẠNG CHIA SẺ CỘNG ĐỒNG
+=====================================================================
+
+Công tắc: Inp_TG_TinPublic (input mới, mặc định BẬT). Tắt là MỌI tin quay về y nguyên
+bản 1.62, không phải compile lại. Cố ý làm một công tắc thay vì xoá hẳn code cũ, phòng
+khi sau này chạy thêm một con bot nữa trên kênh riêng của tài khoản.
+
+Mẫu tin (số thật của kèo SELL ngày 25/08):
+
+  🟥 TÍN HIỆU BÁN — XAUUSD
+  ━━━━━━━━━━━━━━━
+  📍 Entry vùng: 4679 – 4681
+  🛡️ SL tham khảo: 4685.69 (khoảng 47 – 65 pips)
+  🎯 TP: 5 - 10 - 30 giá
+  🕒 2026.08.25 13:55 (giờ VN)
+  ━━━━━━━━━━━━━━━
+  ⚠️ Tín hiệu chia sẻ mang tính tham khảo, không phải lời khuyên đầu tư...
+
+Bỏ hẳn khỏi tin: Nguồn (s.tag), Biên H4, Râu quét, khối lượng, TP tính bằng pip, và
+dòng "Đang vào cặp lệnh...". Người đọc kênh không cần biết bot chạy nguồn nào.
+
+--- B.1. THỜI ĐIỂM BẮN TIN — CHỖ QUAN TRỌNG NHẤT CỦA CẢ BẢN NÀY ---
+
+Bản 1.62: NotifySignal() bắn tin (kèm chart) NGAY trong ConfirmSweepForMode2(), tức
+TRƯỚC khi ExecutePairEntry() chạy. Với kênh riêng thì không sao. Với kênh public thì
+đây là lỗ hổng: ExecutePairEntry hoàn toàn có thể không đặt được lệnh NÀO, vì 8 lý do
+nằm rải ở 2 hàm —
+
+  ExecutePairEntry : Shield/halt, khung giờ tin, spread vượt ngưỡng
+  PlaceOneOrder    : giá đã vượt Middle, SL rộng quá Inp_MaxSL_Pips, lots = 0,
+                     sai stops level của sàn, mốc limit không hợp lệ
+
+-> kênh lãnh một tín hiệu "ma" mà bot không hề tham gia.
+
+CHỐT (người dùng chọn 25/08): tin public phát Ở CUỐI ExecutePairEntry, dựng từ ĐÚNG
+những lệnh đặt thành công (PlaceOneOrder nay được dùng giá trị trả về). Không lệnh nào
+vào -> IM LẶNG, chỉ ghi log. Kênh cộng đồng chỉ thấy tín hiệu bot thật sự có tham gia.
+
+Hệ quả kéo theo, đừng "sửa cho gọn" nhầm:
+  · NotifySignal() im lặng hoàn toàn khi Inp_TG_TinPublic bật. Đây KHÔNG phải chỗ sót.
+  · NotifyOrderPlaced() cũng im lặng ở Mode NẾN QUÉT — cả CẶP lệnh đã gộp thành 1 tin
+    rồi. Nếu không sẽ ra 3 tin gần trùng nhau cho một setup.
+  · Mode BOS/CHOCH ngược lại: mỗi lần vào là 1 lệnh đơn, NotifyOrderPlaced mới là chỗ
+    biết chắc lệnh đã vào, nên tin public phát tại đó (hasB = false, in 1 giá).
+  · Chế độ CHỈ THEO DÕI (Inp_EnableTrading = false) VẪN phát tin, giá là DỰ KIẾN
+    (market = bid/ask hiện tại, limit = mốc 50%). Vì vậy đoạn tính ask/bid/slPub bị đẩy
+    lên TRƯỚC mọi chốt chặn trong ExecutePairEntry — chỉ là mấy phép đọc giá, vô hại.
+
+--- B.2. CÁCH TÍNH "ENTRY VÙNG" VÀ "KHOẢNG PIP" ---
+
+Entry vùng = [giá lệnh market, giá lệnh limit 50%] làm tròn SỐ NGUYÊN, sắp tăng dần.
+Khoảng pip = khoảng cách từ SL tới TỪNG giá entry đó, làm tròn số nguyên, sắp tăng dần.
+Lệnh limit nằm gần SL hơn nên luôn ra số nhỏ. Kiểm bằng số thật của kèo trên:
+
+  market 4679.17, limit 4681.02, SL 4685.69, pip vàng = 0.1
+  -> vùng 4679 – 4681 ; (4685.69-4679.17)/0.1 = 65.2 -> 65 ; (4685.69-4681.02)/0.1 = 46.7 -> 47
+  -> "khoảng 47 – 65 pips"  ✔ khớp đúng con số người dùng đưa ra
+
+Hai ca biên đã xử lý sẵn:
+  · Chỉ vào được 1 lệnh -> in "Entry: 4681" + một con số pip, không in dấu gạch vùng.
+  · Cặp lệnh làm tròn ra CÙNG số nguyên (market 4679.17 / limit 4679.42) -> cũng rút về
+    một giá, vì "vùng 4679 – 4679" là vô nghĩa.
+
+--- B.3. NHỮNG THỨ CỐ Ý KHÔNG LÀM ---
+
+1. TP in NGUYÊN VĂN theo Inp_TG_TP_Text ("5 - 10 - 30 giá"), KHÔNG tính từ TP thật của
+   lệnh. Lý do: TP của bot bám Middle/biên nên mỗi kèo một số khác nhau, không dùng làm
+   hướng dẫn chung cho người đọc được. Để dạng input string cho sửa không cần compile.
+2. Cặp lệnh khớp cả 2 rồi cùng ăn TP sẽ ra 2 tin "CHỐT LỜI". Giữ nguyên: mỗi tin là một
+   lệnh thật đã đóng; gộp lại phải nuôi thêm trạng thái mà chẳng rõ ràng hơn.
+3. Đã đề xuất thêm Inp_TG_MaNguon (in mã ngắn kín đáo cuối tin để phân biệt khi chạy
+   nhiều bot vào cùng 1 nhóm) — người dùng CHƯA chốt, chưa làm.
+4. Đã đề xuất đổi định dạng giờ sang "13:55 · 25/08" cho gọn — CHƯA chốt, vẫn giữ kiểu
+   mặc định của TimeToString.
+
+--- B.4. TỰ PHÁT HIỆN: TIN ĐÓNG LỆNH ĐANG LỘ SỐ DƯ TÀI KHOẢN ---
+
+Người dùng không yêu cầu chỗ này. Tin "🏁 ĐÓNG LỆNH" của bản 1.62 in cả P&L lẫn
+Balance — với kênh riêng thì bình thường, với kênh public là lộ số dư tài khoản cho
+người lạ. Ở chế độ public tin đó đổi thành "✅ CHỐT LỜI" / "🔴 DÍNH STOP LOSS" /
+"🏁 ĐÃ ĐÓNG LỆNH", bỏ sạch tiền bạc. Đã báo và người dùng đồng ý.
+
+--- B.5. TIN KẾT THÚC TÍN HIỆU (người dùng đề nghị bổ sung) ---
+
+Mục đích DUY NHẤT: chặn người theo tín hiệu vào MUỘN ở một vùng giá đã chạy xong.
+
+Cơ chế: CancelEAPendings() nay TRẢ VỀ số lệnh xoá được (trước là void). Chỉ báo khi số
+đó > 0. Bắt buộc phải vậy — hàm này được gọi VÔ ĐIỀU KIỆN ở nhiều chỗ, điển hình là
+ResetSourceSweepAndArm() chạy mỗi lần biên H4 sang nến mới; phần lớn các lần đó chẳng
+có lệnh chờ nào để huỷ, báo hết thì thành spam.
+
+6 chỗ đã gắn tin, kèm lý do in ra cho người đọc:
+  1. HandlePairAfterTP()        — "lệnh trong cặp đã chạm Take Profit"
+  2. CancelPendingsAtTarget()   — "giá đã chạy tới Middle/biên đối diện <giá>"
+  3. ResetSourceSweepAndArm()   — "khung H4 sang biên mới, tín hiệu cũ hết hạn" (dir=0,
+                                   vì chỗ này huỷ CẢ 2 PHÍA nên không nêu chiều lệnh)
+  4. CheckDisarmSource() ca 1   — "giá đã chạm biên đối diện"
+  5. CheckDisarmSource() ca 2   — "giá đã chạy quá xa vùng entry"
+  6. Ca thủng mốc râu quét      — "nến đóng thủng mốc râu quét, setup đã hỏng"
+
+CỐ Ý KHÔNG báo khi gọi từ CloseAllBotOrders() — Shield và Account SL đã có tin riêng
+của chúng, thêm nữa là 2 tin cho cùng một sự kiện.
+
+Ở (1) và (2) việc báo tin được GOM RA NGOÀI vòng lặp (đếm nHuy rồi báo 1 lần). Một
+nguồn có thể còn 2 lệnh chờ cùng chiều (limit tại biên + limit 50%) và chúng chạm mốc
+cùng lúc — báo bên trong vòng lặp là ra 2 tin y hệt nhau.
+
+--- B.6. GIỜ TRONG TIN LÀ GIỜ VIỆT NAM ---
+
+Hàm GioVietNam() = TimeGMT() + 7 giờ. Hằng số VN_GMT_OFFSET_HOURS khai báo ngay trên
+hàm, không đưa vào màn hình Input (cùng lối với Inp_WickBodyRatio) — không ai đi đổi
+múi giờ của một kênh.
+
+Đã loại 2 phương án kia, đừng "sửa lại cho tiện":
+  · TimeCurrent() = giờ SERVER sàn. Exness chạy GMT+2 rồi tự nhảy GMT+3 mùa hè -> mỗi
+    năm 2 lần tin lệch 1 tiếng mà không ai để ý.
+  · TimeLocal()   = theo múi giờ cài trên VPS -> đổi VPS là sai ngay.
+  · TimeGMT() + 7 cố định quanh năm vì Việt Nam không có giờ mùa hè.
+
+PHẠM VI: chỉ đụng 3 chỗ in giờ trong TIN TELEGRAM. Log terminal và mọi mốc thời gian
+dùng cho LOGIC vẫn là giờ server — đụng vào đó là hỏng bot.
+
+Phụ thuộc còn lại: TimeGMT() lấy từ đồng hồ + múi giờ của chính máy chạy MT5. Đồng hồ
+VPS sai thì giờ in ra sai. Đã nhắc người dùng kiểm tra.
+
+=====================================================================
+C. [v1.63] NHÃN ĐƯỜNG KẺ — THÊM TICK HIỆN TÊN CHI TIẾT
+=====================================================================
+
+Input mới Inp_ShowLineName (nhóm 9 · HIỂN THỊ), mặc định TẮT:
+
+  · Tắt : nhãn chỉ còn con giá — "4680.98"
+  · Bật : tên đầy đủ như bản 1.62 — "H4 High: 4680.98", "Last Major Low: 4594.43"
+
+Gom vào hàm PriceTag() ngay dưới LineLabel(); DrawAll() gọi hàm này ở cả 4 nhãn.
+
+LỆCH VỚI QUY ƯỚC CLAUDE.md — CÓ CHỦ Ý: CLAUDE.md ghi "cosmetic settings are const, not
+input", và v1.13 đã từng chuyển Inp_ShowLabel thành const đúng theo tinh thần đó. Lần
+này người dùng yêu cầu rõ "dạng tick chọn", tức phải là input. Đừng thấy nó nằm trong
+nhóm HIỂN THỊ rồi đẩy ngược về const.
+
+Hai chi tiết dễ bỏ sót, đã xử lý:
+
+1. Ở chế độ gọn KHÔNG in thêm hậu tố "· đã dùng". Người dùng nhắc riêng chỗ này: biên
+   đã xét xong vẫn ĐỔI MÀU XÁM như v1.59, nhưng không kèm chữ. Màu đã nói đủ rồi, thêm
+   chữ là phá đúng thứ họ muốn gọn.
+2. Khoảng chừa mép phải khung nhìn (VisibleEdgeTimes) phải CO LẠI theo: maxLen đổi từ
+   (18 + _Digits + 5 + 11) sang (_Digits + 6) khi tắt tên. Giữ số cũ thì nhãn ngắn mà
+   đường kẻ vẫn bị cắt cụt sớm y như lúc có tên — nhìn ra là hụt một khoảng trống lớn.
+
+=====================================================================
+D. FILE .SET — NAY CÓ HAI FILE, ĐỪNG DÙNG NHẦM
+=====================================================================
+
+  · CRT_MultiTF_EA.set — preset cũ trong repo. ChatID -1003976929485.
+                         Dạng lưu từ Strategy Tester: có hậu tố ||start||step||stop||N.
+  · crt.set            — CẤU HÌNH BOT ĐANG CHẠY THẬT, người dùng chép vào 25/08.
+                         ChatID -5561603568, MaxDistFromLine=200, CancelPendingAt=1,
+                         FarFromLine_Action=1, TP21/TP22 mode=2, dashboard TẮT.
+                         Dạng lưu từ màn hình Inputs của chart: CHỈ có "Tên=giá trị",
+                         không có hậu tố. MT5 đọc được cả hai dạng.
+
+Cả hai đã cập nhật lên 77 input (74 + 3 của v1.63). Vị trí chèn giữ đúng thứ tự khai
+báo trong code: Inp_TG_TinPublic + Inp_TG_TP_Text ngay sau Inp_SendScreenshot,
+Inp_ShowLineName ngay trước Inp_ShowMidLine.
+
+GHI CHÚ HỮU ÍCH: MT5 khớp tham số THEO TÊN. File .set cũ thiếu 3 dòng mới vẫn chạy
+đúng — EA lấy giá trị mặc định trong code, mà mặc định đó chính là hành vi mong muốn
+(TinPublic bật, ShowLineName tắt). Nên chép .set sang máy khác là việc TUỲ, không bắt
+buộc; chép mq5/ex5 mới là bắt buộc.
+
+Hai file .mqh (CSMC_Engine, Telegram_Radar) KHÔNG bị đụng trong bản này — MD5 vẫn khớp
+với BOT_TLS và BOT_OB_Radar, không cần mirror gì.
+
+=====================================================================
+E. VIỆC CÒN LẠI SAU v1.63
+=====================================================================
+
+· CHƯA kiểm chứng tin public trên thị trường thật. Strategy Tester chặn WebRequest
+  (lỗi 4014) nên KHÔNG test được bằng Tester — phải chạy tài khoản demo/thật mới thấy
+  tin ra đúng hay sai. Đây là việc cần làm trước tiên.
+· Backtest không cần chạy lại: bản này không đụng một dòng logic vào lệnh nào.
+· Token Telegram vẫn hardcode trong cả .mq5 lẫn 2 file .set (ghi chú cũ ở mục K của
+  nhật ký 17/18 vẫn nguyên giá trị). Chép file sang máy khác là mang theo token.
+· Người dùng đang tính chạy 3 bot Telegram. Nếu đặt TRÙNG TÊN và cùng đăng vào một
+  nhóm thì không phân biệt được tin của con nào khi soi lỗi — đã đề xuất Inp_TG_MaNguon,
+  chờ chốt. Đã báo thêm: Telegram_Radar chỉ gọi sendMessage/sendPhoto, KHÔNG hề
+  getUpdates, nên nhiều EA dùng CHUNG 1 token là an toàn, không dính lỗi 409 Conflict.
+· ChatID -5561603568 là NHÓM THƯỜNG (không có tiền tố -100). Ở nhóm thường tên bot hiện
+  trên từng tin nhắn, khác với channel (tin hiện tên channel). Đổi tên bot bằng
+  /setname của BotFather là thấy ngay, không ảnh hưởng token.
+
 Nhật ký 2026-08-17/18 — BOT_CRT  (CRT_MultiTF_EA v1.50 -> v1.62)
 
 Chặng này gần như chỉ làm MỘT việc: truy cho ra vì sao bot nhận nhầm "quét thanh
@@ -259,11 +737,16 @@ K. VIỆC CÒN LẠI
 =====================================================================
 
 · Đang trong giai đoạn theo dõi và kiểm thử. Bản v1.61 đã chạy đúng theo kiểm tra của
-  người dùng ngày 18/08.
+  người dùng ngày 18/08; phiên đó kết thúc ở v1.62 (mục L), chưa backtest lại vì v1.62
+  chỉ thêm tuỳ chọn mốc huỷ lệnh chờ, mặc định giữ nguyên hành vi cũ.
 · Nếu backtest cho thấy nhiễu tăng sau khi bỏ luật 3 pips: cân nhắc phương án (a) ở
   mục E — quét nông = chưa chạm biên, không đốt biên.
 · CLAUDE.md ở thư mục EA_TLS vẫn ghi sai "MQL5 has no command-line compiler" — nên sửa
   khi có dịp (xem mục A).
+  -> ĐÃ SỬA cuối ngày 18/08: viết lại toàn bộ CLAUDE.md. Xoá phần kiến trúc mô tả
+     TLS_EA.mq5 / TLS_EMA.mq5 / TLS_HA.mq5 (ba file không còn tồn tại ở đâu trong repo),
+     thay bằng bảng thư mục thật, luật mirror file dùng chung, công thức build dòng lệnh
+     và các quy ước .set / cosmetic-const / nhật ký. Xem thêm mục M dưới đây.
 · Token Telegram vẫn hardcode trong cả .mq5 lẫn .set. EA_TLS là git repo -> đẩy public
   là lộ. Đã báo, người dùng chọn giữ.
 

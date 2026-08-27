@@ -36,6 +36,15 @@ Both are included with angle brackets (`#include <CSMC_Engine.mqh>`), so the com
 
 MetaEditor ships a working command-line compiler — use it, don't ask the user to press F7.
 
+**Detect the paths first, every session.** This repo is worked on from more than one computer, and both the MetaEditor location and the terminal data-folder GUID differ between them. Never reuse the values below or a previous session's — they are examples from one machine only.
+
+```powershell
+Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Filter MetaEditor64.exe -Recurse -ErrorAction SilentlyContinue
+Get-ChildItem "$env:APPDATA\MetaQuotes\Terminal" -Directory   # pick the GUID holding MQL5\Experts
+```
+
+Then compile (paths here are one machine's — substitute what you just detected):
+
 ```powershell
 $DF = 'C:\Users\Admin\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075'
 
@@ -52,6 +61,7 @@ Get-Content "$env:TEMP\build.log" -Encoding Unicode | Select-String ': error |: 
 Gotchas:
 
 - The log is **UTF-16** — read it with `-Encoding Unicode` or it comes out as mojibake.
+- **MetaEditor returns control to PowerShell before the log finishes writing.** Read it too early and it looks truncated with no `Result:` line, which reads as a failed compile. Sleep a few seconds first; on a slow machine allow 12–15s.
 - MetaEditor returns a **non-zero exit code even when only warnings exist**. Judge success by the `Result: N errors` line, never by the exit code.
 - Three warnings are pre-existing and harmless across these bots: `POSITION_COMMISSION is deprecated` (×2) and a `ushort`→`uchar` conversion in `Telegram_Radar.mqh`.
 - Compiling writes `.ex5` next to the `.mq5` inside the MT5 folder. The Strategy Tester picks it up on the next run; no manual copy needed.
@@ -68,6 +78,21 @@ Backtesting still needs the MT5 GUI (Strategy Tester). `WebRequest` is blocked t
 - **Every order/position loop filters on magic number** so the bot ignores manually placed trades and the other source's trades.
 - **Log lines are prefixed** `[BOT][module]` for terminal filtering.
 - **Journal and backup zip are opt-in.** Write them only when the user asks — never as an automatic follow-up to a code change.
+
+## Multi-machine workflow
+
+This repo is developed from **more than one computer**, both running Claude Code on the same account. Updates sometimes arrive as **files copied in by hand**, landing as uncommitted working-tree changes rather than through `git pull` — so `git log` can lag well behind what the files actually contain.
+
+The user has designated **this machine as the master copy**: every change made anywhere must end up here and be reflected in the journal.
+
+When a session opens on a bot folder after any gap, before acting on remembered context:
+
+1. Read the newest entry header in `Nhatky_<BOT>.txt` and the changelog block at the top of the `.mq5` — both are kept genuinely current.
+2. **Compile.** Code written on another machine has never been built here.
+3. Check the `input` count in the source against **every** `.set` file in the folder, and `md5sum` the shared includes across the three bots that share them.
+4. Re-read the "việc còn lại" (open items) sections of *older* journal entries — an item finished on the other machine may still be listed as pending here. Correct it in place rather than leaving a false open item.
+
+A modified file you didn't touch is not necessarily a mistake — check the journal and `git log` for provenance before overwriting it.
 
 ## Secrets
 

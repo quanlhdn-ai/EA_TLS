@@ -42,6 +42,12 @@ input group "--- Zone Formed (Limit) Alert Settings ---"
 input bool   Inp_EnableZoneFormedAlert = true;  // Tự động báo đặt Limit ngay khi có Zone Buy/Sell MỚI hình thành
 input string Inp_ZoneFormedTF = "";             // TF báo Limit khi Zone mới hình thành (vd "M5,H4"). Trống = tất cả
 
+input group "--- Signal Message Settings ---"
+// Dòng TP in NGUYÊN VĂN, cố ý không tính ra giá cụ thể: bot này không đặt lệnh, TP chỉ là gợi ý
+// chung cho người đọc kênh. Để dạng input (sao y Inp_TG_TP_Text của BOT_CRT) để đổi được ngay
+// trong bảng Inputs của MT5, không phải compile lại.
+input string Inp_TP_Text = "10-20-30 giá"; // Dòng TP in nguyên văn trong tin tín hiệu
+
 // ==================================================================
 // STATE
 // ==================================================================
@@ -396,31 +402,75 @@ void SendSignalMessage(ENUM_TIMEFRAMES tf, string caption) {
       if(Inp_HideZoneInSignalPhoto) SetZoneObjectsVisible(chart_id, false);
       ChartRedraw(chart_id);
       Sleep(200);
-      Radar.SendPhoto(chart_id, "📸 " + caption, Inp_ScreenshotWidth, Inp_ScreenshotHeight);
+      Radar.SendPhoto(chart_id, caption, Inp_ScreenshotWidth, Inp_ScreenshotHeight);
       if(Inp_HideZoneInSignalPhoto) {
          SetZoneObjectsVisible(chart_id, true);
          ChartRedraw(chart_id);
       }
    } else {
-      Radar.SendMessage("🔔 " + caption);
+      Radar.SendMessage(caption);
    }
 }
 
-// Tín hiệu chung cho cả 2 trường hợp (chạm Zone / Zone mới hình thành) — cùng khung định dạng,
-// chỉ khác chữ "LIMIT": isLimit=true (Zone mới hình thành, giá CHƯA chạm tới, gợi ý đặt lệnh chờ
-// Limit) -> "👉 BUY LIMIT ..."; isLimit=false (giá đã chạm đúng mép Entry) -> "👉 BUY ..." (không
-// có chữ LIMIT, vì lúc này giá đã ở ngay mép, không còn là lệnh chờ nữa).
-// Entry/SL gốc hiển thị ĐÚNG thứ tự buffer indicator — Buy có Entry ở mép trên nên ra cao->thấp,
-// Sell có Entry ở mép dưới nên ra thấp->cao — KHÔNG sắp xếp lại theo min/max.
+// Tín hiệu chung cho cả 2 trường hợp (chạm Zone / Zone mới hình thành) — dùng ĐÚNG khung tin
+// public của BOT_CRT (SendPublicSignal trong CRT_MultiTF_EA.mq5) để 2 bot ra tin cùng một dạng:
+// tiêu đề 🟩/🟥 + 2 đường kẻ ━━━ + dòng miễn trừ trách nhiệm ở cuối.
+//
+// Hai chỗ CRT không có nên phải tự thêm vào đúng khung đó:
+//   · label (khung thời gian) nối vào tiêu đề — CRT chỉ chạy 1 bộ khung cố định, còn bot này báo
+//     song song nhiều TF nên bỏ đi thì đọc tin không biết tín hiệu thuộc khung nào.
+//   · dòng trạng thái ngay dưới đường kẻ trên — thay cho chữ "LIMIT" của bản cũ: isLimit=true
+//     (Zone mới hình thành, giá CHƯA tới -> đặt lệnh chờ), isLimit=false (giá đã chạm mép Entry).
+//
 // entry/stop là giá GỐC từ buffer indicator; SL hiển thị được đệm ra xa qua ComputeAdjustedSL().
 void SendSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double entry, double stop, bool isLimit) {
    double slShow = ComputeAdjustedSL(isBuy, entry, stop);
-   string side = (isBuy ? "BUY" : "SELL") + (isLimit ? " LIMIT " : " ");
-   string caption = "<b>" + _Symbol + " — " + label + "</b>"
-                   + "\n🕐 " + TimeToString(VNNow(), TIME_DATE | TIME_MINUTES) + " (giờ VN)"
-                   + "\n👉 " + side + DoubleToString(entry, 0) + " - " + DoubleToString(stop, 0)
-                   + "\n🆘 SL: " + DoubleToString(slShow, 0)
-                   + "\n💰 TP: 10-20-30 giá";
+   double pip    = GetPipSize(_Symbol);
+
+   // Vùng entry = 2 mép Zone làm tròn số nguyên, sắp TĂNG DẦN cho dễ đọc (giống CRT). Bản cũ in
+   // theo đúng thứ tự buffer indicator (Buy ra cao->thấp, Sell ra thấp->cao) — dạng "vùng" thì
+   // thứ tự đó không còn ý nghĩa nữa.
+   int rA  = (int)MathRound(entry);
+   int rB  = (int)MathRound(stop);
+   int rLo = (rA < rB) ? rA : rB;
+   int rHi = (rA < rB) ? rB : rA;
+
+   // Zone hẹp có thể làm tròn 2 mép ra CÙNG một số nguyên — lúc đó in "vùng 4600 – 4600" là vô
+   // nghĩa, rút về một giá (sao y cách xử lý của CRT).
+   string dongEntry = (rLo == rHi)
+      ? StringFormat("📍 <b>Entry:</b> %d", rLo)
+      : StringFormat("📍 <b>Entry vùng:</b> %d – %d", rLo, rHi);
+
+   // Khoảng pip tính từ SL (đã đệm) tới TỪNG mép Zone: mép SL gốc nằm gần nên ra số nhỏ (đúng
+   // bằng khoảng đệm của ComputeSLPadPips), mép Entry xa hơn nên ra số lớn -> "khoảng 30 – 130 pips".
+   int pA  = (int)MathRound(MathAbs(entry - slShow) / pip);
+   int pB  = (int)MathRound(MathAbs(stop  - slShow) / pip);
+   int pLo = (pA < pB) ? pA : pB;
+   int pHi = (pA < pB) ? pB : pA;
+
+   string dongSL = (pLo == pHi)
+      ? StringFormat("🛡️ <b>SL tham khảo:</b> %s (khoảng %d pips)", DoubleToString(slShow, 2), pLo)
+      : StringFormat("🛡️ <b>SL tham khảo:</b> %s (khoảng %d – %d pips)", DoubleToString(slShow, 2), pLo, pHi);
+
+   string caption = StringFormat(
+      "%s <b>TÍN HIỆU %s — %s %s</b>\n━━━━━━━━━━━━━━━\n"
+      "%s\n"
+      "%s\n"
+      "%s\n"
+      "🎯 <b>TP:</b> %s\n"
+      "🕒 %s (giờ VN)\n"
+      "━━━━━━━━━━━━━━━\n"
+      "⚠️ <i>Tín hiệu chia sẻ mang tính tham khảo, không phải lời khuyên đầu tư. "
+      "Anh em tự quản lý vốn và rủi ro của mình.</i>",
+      isBuy ? "🟩" : "🟥",
+      isBuy ? "MUA" : "BÁN",
+      _Symbol,
+      label,
+      isLimit ? "⏳ <b>Đặt LIMIT chờ trong vùng</b>" : "⚡ <b>Giá đã chạm vùng Entry</b>",
+      dongEntry,
+      dongSL,
+      Inp_TP_Text,
+      TimeToString(VNNow(), TIME_DATE | TIME_MINUTES));
    SendSignalMessage(tf, caption);
 }
 
