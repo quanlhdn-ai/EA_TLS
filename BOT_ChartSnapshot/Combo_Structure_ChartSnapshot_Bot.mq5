@@ -19,7 +19,9 @@
 CTelegramChartBot Radar;
 
 input group "--- Telegram Settings ---"
-input string Inp_BotToken      = "8953133302:AAHnKSoe-PRHItjGb1MTugmBroeru3Ip0ds";
+// Token của bot đang chạy thật (đồng bộ từ config_bot_getchart.set ngày 04/09/2026 — mặc định cũ
+// "8953133302:..." là bot đời trước, không còn dùng).
+input string Inp_BotToken      = "8828449930:AAGou9ruEM8KuEeyc6d3IfucjZlIUX_j78U";
 input string Inp_ChatID        = "-1004485122634"; // Group Telegram đã được nâng cấp thành supergroup -> chat_id cũ "-5499770162" không còn dùng được
 
 input group "--- Indicator Settings ---"
@@ -35,8 +37,11 @@ input group "--- Timeframe Filter ---"
 input string Inp_EnabledTF = "M1,M5,M15,M30,H1,H4,D1"; // TF được phép lấy chart (vd "M5,H4"). Trống = tất cả
 
 input group "--- Zone Alert Settings ---"
-input bool   Inp_EnableZoneAlert = true; // Tự động báo Telegram khi giá chạm Zone Buy/Sell (áp dụng cho các TF trong Inp_EnabledTF)
-input bool   Inp_HideZoneInSignalPhoto = true; // Ẩn vùng tô màu Zone trong ảnh tự động gửi kèm tín hiệu (không ảnh hưởng /chart_xx thủ công)
+// Cả 2 mặc định = false, đồng bộ từ config_bot_getchart.set ngày 04/09/2026 (cấu hình thực tế đang
+// chạy trên VPS): chỉ dùng cảnh báo "Zone mới hình thành" bên dưới, không báo lúc giá chạm Zone; và
+// ảnh gửi kèm tín hiệu vẫn hiện nguyên vùng tô màu Zone.
+input bool   Inp_EnableZoneAlert = false; // Tự động báo Telegram khi giá chạm Zone Buy/Sell (áp dụng cho các TF trong Inp_EnabledTF)
+input bool   Inp_HideZoneInSignalPhoto = false; // Ẩn vùng tô màu Zone trong ảnh tự động gửi kèm tín hiệu (không ảnh hưởng /chart_xx thủ công)
 
 input group "--- Zone Formed (Limit) Alert Settings ---"
 input bool   Inp_EnableZoneFormedAlert = true;  // Tự động báo đặt Limit ngay khi có Zone Buy/Sell MỚI hình thành
@@ -128,6 +133,10 @@ double GetPipSize(string sym) {
 // (làm tròn LÊN mốc gần nhất) để ra khoảng đệm — Zone càng rộng thì đệm càng nhiều, tối đa 50 pips.
 // Ví dụ: Zone rộng 100 pips -> 1 phần = 20 -> đệm 30 (mốc đầu tiên >= 20). Cách chọn thang 5 mốc
 // này theo đúng yêu cầu người dùng (ưu tiên hơn cách chia 3 mốc 30/40/50).
+//
+// LƯU Ý: "1 phần" chỉ là CHÌA KHOÁ TRA BẢNG để chọn mốc, KHÔNG được cộng vào SL. Với Zone dưới
+// 150 pips (15 giá) thì 1 phần luôn <= 30 nên thang luôn trả về mốc đáy 30 — 4 mốc còn lại thực
+// tế gần như không bao giờ dùng tới. Đã xác nhận lại với người dùng ngày 04/09/2026 và giữ nguyên.
 double ComputeSLPadPips(double entry, double stop) {
    double pip = GetPipSize(_Symbol);
    double widthPips = MathAbs(entry - stop) / pip;
@@ -140,16 +149,30 @@ double ComputeSLPadPips(double entry, double stop) {
    return pad;
 }
 
-// SL hiển thị trong thông báo = mép SL gốc của Zone (biên đối diện với Entry) + đệm ComputeSLPadPips,
-// đẩy ra xa Zone (Buy đẩy xuống, Sell đẩy lên), rồi làm tròn về số nguyên (vd 4023.15 -> 4023) —
-// dùng CHUNG cho cả 2 trường hợp gọi SendSignal() (chạm Zone và Zone mới hình thành). Lưu ý:
-// chỉ ảnh hưởng giá trị HIỂN THỊ — logic phát hiện chạm/xuyên Zone
-// vẫn dùng mép SL GỐC (chưa đệm) từ buffer indicator, không đổi.
+// Nới thêm CỐ ĐỊNH sau khi đã làm tròn — 20 pips (= 2,0 giá với vàng), áp dụng cho MỌI mốc của
+// thang, theo yêu cầu người dùng ngày 04/09/2026 (SL cũ hay bị quét). Đặt const thay vì input:
+// đây là hằng số công thức, không phải tham số vận hành cần chỉnh mỗi phiên.
+const double SL_EXTRA_PIPS = 20;
+
+// SL hiển thị trong thông báo, tính theo 4 bước (Buy đẩy xuống, Sell đẩy lên — luôn RA XA Zone):
+//   1. Lấy mép SL gốc của Zone (biên đối diện với Entry).
+//   2. Đẩy ra xa theo đệm ComputeSLPadPips() (thang 30-35-40-45-50 pips).
+//   3. Làm tròn về số nguyên (vd 4469.6 -> 4470).
+//   4. Nới thêm SL_EXTRA_PIPS (20 pips = 2,0 giá) NỮA.
+//
+// Thứ tự "làm tròn TRƯỚC, nới thêm SAU" là cố ý theo yêu cầu người dùng: nhờ vậy SL cuối vẫn là
+// số nguyên (số nguyên + 2,0 vẫn nguyên) và 20 pips này LUÔN đủ 20, không bị phép làm tròn ăn bớt
+// như phần đệm ở bước 2 (đệm 30 pips thực tế dao động 25-35 pips tuỳ số lẻ của mép Zone).
+//
+// Dùng CHUNG cho cả 2 trường hợp gọi SendSignal() (chạm Zone và Zone mới hình thành). Lưu ý: chỉ
+// ảnh hưởng giá trị HIỂN THỊ — logic phát hiện chạm/xuyên Zone vẫn dùng mép SL GỐC (chưa đệm)
+// từ buffer indicator, không đổi.
 double ComputeAdjustedSL(bool isBuy, double entry, double stop) {
    double pip    = GetPipSize(_Symbol);
    double padPips = ComputeSLPadPips(entry, stop);
    double adjusted = isBuy ? (stop - padPips * pip) : (stop + padPips * pip);
-   return MathRound(adjusted);
+   double rounded  = MathRound(adjusted);
+   return isBuy ? (rounded - SL_EXTRA_PIPS * pip) : (rounded + SL_EXTRA_PIPS * pip);
 }
 
 // ==================================================================
@@ -441,8 +464,8 @@ void SendSignal(ENUM_TIMEFRAMES tf, string label, bool isBuy, double entry, doub
       ? StringFormat("📍 <b>Entry:</b> %d", rLo)
       : StringFormat("📍 <b>Entry vùng:</b> %d – %d", rLo, rHi);
 
-   // Khoảng pip tính từ SL (đã đệm) tới TỪNG mép Zone: mép SL gốc nằm gần nên ra số nhỏ (đúng
-   // bằng khoảng đệm của ComputeSLPadPips), mép Entry xa hơn nên ra số lớn -> "khoảng 30 – 130 pips".
+   // Khoảng pip tính từ SL (đã đệm) tới TỪNG mép Zone: mép SL gốc nằm gần nên ra số nhỏ (xấp xỉ
+   // đệm thang + SL_EXTRA_PIPS), mép Entry xa hơn nên ra số lớn -> "khoảng 46 – 111 pips".
    int pA  = (int)MathRound(MathAbs(entry - slShow) / pip);
    int pB  = (int)MathRound(MathAbs(stop  - slShow) / pip);
    int pLo = (pA < pB) ? pA : pB;

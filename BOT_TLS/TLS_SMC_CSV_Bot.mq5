@@ -117,15 +117,15 @@ input int    HTF_PeriodsInMajorSwing        = 9;
 // HTF_PeriodsInMinorSwing (Số nến mỗi bên dùng để xác định đỉnh/đáy Minor Swing trên khung HTF)
 input int    HTF_PeriodsInMinorSwing        = 5;
 // HTF_BuyZoneColor (Màu vẽ vùng Buy Zone trên khung HTF)
-input color  HTF_BuyZoneColor               = C'235,250,240';
+const color  HTF_BuyZoneColor               = C'235,250,240';
 // HTF_SellZoneColor (Màu vẽ vùng Sell Zone trên khung HTF)
-input color  HTF_SellZoneColor              = C'255,235,235';
+const color  HTF_SellZoneColor              = C'255,235,235';
 // HTF_KeyLevelColor (Màu vẽ các mức giá quan trọng - Key Level - trên khung HTF)
-input color  HTF_KeyLevelColor              = clrOrange;
+const color  HTF_KeyLevelColor              = clrOrange;
 // HTF_BOS_Up_Color (Màu vẽ đường BOS tăng - Break of Structure Up - trên khung HTF)
-input color  HTF_BOS_Up_Color               = clrDodgerBlue;
+const color  HTF_BOS_Up_Color               = clrDodgerBlue;
 // HTF_BOS_Dn_Color (Màu vẽ đường BOS giảm - Break of Structure Down - trên khung HTF)
-input color  HTF_BOS_Dn_Color               = clrRed;
+const color  HTF_BOS_Dn_Color               = clrRed;
 
 input group "--- Trend TF Settings (H1) ---"
 // Trend_Timeframe (Khung thời gian dùng để xác định Xu hướng lớn - Trend)
@@ -149,7 +149,7 @@ input int    MaxMinorBOSLines               = 3;
 
 input group "--- Dashboard Settings ---"
 // DashboardColor (Màu chữ chính của bảng Dashboard hiển thị trên chart)
-input color  DashboardColor                = clrBlack;
+const color  DashboardColor                = clrBlack;
 // Inp_Debug_Gate (Bật ghi log debug chi tiết cho Gatekeeper vào tab Experts)
 input bool   Inp_Debug_Gate                = false;
 

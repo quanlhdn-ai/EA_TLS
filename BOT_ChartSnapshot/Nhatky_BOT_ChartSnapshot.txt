@@ -1,3 +1,80 @@
+Nhật ký 2026-09-04 — BOT_ChartSnapshot
+
+[Combo_Structure_ChartSnapshot_Bot.mq5 — công thức SL trong tin tín hiệu]
+1. Làm rõ một hiểu nhầm về công thức cũ, ghi lại để sau này không ai suy luận
+   sai lần nữa: trong ComputeSLPadPips(), "1 phần" (= độ rộng Zone chia 5) CHỈ
+   là chìa khoá tra bảng để chọn mốc trên thang 30-35-40-45-50 pips, nó KHÔNG
+   được cộng vào SL. Đã chứng minh bằng chính tin bot gửi sáng 04/09 (Zone
+   4472,6 – 4479,1): nếu "1 phần" được cộng vào thì SL phải ra 4468, còn tin
+   thật gửi 4470 — khớp với cách chỉ-tra-bảng.
+2. Hệ quả kèm theo, đã xác nhận lại với người dùng: mốc đáy của thang là 30 mà
+   "1 phần" chỉ vượt 30 khi Zone rộng hơn 150 pips (15 giá), nên với mọi Zone
+   M1/M5 bình thường thang LUÔN trả về 30. Tức công thức cũ thực tế chạy y như
+   một hằng số 30 pips, dù đọc code cứ tưởng nó co giãn theo độ rộng Zone.
+3. Đã thử một phương án trung gian rồi BỎ trong cùng ngày: đổi thẳng
+   ComputeSLPadPips() thành hằng số 50 pips (theo yêu cầu ban đầu "thay mốc 30
+   sang 50"). Sau khi trao đổi lại, người dùng chốt phương án ở mục 4. Ghi lại
+   để nếu sau này thấy dấu vết hằng số 50 ở đâu thì biết đó là bản đã bị thay.
+4. CHỐT: giữ NGUYÊN toàn bộ công thức cũ (chia 5 phần -> tra thang
+   30-35-40-45-50 -> đẩy SL ra xa mép Zone -> làm tròn về số nguyên), rồi THÊM
+   một bước cuối: nới thêm 20 pips (= 2,0 giá) nữa. Thêm const SL_EXTRA_PIPS =
+   20 và sửa ComputeAdjustedSL() cộng/trừ SAU MathRound(). Để const chứ không
+   phải input theo quy ước repo (bảng Inputs chỉ chứa tham số vận hành).
+5. Thứ tự "làm tròn TRƯỚC, nới thêm SAU" là CỐ Ý theo yêu cầu người dùng, đừng
+   đảo lại: nhờ vậy SL cuối vẫn là số nguyên (số nguyên + 2,0 vẫn nguyên) và
+   20 pips này LUÔN đủ 20. Phần đệm ở bước tra thang thì ngược lại — bị
+   MathRound() xê dịch ±5 pips, nên "đệm 30 pips" thực tế là 25-35 pips tuỳ số
+   lẻ của mép Zone. Đã kiểm chứng nhiều trường hợp: bước mới luôn chênh đúng
+   20 pips, không bị làm tròn ăn bớt.
+6. Kết quả trên tin sáng 04/09: SL đổi từ 4470,00 (cách mép Zone 26 pips) sang
+   4468,00 (cách mép Zone 46 pips). Khoảng cách SL từ nay: 45-55 pips với Zone
+   dưới 15 giá (đại đa số), tăng dần tới 65-75 pips với Zone trên 22,5 giá.
+
+[Combo_Structure_ChartSnapshot_Bot.mq5 — gắn cấu hình thật vào giá trị mặc định]
+1. Người dùng cung cấp bản .mq5 + .set ĐANG CHẠY trên VPS để đối chiếu. Kết
+   quả diff: code VPS KHÔNG khác gì bản trong repo — diff chỉ trả về đúng phần
+   SL sửa trong ngày, không có sửa tay nào trên VPS. Nghĩa là bản 27/08 đã
+   được deploy đầy đủ. File .set của VPS cũng giống hệt config_bot_getchart.set
+   sẵn có trong repo (MD5 DD47B18D...).
+2. Đối chiếu cả 12 input: mặc định trong code lệch .set 3 chỗ, đã sửa mặc định
+   theo .set (tức theo giá trị thật đang chạy):
+   - Inp_BotToken: 8953133302:... (bot đời trước) -> 8828449930:...
+   - Inp_EnableZoneAlert: true -> false (KHÔNG báo lúc giá chạm Zone; thực tế
+     chỉ dùng cảnh báo "Zone mới hình thành")
+   - Inp_HideZoneInSignalPhoto: true -> false (ảnh gửi kèm tín hiệu vẫn hiện
+     nguyên vùng tô màu Zone)
+   9 input còn lại vốn đã khớp. Từ giờ gắn EA lên chart mà KHÔNG nạp preset
+   cũng ra đúng hành vi đang chạy trên VPS.
+3. Mỗi chỗ đều có comment ghi rõ giá trị lấy từ .set ngày 04/09 — để sau này
+   không ai tưởng là có người vô tình tắt nhầm Inp_EnableZoneAlert.
+4. LƯU Ý BẢO MẬT: token thật giờ nằm trong CẢ .mq5 lẫn .set, trước đây chỉ có
+   trong .set. Repo này push lên github.com/quanlhdn-ai/EA_TLS — nếu repo để
+   public thì token lộ và Telegram thường tự thu hồi, bot chết ngay. Đã cảnh
+   báo người dùng để họ tự kiểm tra quyền riêng tư của repo trước khi push.
+
+[Dọn thư mục]
+- Đã xoá thư mục VPS_DangChay/ (2 file người dùng copy từ VPS về để đối chiếu)
+  sau khi xác minh cả 2 đều có bản sao byte-identical ở nơi khác:
+  VPS_Combo_Structure_ChartSnapshot_Bot.mq5 (MD5 CD122EED...) trùng bản nằm
+  sẵn trong Backup_BOT_ChartSnapshot_27082026.zip, còn
+  VPS_config_bot_getchart.set trùng config_bot_getchart.set.
+- Đã xoá luôn VPS_Combo_Structure_ChartSnapshot_Bot.mq5 nằm ở NGAY thư mục gốc
+  BOT_ChartSnapshot (bản copy thứ hai người dùng để lại, MD5 CD122EED... trùng
+  đúng file trong VPS_DangChay vừa xoá). Người dùng yêu cầu chỉ giữ đúng MỘT bản
+  chuẩn cuối cùng để tránh nhầm lẫn. Nội dung vẫn còn nguyên trong
+  Backup_BOT_ChartSnapshot_27082026.zip nếu sau này cần lấy lại.
+- Còn 1 file CHƯA xoá, đang chờ người dùng quyết: config_botgetchart.set (KHÔNG
+  gạch dưới) — preset cũ từ 02/08, mang token 8953133302:... đã ngừng dùng và
+  thiếu 5 input. Xem nhật ký 27/08.
+
+[Compile]
+- 0 errors, 1 warning ushort->uchar có sẵn trong Telegram_ChartBot.mqh
+  (CLAUDE.md đã ghi là vô hại). Build trong cây MQL5 tạm ở scratchpad, KHÔNG
+  đụng vào thư mục MT5 của máy.
+- File cần copy sang VPS để compile: CHỈ Combo_Structure_ChartSnapshot_Bot.mq5
+  (42.312 bytes, MD5 8A168BE756B4A036CDDDE945F3334EDB). Telegram_ChartBot.mqh
+  và TLS_SMC_Indicator.mq5 không đổi nên không cần copy lại.
+
 Nhật ký 2026-08-27 — BOT_ChartSnapshot
 
 [Combo_Structure_ChartSnapshot_Bot.mq5]
@@ -49,15 +126,10 @@ Nhật ký 2026-08-27 — BOT_ChartSnapshot
 2. LƯU Ý QUAN TRỌNG: preset THẬT đang chạy trên VPS là config_bot_getchart
    .set (CÓ gạch dưới giữa bot và getchart), do người dùng cung cấp trong
    ngày. File config_botgetchart.set (KHÔNG gạch dưới) vốn có sẵn trong thư
-   mục từ 02/08 mang bot token KHÁC (8953133302:... thay vì 8828449930:...)
-   — ĐÍNH CHÍNH: đây KHÔNG phải lỗi/lệch dữ liệu như nghi ban đầu, người dùng
-   xác nhận file này chạy cho 1 TÀI KHOẢN BOT TELEGRAM KHÁC (deploy riêng),
-   token khác nhau là đúng theo thiết kế. Vẫn thiếu 5 input mới (Inp_EnabledTF
-   / Inp_EnableZoneAlert / Inp_HideZoneInSignalPhoto / Inp_EnableZoneFormedAlert
-   / Inp_ZoneFormedTF) so với code hiện tại — không phải lỗi (.set khớp theo
-   TÊN, thiếu dòng nào thì input đó lấy mặc định trong code), chỉ là preset
-   chưa được cập nhật cho đủ. Người dùng nói xoá hay giữ đều được — GIỮ LẠI
-   (an toàn hơn, không phải dữ liệu của tôi để xoá khi không chắc chắn).
+   mục từ 02/08 là bản CŨ đã lỗi thời: bot token 8953133302:... trong khi
+   token thật là 8828449930:..., và thiếu hẳn 5 input Inp_EnabledTF /
+   Inp_EnableZoneAlert / Inp_HideZoneInSignalPhoto / Inp_EnableZoneFormedAlert
+   / Inp_ZoneFormedTF. Đã giữ nguyên chưa xoá, chờ người dùng quyết.
 3. Trên VPS Inp_EnableZoneAlert=false -> thực tế CHỈ nhánh "⏳ Đặt LIMIT chờ
    trong vùng" bắn, nhánh "⚡ Giá đã chạm vùng Entry" hiện không chạy. Khớp
    với việc mọi tin người dùng chụp lại đều có chữ "LIMIT".
