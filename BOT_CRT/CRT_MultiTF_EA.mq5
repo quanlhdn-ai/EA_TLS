@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.68"
+#property version   "1.77"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -696,6 +696,64 @@
 //       Điểm = lãi% / sụt vốn%, phạt tuyến tính nếu dưới 100 lệnh, loại thẳng nếu dưới
 //       30 lệnh. Cố ý KHÔNG dùng lãi thuần làm tiêu chí: nó luôn chọn cấu hình liều nhất.
 //
+//   [1.69] BỐN THIẾT LẬP THEO YÊU CẦU NGƯỜI DÙNG 20/09. Không đụng logic nhận diện tín
+//     hiệu; chỉ thêm công tắc và một cách tính lot.
+//     (a) Inp_BE_KhiLenhKiaTP (mặc định BẬT) — công tắc cho luật hoà vốn THỨ BA. Nay cả
+//         ba luật hoà vốn đều tắt được độc lập:
+//           Inp_BE_TriggerPips   = 0     -> tắt luật theo khoảng lãi   (1.67)
+//           Inp_BE_TaiBienDoiDien = false -> tắt luật theo biên đối diện (1.68)
+//           Inp_BE_KhiLenhKiaTP   = false -> tắt luật theo cặp lệnh      (1.69)
+//         Tắt cả ba thì lệnh giữ nguyên SL gốc tới cùng — cần khi muốn đo hành trình
+//         trọn vẹn của một setup lúc backtest.
+//         [1.70 thay thế mục này bằng Inp_KieuVaoLenh 3 chế độ — xem dưới.]
+//     (c) Inp_LotMode THAY CHO input bool Inp_UseRiskPercent — 3 chế độ: lot cố định /
+//         % tài khoản / SỐ TIỀN $ (mới). Chế độ mới gõ thẳng số $ chịu mất nếu dính SL,
+//         bot chia ngược ra lot. Khác % tài khoản ở chỗ nó KHÔNG co giãn theo balance:
+//         mỗi lệnh thua đúng một khoản đã biết trước.
+//         THỨ TỰ GIÁ TRỊ ENUM CỐ Ý GIỮ: 0 = lot cố định (ứng với bool false cũ),
+//         1 = % tài khoản (ứng với true cũ). Nhờ vậy giá trị trong .set cũ vẫn ánh xạ
+//         đúng chế độ; chỉ TÊN input đổi nên phải sửa lại dòng đó trong cả 2 file .set.
+//         Cả 2 chế độ tính-ngược đều cần SL > 0 — dùng kèm SLMode_KhongDatSL thì hàm trả
+//         lot = 0 và lệnh bị bỏ. Muốn chạy không SL thì phải để lot cố định.
+//     (d) DD ngày và Lãi ngày: ĐÃ CÓ SẴN từ trước, không thêm gì —
+//         Inp_DailyDrawdownLimit và Inp_DailyProfitLimit ở nhóm 4 (SHIELD).
+//
+//   [1.70] KIỂU VÀO LỆNH 3 CHẾ ĐỘ + ĐỔI MẶC ĐỊNH THEO YÊU CẦU 20/09.
+//     (a) Inp_KieuVaoLenh thay Inp_VaoCapLenh (bool chỉ có 2 nước) — nay 3 chế độ:
+//           KieuVao_TrucTiep : chỉ lệnh market tại giá hiện tại
+//           KieuVao_Limit    : chỉ lệnh chờ tại mốc 50% râu quét
+//           KieuVao_CaHai    : cả hai (MẶC ĐỊNH, hành vi cũ)
+//         CHỖ DỄ SÓT: chế độ CHỈ LIMIT phải bỏ qua TRỌN khối market, kể cả nhánh
+//         "quá xa biên -> đổi market thành limit tại biên". Nhánh đó sinh ra để CỨU vế
+//         market; không có vế market thì để nó chạy là tự nhiên mọc thêm một lệnh limit
+//         thứ hai tại đường biên, thành ra vẫn 2 lệnh dù người dùng chọn 1.
+//     (b) Đổi mặc định trong code cho khớp cấu hình người dùng chốt 20/09:
+//           Inp_LotMode            = LotMode_SoTienUSD (trước: lot cố định)
+//           Inp_RiskMoneyUSD       = 100  (trước: 50)
+//           Inp_DailyDrawdownLimit = 3    (trước: 0 = tắt)
+//           Inp_DailyProfitLimit   = 5    (trước: 0 = tắt)
+//         Ba luật hoà vốn GIỮ NGUYÊN mặc định bật (50 pip / biên đối diện / cặp lệnh).
+//     (c) File .set: gom 2 bản (CRT_MultiTF_EA.set + crt.set) thành MỘT bản duy nhất
+//         CRT_MultiTF_EA.set, dựng trên nền cấu hình ĐANG CHẠY THẬT chứ không phải bản
+//         preset repo — vì bản chạy thật mới là thứ đã qua thực chiến. Xem nhật ký.
+//
+//   [1.71] CHUYỂN KÊNH TELEGRAM SANG CHANNEL CÔNG KHAI — ĐỔI MÔ HÌNH VẬN HÀNH.
+//     Từ 20/09 bot bắn thẳng vào channel CRT_Signal_TradingZone (id -1004487964833) và
+//     MEMBER ĐỌC TRỰC TIẾP. Trước đó bot bắn vào group riêng của chủ bot rồi chủ bot
+//     forward tay tin public sang group member.
+//     HỆ QUẢ SỐNG CÒN: cơ chế lọc-bằng-tay biến mất. Bản 1.65 cố ý cho tin chi tiết giữ
+//     nguyên lot và Balance vì "nó không bao giờ tự lộ" — tiền đề đó nay KHÔNG CÒN ĐÚNG.
+//     Nên Inp_TG_TinChiTiet đổi mặc định sang TẮT, và .set cũng tắt.
+//     ĐÃ RÀ TOÀN BỘ đường ra Telegram trước khi chốt: cả 3 chỗ in lot/Balance (vào lệnh
+//     Mode nến quét, vào lệnh Mode BOS, đóng lệnh) đều đi qua SendChiTiet() — hàm này có
+//     cổng chặn ngay đầu, nên tắt 1 công tắc là bịt đủ cả 3. Các đoạn in Balance còn lại
+//     nằm trong nhánh Inp_TG_TinPublic = false (định dạng cũ 1.62), không chạy.
+//     Tin public tự nó sạch: chỉ Entry / SL tham khảo / TP / giờ VN / miễn trừ trách
+//     nhiệm. Ảnh chụp cũng đã sạch sẵn nhờ Inp_TG_AnMucLenh (ẩn đường lệnh -> giấu khối
+//     lượng) và Inp_TG_CheTenEA, cả hai vẫn BẬT.
+//     NẾU SAU NÀY QUAY LẠI MÔ HÌNH FORWARD TAY: bật lại Inp_TG_TinChiTiet và trỏ ChatID
+//     về group riêng — đừng bật tin chi tiết khi ChatID còn là channel công khai.
+//
 //   GHI CHÚ MÔ HÌNH — chỉ còn 2 cổng, và một cửa sổ 2 cây:
 //     1. ĐI TỪ TRONG RA: nến LTF liền trước phải đóng cửa TRONG biên phía đang xét.
 //     2. CHẠM BIÊN: râu vượt qua line -> QUÉT CRT ĐÃ XONG, dù chỉ vượt 1 point.
@@ -719,6 +777,13 @@ enum ENUM_CRT_ENTRY_MODE { EntryMode_Market, EntryMode_LimitTaiBienHTF, EntryMod
 // Middle: chặt hơn, coi như setup đã ăn nửa đường thì thôi.
 // Biên đối diện: rộng hơn, để lệnh chờ sống tới tận đích cuối của cú CRT.
 enum ENUM_CRT_CANCEL_AT { CancelAt_Middle, CancelAt_BienDoiDien };
+// Cách quyết định khối lượng lệnh. THỨ TỰ CÁC GIÁ TRỊ KHÔNG ĐƯỢC ĐỔI: enum này thay cho
+// input bool Inp_UseRiskPercent cũ, nên 0 phải ứng với false (lot cố định) và 1 với true
+// (% tài khoản) — nhờ vậy file .set cũ nạp vào vẫn ra đúng chế độ người dùng đang chạy.
+enum ENUM_CRT_LOT_MODE { LotMode_CoDinh, LotMode_PhanTramTK, LotMode_SoTienUSD };
+// Mỗi setup được vào những lệnh nào. "Trực tiếp" = lệnh market tại giá hiện tại;
+// "Limit" = lệnh chờ tại mốc 50% râu quét.
+enum ENUM_CRT_KIEU_VAO { KieuVao_TrucTiep, KieuVao_Limit, KieuVao_CaHai };
 enum ENUM_CRT_SL_MODE { SLMode_RauQuet, SLMode_KhongDatSL };
 enum ENUM_CRT_TP_MODE { TPMode_MidBienH4, TPMode_RR, TPMode_Pips };
 // Mốc đặt TP khi chọn TPMode_MidBienH4. Hai enum riêng vì 2 nguồn có số lựa chọn khác nhau:
@@ -753,13 +818,15 @@ enum ENUM_CRT_SOURCE { Bien_LienKe, Bien_Swing, Ca2_LienKe_Va_Swing };
 // ============ 1. VẬN HÀNH CHUNG — áp dụng cho MỌI mode ============
 input group "=== 1. CHUNG · Bot / Risk / SL / TP ==="
 input bool             Inp_EnableTrading    = true;       // Tự động vào lệnh (tắt = chỉ theo dõi + báo tín hiệu)
-input ENUM_CRT_TRADE_MODE Inp_TradeMode     = TradeMode_NenQuet_LTF;    // Cách xác nhận vào lệnh:
-input ENUM_CRT_SOURCE  Inp_EntrySource      = Ca2_LienKe_Va_Swing; // Vào lệnh theo biên giá nào của khung gốc:
+const ENUM_CRT_TRADE_MODE Inp_TradeMode     = TradeMode_NenQuet_LTF;    // Cách xác nhận vào lệnh:
+const ENUM_CRT_SOURCE  Inp_EntrySource      = Ca2_LienKe_Va_Swing; // Vào lệnh theo biên giá nào của khung gốc:
 input long             Inp_MagicNumber      = 20260713;   // Magic (nguồn Swing tự dùng Magic+1)
-input int              Inp_MaxSpreadPoints  = 0;         // Spread tối đa cho phép vào lệnh, point (0 = tắt)
-input bool             Inp_UseRiskPercent   = false;     // Lot theo % tài khoản (tắt = dùng lot cố định)
-input double           Inp_RiskPercent      = 1.0;       // Risk mỗi lệnh, % tài khoản
-input double           Inp_FixedLotSize     = 0.1;       // Lot cố định mỗi lệnh
+const int              Inp_MaxSpreadPoints  = 0;         // Spread tối đa cho phép vào lệnh, point (0 = tắt)
+input ENUM_CRT_LOT_MODE Inp_LotMode         = LotMode_SoTienUSD; // Cách tính khối lượng lệnh:
+input double           Inp_FixedLotSize     = 0.1;       //   • nếu Lot cố định — số lot mỗi lệnh
+input double           Inp_RiskPercent      = 1.0;       //   • nếu % tài khoản — rủi ro mỗi lệnh (%)
+input double           Inp_RiskMoneyUSD     = 100;       //   • nếu Số tiền — dính SL thì mất bao nhiêu $
+input double           Inp_BalanceCoSo      = 10000;     // Balance gốc để quy đổi MỌI thiết lập % (0 = dùng số dư thật)
 input double           Inp_AccountSL_Percent= 0.0;       // Đóng hết khi tài khoản âm quá % (từ lúc mở bot, 0=tắt)
 input ENUM_CRT_SL_MODE Inp_SL_Mode          = SLMode_RauQuet; // Cách đặt SL:
 input double           Inp_SL_BufferPips    = 30;        //   • nếu SLMode_RauQuet — SL lùi ra ngoài râu quét (pip)
@@ -772,6 +839,8 @@ input double           Inp_BE_TriggerPips   = 50;        // Lãi đạt bao nhi�
 //     tới đâu — cần cho lượt chạy ghi hành trình.
 //   · Tối ưu: nay nó thành một tham số so sánh được, thay vì luật cứng không kiểm chứng.
 input bool             Inp_BE_TaiBienDoiDien = true;     // Chạm biên đối diện thì kéo SL về hoà vốn
+input bool             Inp_BE_KhiLenhKiaTP  = true;      // Lệnh kia trong cặp chạm TP thì kéo SL về hoà vốn
+input ENUM_CRT_KIEU_VAO Inp_KieuVaoLenh     = KieuVao_CaHai; // Mỗi setup vào những lệnh nào:
 input ENUM_CRT_CANCEL_AT Inp_CancelPendingAt = CancelAt_Middle; // Huỷ lệnh chờ chưa khớp khi giá chạm:
 input double           Inp_Pool_SL_Percent  = 0;         // Nhóm lệnh cùng chiều lỗ quá % này thì đóng cả nhóm (0=tắt)
 
@@ -785,19 +854,6 @@ input double           Inp_Pool_SL_Percent  = 0;         // Nhóm lệnh cùng c
 // Mỗi nguồn (liền kề / Swing) đếm riêng. Vì vòng chỉ kết thúc khi đóng hết lệnh,
 // Inp_MaxOrders_* cũng chính là trần cho số lệnh mở CÙNG LÚC của nguồn đó.
 // KHÔNG áp dụng cho Mode Nến quét — mode đó bị chặn bởi luật "1 biên = 1 cặp lệnh".
-input group "=== 2. RIÊNG Mode BOS/CHOCH ==="
-input ENUM_CRT_ENTRY_MODE Inp_Entry_Mode    = EntryMode_Market; // Cách vào lệnh:
-input int              Inp_MaxOrders_LienKe   = 1;       // Số lệnh tối đa mỗi vòng — nguồn liền kề (0=không giới hạn)
-input int              Inp_MaxOrders_Swing    = 1;       // Số lệnh tối đa mỗi vòng — nguồn Swing (0=không giới hạn)
-input int              Inp_MaxRoundsPerSignal = 2;       // Số vòng CÓ LÃI tối đa mỗi tín hiệu (0=không giới hạn)
-input ENUM_CRT_TP_MODE Inp_BOS_TPMode_LK    = TPMode_RR;   // [nguồn LIỀN KỀ] Cách tính TP:
-input ENUM_CRT_TP      Inp_BOS_TPTarget_LK  = TP_Middle;  //   • nếu MidBienH4 — TP đặt ở:
-input double           Inp_BOS_TPRR_LK      = 2.0;        //   • nếu RR — tỷ lệ Reward:Risk
-input double           Inp_BOS_TPPips_LK    = 50.0;       //   • nếu Pips — số pip (1 pip = $0.1)
-input ENUM_CRT_TP_MODE Inp_BOS_TPMode_SW    = TPMode_RR;  // [nguồn SWING] Cách tính TP:
-input ENUM_CRT_TP_SW   Inp_BOS_TPTarget_SW  = TPSW_Middle; //   • nếu MidBienH4 — TP đặt ở:
-input double           Inp_BOS_TPRR_SW      = 2.0;        //   • nếu RR — tỷ lệ Reward:Risk
-input double           Inp_BOS_TPPips_SW    = 50.0;       //   • nếu Pips — số pip (1 pip = $0.1)
 
 // ============ 3. RIÊNG MODE NẾN QUÉT (TradeMode_NenQuet_LTF) ============
 // Vào lệnh ngay trên khung LTF. Các luật CỐ ĐỊNH của mode này (không có input):
@@ -809,7 +865,7 @@ input double           Inp_BOS_TPPips_SW    = 50.0;       //   • nếu Pips �
 // TP của mode này TÁCH RIÊNG khỏi Mode BOS, và tách riêng cho từng nhánh setup:
 //   · nhánh 2.1 / 2.1b (pinbar)     — mặc định TP tại đường Middle
 //   · nhánh 2.2.1 (engulfing 2 nến) — mặc định TP theo 2R
-input group "=== 3. RIÊNG Mode Nến quét ==="
+input group "=== 2. RIÊNG Mode Nến quét ==="
 input ENUM_CRT_FAR_ACTION Inp_FarFromLine_Action = Far_BoLenhMarket; // Khi giá đã cách biên > Inp_MaxDistFromLine_Pips:
 // [1.66] Luật nến của thư viện dùng chung Signal_Candle.mqh — định nghĩa đầy đủ ghi ở đầu
 // file đó. CẢ HAI MẶC ĐỊNH TẮT: bật lên là ĐỔI HÀNH VI VÀO LỆNH, phải backtest lại trước
@@ -820,14 +876,14 @@ input ENUM_CRT_FAR_ACTION Inp_FarFromLine_Action = Far_BoLenhMarket; // Khi giá
 //     loại (nến do dự hai đầu râu), đổi lại búa/sao băng đẹp không còn bị loại vì màu thân.
 //   · Engulfing thư viện đòi thêm cây 2 phải TRÙM cả High lẫn Low nến gốc, trong khi luật
 //     cũ chỉ đòi đóng vượt mốc nến gốc. Nhánh 2.2.1 sẽ vào ít lệnh hơn.
-input bool             Inp_Lib_Pinbar       = false;      // 2.1/2.1b: dùng pinbar thư viện thay lọc râu cũ
-input bool             Inp_Lib_Engulfing    = false;      // 2.2.1: dùng engulfing thư viện thay điều kiện đủ cũ
-input bool             Inp_On_21_LK         = true;       // BẬT setup [LIỀN KỀ · 2.1 pinbar]
-input bool             Inp_On_21b_LK        = true;       // BẬT setup [LIỀN KỀ · 2.1b pinbar cây 2]
-input bool             Inp_On_22_LK         = true;       // BẬT setup [LIỀN KỀ · 2.2 engulfing]
-input bool             Inp_On_21_SW         = true;       // BẬT setup [SWING · 2.1 pinbar]
-input bool             Inp_On_21b_SW        = true;       // BẬT setup [SWING · 2.1b pinbar cây 2]
-input bool             Inp_On_22_SW         = true;       // BẬT setup [SWING · 2.2 engulfing]
+const bool             Inp_Lib_Pinbar       = true;       // 2.1/2.1b: dùng pinbar thư viện thay lọc râu cũ
+const bool             Inp_Lib_Engulfing    = true;       // 2.2.1: dùng engulfing thư viện thay điều kiện đủ cũ
+const bool             Inp_On_21_LK         = true;       // BẬT setup [LIỀN KỀ · 2.1 pinbar]
+const bool             Inp_On_21b_LK        = true;       // BẬT setup [LIỀN KỀ · 2.1b pinbar cây 2]
+const bool             Inp_On_22_LK         = true;       // BẬT setup [LIỀN KỀ · 2.2 engulfing]
+const bool             Inp_On_21_SW         = true;       // BẬT setup [SWING · 2.1 pinbar]
+const bool             Inp_On_21b_SW        = true;       // BẬT setup [SWING · 2.1b pinbar cây 2]
+const bool             Inp_On_22_SW         = true;       // BẬT setup [SWING · 2.2 engulfing]
 input ENUM_CRT_TP_MODE Inp_TP21_Mode_LK     = TPMode_MidBienH4; // [2.1 · LIỀN KỀ] Cách tính TP:
 input ENUM_CRT_TP      Inp_TP21_Target_LK   = TP_Middle;  //   • nếu MidBienH4 — TP đặt ở:
 input double           Inp_TP21_RR_LK       = 2.0;        //   • nếu RR — tỷ lệ Reward:Risk
@@ -846,52 +902,44 @@ input double           Inp_TP22_RR_SW       = 2.0;        //   • nếu RR — 
 input double           Inp_TP22_Pips_SW     = 50.0;       //   • nếu Pips — số pip (1 pip = $0.1)
 
 // ===================== 3. SHIELD — BẢO VỆ TÀI KHOẢN =====================
-input group "=== 4. CHUNG · SHIELD (Bảo vệ tài khoản) ==="
-input bool             Inp_UseMarginLimit     = false;   // Bật giới hạn margin (tự giảm lot cho vừa mức dưới)
-input double           Inp_MaxMarginPercent   = 30.0;    // Margin tối đa được dùng, % tài khoản
-input double           Inp_DailyDrawdownLimit = 0;       // Lỗ tối đa trong NGÀY, % (0 = tắt)
-input double           Inp_DailyProfitLimit   = 0;       // Lãi mục tiêu trong NGÀY, % (0 = tắt)
+input group "=== 3. CHUNG · SHIELD (Bảo vệ tài khoản) ==="
+input double           Inp_DailyDrawdownLimit = 3;       // Lỗ tối đa trong NGÀY, % (0 = tắt)
+input double           Inp_DailyProfitLimit   = 5;       // Lãi mục tiêu trong NGÀY, % (0 = tắt)
 input double           Inp_AutoPassTarget     = 0;       // Equity mục tiêu (USD), đạt thì dừng hẳn (0 = tắt)
 input string           Inp_NewsTimes          = "";      // Giờ tin cần tránh, giờ server "15:30, 21:00" (trống = tắt)
 input int              Inp_NewsBufferMinutes  = 2;       // Chặn vào lệnh trước/sau giờ tin bao nhiêu phút
 
 // ===================== 4. TELEGRAM =====================
-input group "=== 5. CHUNG · TELEGRAM ==="
+input group "=== 4. CHUNG · TELEGRAM ==="
 input bool             Inp_EnableTelegram   = true;       // Bật gửi thông báo Telegram
 input string           Inp_BotToken         = "8670907940:AAGkHoUQWn3hux6rUhdRF7291LVi_DUxvR0"; // Token của Bot Telegram
-input string           Inp_ChatID           = "-1003976929485";      // ID chat/group/channel nhận thông báo
+input string           Inp_ChatID           = "-1004487964833";      // ID chat/group/channel nhận thông báo
 input bool             Inp_SendScreenshot   = true;      // Gửi kèm ảnh chart khi báo tín hiệu/vào lệnh
 input bool             Inp_TG_TinPublic     = true;      // Tin dạng CHIA SẺ CỘNG ĐỒNG (gọn, giấu số dư)
 input string           Inp_TG_TP_Text       = "5 - 10 - 30 giá"; // Dòng TP in nguyên văn trong tin public
 input bool             Inp_TG_CheTenEA      = true;      // Ảnh chụp: che tên EA ở góc phải trên
 input bool             Inp_TG_AnMucLenh     = true;      // Ảnh chụp: ẩn đường lệnh (tránh lộ khối lượng)
-input bool             Inp_TG_TinChiTiet    = true;      // Gửi thêm tin CHI TIẾT (setup/lot/PnL) cho chủ bot
+input bool             Inp_TG_TinChiTiet    = false;     // Gửi thêm tin CHI TIẾT (setup/lot/PnL) — TẮT nếu member đọc trực tiếp
 
 // ===================== 5. THAM SỐ THEO KHUNG THỜI GIAN: H4 -> M15 -> M1 =====================
 // Việc HIỂN THỊ đường H4 liền kề / Last Major đi theo Inp_EntrySource ở nhóm VẬN HÀNH —
 // không có toggle riêng, để tránh hiện cùng lúc 4 đường khi chỉ dùng 1 nguồn để vào lệnh.
-input group "=== 6. CHUNG · KHUNG GỐC (HTF) + Last Major Swing ==="
+input group "=== 5. CHUNG · KHUNG GỐC (HTF) + Last Major Swing ==="
 input ENUM_TIMEFRAMES Inp_HTF              = PERIOD_H4;  // Khung cao làm cơ sở High/Low
 input int               Inp_HTF_SwingMajor  = 1;          // Số nến H4 mỗi bên xác định đỉnh/đáy Major Swing
 input int               Inp_HTF_SwingMinor  = 1;          // Số nến H4 mỗi bên cho Minor Swing (engine cần)
 
-input group "=== 7. CHUNG · KHUNG QUÉT RÂU (LTF) ==="
+input group "=== 6. CHUNG · KHUNG QUÉT RÂU (LTF) ==="
 input ENUM_TIMEFRAMES  Inp_LTF             = PERIOD_M15; // Khung dùng để phát hiện quét râu
 input bool             Inp_DetectLowSweep  = true;       // Bắt tín hiệu quét râu DƯỚI (chờ BUY)
 input bool             Inp_DetectHighSweep = true;       // Bắt tín hiệu quét râu TRÊN (chờ SELL)
 
-input group "=== 8. RIÊNG Mode BOS/CHOCH · KHUNG VÀO LỆNH ==="
-input ENUM_TIMEFRAMES  Inp_EntryTF         = PERIOD_M1;  // Khung tìm BOS/CHOCH để vào lệnh
-input int              Inp_EntrySwingMajor = 9;          // Số nến M1 mỗi bên để xác định Major Swing
-input int              Inp_EntrySwingMinor = 9;          // Số nến M1 mỗi bên để xác định Minor Swing
 
 // ===================== 6. Ít quan trọng / ít đụng đến =====================
-input group "=== 9. CHUNG · HIỂN THỊ ==="
+input group "=== 7. CHUNG · HIỂN THỊ ==="
 input bool             Inp_ShowLineName    = false;      // Nhãn đường: hiện tên chi tiết (tắt = chỉ giá)
 input bool             Inp_ShowMidLine     = true;       // Vẽ đường Middle 50% của H4
 input bool             Inp_ShowDashboard   = true;       // Hiện bảng dashboard trên chart
-input bool             Inp_ShowStructure   = false;      // Vẽ BOS/CHOCH của khung entry lên chart
-input bool             Inp_ShowZones       = false;      // Vẽ khung zone (sẽ đè lên nến M1)
 // [1.68] Ghi hành trình từng lệnh ra CSV — CHỈ chạy trong Strategy Tester, bật tay khi cần
 // đo. Mục đích: từ MỘT lượt chạy tính ngược ra kết quả của mọi mức TP và mọi mốc BE, khỏi
 // phải quét hàng chục lượt. Muốn thấy hành trình đầy đủ thì lượt đó phải để TP thật xa và
@@ -939,7 +987,6 @@ const int              Inp_DashY              = 18;         // Khoảng cách m�
 const int              Inp_DashFontSize       = 9;
 
 string   g_prefix     = "CRT_HTF_";
-string   g_entryPrefix= "CRT_ENT_";
 string   g_htfEnginePrefix = "CRT_LMENG_";
 string   g_nameHighLine, g_nameLowLine, g_nameMidLine, g_nameHighLabel, g_nameLowLabel;
 string   g_nameLastMajorHighLine, g_nameLastMajorLowLine, g_nameLastMajorHighLabel, g_nameLastMajorLowLabel;
@@ -1055,17 +1102,6 @@ struct SCRTSource
 };
 
 
-// 6 bộ TP: 3 nhánh setup (Mode BOS / 2.1-2.1b pinbar / 2.2.1 engulfing) × 2 nguồn.
-// Nguồn liền kề dùng ENUM_CRT_TP (2 mốc) — biên của nó CHÍNH LÀ biên HTF liền kề nên
-// 2 mốc "…_LienKe" sẽ trùng lại chính nó, không đưa vào dropdown cho đỡ rối.
-// Nguồn Swing dùng ENUM_CRT_TP_SW (4 mốc): thêm lựa chọn chốt theo nến HTF liền kề.
-STPConfig TPCfg_ModeBOS(SCRTSource &s)
-{
-   if(s.isSwing)
-      return MakeTPConfig(Inp_BOS_TPMode_SW, (ENUM_TP_ANCHOR)Inp_BOS_TPTarget_SW, Inp_BOS_TPRR_SW, Inp_BOS_TPPips_SW);
-   return MakeTPConfig(Inp_BOS_TPMode_LK, (ENUM_TP_ANCHOR)Inp_BOS_TPTarget_LK, Inp_BOS_TPRR_LK, Inp_BOS_TPPips_LK);
-}
-
 STPConfig TPCfg_Pinbar(SCRTSource &s)
 {
    if(s.isSwing)
@@ -1098,10 +1134,8 @@ CSMC_Engine g_htfEngine; // chạy trên Inp_HTF, chỉ dùng để lấy curren
 // --- Vào lệnh (BOS/CHOCH) ---
 CTrade         g_trade;
 CTelegramRadar g_radar;
-CSMC_Engine    g_entryEngine;
 double      g_startBalance      = 0;
 bool        g_halted            = false;
-datetime    g_lastEntryBarTime  = 0;
 
 // --- Shield (bảo vệ tài khoản) ---
 bool     g_shieldStopped   = false;  // dừng giao dịch đến hết ngày (DD/Profit limit)
@@ -1158,8 +1192,8 @@ int OnInit()
    g_lastLTFBarTime  = 0;
    g_hasData         = false;
 
-   g_srcAdj.tag = "LiềnKề"; g_srcAdj.isSwing = false; g_srcAdj.magic = Inp_MagicNumber;     g_srcAdj.maxOrdersPerRound = Inp_MaxOrders_LienKe;
-   g_srcLM.tag  = "Swing";  g_srcLM.isSwing  = true;  g_srcLM.magic  = Inp_MagicNumber + 1; g_srcLM.maxOrdersPerRound  = Inp_MaxOrders_Swing;
+   g_srcAdj.tag = "LiềnKề"; g_srcAdj.isSwing = false; g_srcAdj.magic = Inp_MagicNumber;
+   g_srcLM.tag  = "Swing";  g_srcLM.isSwing  = true;  g_srcLM.magic  = Inp_MagicNumber + 1;
    ResetSourceFull(g_srcAdj);
    ResetSourceFull(g_srcLM);
 
@@ -1168,7 +1202,6 @@ int OnInit()
    g_trade.SetTypeFillingBySymbol(_Symbol);
    g_startBalance      = AccountInfoDouble(ACCOUNT_BALANCE);
    g_halted            = false;
-   g_lastEntryBarTime  = 0;
 
    // --- Shield ---
    g_shieldStopped  = false;
@@ -1181,6 +1214,26 @@ int OnInit()
    if(Inp_EnableTelegram)
    {
       g_radar.Init(Inp_BotToken, Inp_ChatID, Inp_SendScreenshot);
+
+      // [v1.73] Tin khởi động có HAI bản. Bản đầy đủ mang Balance + toàn bộ cấu hình nên
+      // chỉ gửi khi kênh là nội bộ; nhưng KHÔNG gửi gì cả thì chủ bot mất luôn cách xác
+      // nhận bot đã nối đúng channel — đúng vấn đề gặp phải ngay sau 1.72. Nên kênh công
+      // khai vẫn nhận một tin tối giản: đủ để biết bot sống và đang nối đúng chỗ, không
+      // có số dư, không có cấu hình chiến lược.
+      // Init() PHẢI nằm ngoài mọi cổng này, nếu không tắt tin khởi động là tắt luôn mọi
+      // tin sau đó.
+      if(!TinVanHanhDuocPhep())
+      {
+         g_radar.SendMessage(StringFormat(
+            "🟢 <b>KÊNH TÍN HIỆU ĐÃ SẴN SÀNG</b>\n━━━━━━━━━━━━━━━\n"
+            "📊 <b>Cặp:</b> %s\n"
+            "🕐 <b>Khung:</b> %s\n"
+            "🕒 %s (giờ VN)",
+            _Symbol,
+            TFToString(Inp_HTF) + " · " + TFToString(Inp_LTF),
+            GioVietNam()));
+      }
+      else
       g_radar.SendMessage(StringFormat(
          "🟢 <b>CRT BOT KHỞI ĐỘNG</b>\n━━━━━━━━━━━━━━━\n"
          "⚙️ <b>Chế độ:</b> %s\n"
@@ -1189,26 +1242,14 @@ int OnInit()
          "🕐 <b>Khung:</b> %s\n"
          "💰 <b>Balance:</b> %s$",
          Inp_EnableTrading ? "VÀO LỆNH" : "CHỈ THEO DÕI (không trade)",
-         Inp_TradeMode == TradeMode_NenQuet_LTF
-            ? ("Nến quét " + TFToString(Inp_LTF) + " (pinbar / engulfing)")
-            : ("BOS-CHOCH " + TFToString(Inp_EntryTF)),
+         "Nến quét " + TFToString(Inp_LTF) + " (pinbar / engulfing)",
          EntrySourceText(),
-         Inp_TradeMode == TradeMode_NenQuet_LTF
-            ? (TFToString(Inp_HTF) + " · " + TFToString(Inp_LTF))
-            : (TFToString(Inp_HTF) + " · " + TFToString(Inp_LTF) + " · " + TFToString(Inp_EntryTF)),
+         TFToString(Inp_HTF) + " · " + TFToString(Inp_LTF),
          DoubleToString(g_startBalance, 2)));
    }
 
-   // showZone=Inp_ShowZones: mặc định tắt rectangle zone (isHTF=false vẽ foreground đè nến).
-   // Zone vẫn được tính & lưu giá trị (current_buy/sell_zone_entry/sl) để dùng cho lọc entry.
-   // MaxZones = 1 (giống BOT_TLS): hàng đợi zone của engine đẩy phần tử CŨ NHẤT ra đầu
-   // mảng, nên current_*_zone_entry luôn = queue[0] = zone cũ nhất còn hiệu lực. Chỉ khi
-   // giữ đúng 1 zone thì biến đó mới trỏ vào zone HIỆN HÀNH — điều kiện bắt buộc để
-   // EntryMode_LimitTaiZoneEntry đặt lệnh đúng mép zone vừa hình thành.
-   g_entryEngine.Init(_Symbol, Inp_EntryTF, g_entryPrefix, false, false, Inp_ShowStructure,
-        clrDodgerBlue, clrOrangeRed, clrGray, clrDeepSkyBlue, clrRed, clrNONE, clrNONE,
-        Inp_EntrySwingMajor, Inp_EntrySwingMinor, 1, 8, 8, Inp_ShowZones);
-
+   // [v1.75] Engine BOS/CHOCH khung entry đã gỡ hẳn cùng Mode 1 — bot chỉ còn dùng
+   // g_htfEngine cho Last Major Swing.
    if(LastMajorEnabled())
       g_htfEngine.Init(_Symbol, Inp_HTF, g_htfEnginePrefix, true, false, false,
            clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE,
@@ -1216,27 +1257,6 @@ int OnInit()
 
    RefreshAll(true);
    return(INIT_SUCCEEDED);
-}
-
-//+------------------------------------------------------------------+
-// Inp_ShowStructure bật cờ showGraphics của CSMC_Engine, mà cờ đó vẽ CẢ 3 nhóm object:
-// (1) đường BOS/CHOCH — thứ ta muốn giữ,
-// (2) ray "Protected/Active High-Low" (TRACK_*) bám mép phải chart,
-// (3) ray "Major Key Level" (KEY_LEVEL) xuất hiện khi có CHOCH.
-// Engine là file DÙNG CHUNG với BOT_TLS/BOT_OB_Radar nên không sửa engine để tách cờ;
-// thay vào đó xoá (2) và (3) ngay sau mỗi Update() — engine chỉ tạo chúng bên trong
-// Update() (CRT không gọi HandleChartEvent) nên xoá ở đây là sạch, không bị vẽ lại.
-//+------------------------------------------------------------------+
-void StripNonBosObjects()
-{
-   if(!Inp_ShowStructure)
-      return;
-
-   string names[] = { "TRACK_HIGH_ray", "TRACK_HIGH_lbl",
-                      "TRACK_LOW_ray",  "TRACK_LOW_lbl",
-                      "KEY_LEVEL",      "KEY_LEVEL_lbl" };
-   for(int i = 0; i < ArraySize(names); i++)
-      ObjectDelete(0, g_entryPrefix + names[i]);
 }
 
 //+------------------------------------------------------------------+
@@ -1321,7 +1341,6 @@ void OnDeinit(const int reason)
 {
    HT_Ketthuc();                       // [1.68] ghi nốt lệnh còn mở rồi đóng file CSV
    ObjectsDeleteAll(0, g_prefix);      // line, label, arrow, dashboard
-   ObjectsDeleteAll(0, g_entryPrefix); // BOS/CHOCH của engine entry
    Comment("");
 }
 
@@ -1383,33 +1402,9 @@ void OnTick()
       TrackProfitRounds(g_srcAdj);
       TrackProfitRounds(g_srcLM);
 
-      if(!g_halted && !g_shieldStopped && !g_accountPassed)
-      {
-         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-         // Mode 2 vào lệnh ngay trong ProcessLTFSweep() nên KHÔNG dùng arm/disarm và
-         // cũng không cần engine BOS. Chỉ chạy engine khi thật sự cần: Mode 1, hoặc khi
-         // người dùng vẫn muốn thấy đường BOS/CHOCH trên chart.
-         if(Inp_TradeMode == TradeMode_BOS_KhungEntry)
-         {
-            CheckDisarmSource(g_srcAdj, bid, ask);  // theo giá, mỗi tick
-            CheckDisarmSource(g_srcLM,  bid, ask);
-         }
-
-         datetime eb = iTime(_Symbol, Inp_EntryTF, 0);
-         if(eb != g_lastEntryBarTime &&
-            (Inp_TradeMode == TradeMode_BOS_KhungEntry || Inp_ShowStructure))
-         {
-            g_lastEntryBarTime = eb;
-            g_entryEngine.Update();
-            StripNonBosObjects();   // chỉ giữ lại đường BOS/CHOCH trên chart
-            if(Inp_TradeMode == TradeMode_BOS_KhungEntry)
-            {
-               ProcessEntrySource(g_srcAdj);
-               ProcessEntrySource(g_srcLM);
-            }
-         }
-      }
+      // [v1.75] Khối chạy engine BOS/CHOCH khung entry đã gỡ hẳn cùng Mode 1.
+      // Mode nến quét vào lệnh ngay trong ProcessLTFSweep(), không dùng arm/disarm,
+      // không cần engine thứ hai.
    }
 
    UpdateDashboard();
@@ -2147,133 +2142,8 @@ void ConfirmSweepForMode2(SCRTSource &s, int dir, datetime tConfirm)
 //+------------------------------------------------------------------+
 void ProcessSourceSweep(SCRTSource &s, double highC, double lowC, double closeC, datetime tC)
 {
-   double lo = s.boundLow;
-   double hi = s.boundHigh;
-
-   if(Inp_TradeMode == TradeMode_NenQuet_LTF)
-   {
-      ProcessSweepCandleMode(s, highC, lowC, closeC, tC, lo, hi);
-      return;
-   }
-
-   //============ HUỶ SETUP KHI THỦNG MỐC RÂU QUÉT ============
-   // Bản chất CRT: quét thanh khoản rồi GIÀNH LẠI biên. Nếu nến LTF đóng vượt ngược qua
-   // chính mốc râu đã quét (BUY: đóng dưới sweptLow) thì cú giành lại đã thất bại —
-   // setup chết, không được nhồi thêm lệnh nữa dù M1 vẫn có BOS/CHOCH thuận hướng.
-   // Đặt TRƯỚC phần dò quét bên dưới để cùng cây nến đó vẫn mở được cụm quét MỚI.
-   if(s.armed)
-   {
-      bool killed = (s.armDir > 0 && s.hasSweptLow  && closeC < s.sweptLow)
-                 || (s.armDir < 0 && s.hasSweptHigh && closeC > s.sweptHigh);
-      if(killed)
-      {
-         PrintFormat("[CRT][%s] Nến %s đóng %s mốc râu quét %s -> setup hỏng, huỷ arm + pending.",
-                     s.tag, TFToString(Inp_LTF),
-                     s.armDir > 0 ? "THỦNG DƯỚI" : "VƯỢT TRÊN",
-                     DoubleToString(s.armDir > 0 ? s.sweptLow : s.sweptHigh, _Digits));
-         s.armed = false;
-         if(CancelEAPendings(s.magic) > 0)
-            NotifySignalClosed(s.armDir, "nến đóng thủng mốc râu quét — setup đã hỏng");
-      }
-   }
-
-   //================= QUÉT RÂU DƯỚI =================
-   // [FIX A] Chỉ MỞ cụm quét mới khi phía đó có tư cách; cụm đang theo dõi dở thì vẫn
-   // tiếp tục (nó đã được mở lúc còn đủ tư cách).
-   if(Inp_DetectLowSweep)
-   {
-      if(!s.sweepLowActive)
-      {
-         if(lowC < lo && CameFromInside(+1, lo, hi))
-         {
-            s.sweepLowActive    = true;
-            s.sweepLowExtreme   = lowC;
-            s.sweepLowStartTime = tC;
-            if(closeC > lo)
-               ConfirmLowSweep(s, tC);
-         }
-      }
-      else
-      {
-         if(lowC < s.sweepLowExtreme)
-            s.sweepLowExtreme = lowC;
-         if(closeC > lo)
-            ConfirmLowSweep(s, tC);
-      }
-   }
-
-   //================= QUÉT RÂU TRÊN =================
-   if(Inp_DetectHighSweep)
-   {
-      if(!s.sweepHighActive)
-      {
-         if(highC > hi && CameFromInside(-1, lo, hi))
-         {
-            s.sweepHighActive    = true;
-            s.sweepHighExtreme   = highC;
-            s.sweepHighStartTime = tC;
-            if(closeC < hi)
-               ConfirmHighSweep(s, tC);
-         }
-      }
-      else
-      {
-         if(highC > s.sweepHighExtreme)
-            s.sweepHighExtreme = highC;
-         if(closeC < hi)
-            ConfirmHighSweep(s, tC);
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-void ConfirmLowSweep(SCRTSource &s, datetime tConfirm)
-{
-   s.sweptLow     = s.sweepLowExtreme;
-   s.sweptLowTime = tConfirm;
-   s.hasSweptLow  = true;
-   s.sweepLowActive = false;
-
-   s.lastEventMsg = StringFormat("[%s] QUÉT RÂU DƯỚI ✔  Low=%s | Swept Low=%s | @%s",
-                       s.tag,
-                       DoubleToString(s.boundLow, _Digits),
-                       DoubleToString(s.sweptLow, _Digits),
-                       TimeToString(tConfirm, TIME_DATE|TIME_MINUTES));
-
-   PrintFormat("[CRT][%s][%s][LTF %s] %s (cụm quét từ %s)",
-               _Symbol, s.tag, TFToString(Inp_LTF), s.lastEventMsg,
-               TimeToString(s.sweepLowStartTime, TIME_DATE|TIME_MINUTES));
-
-   if(Inp_MarkSweep)
-      MarkConfirmCandle(g_prefix + "SweepLowArrow_" + s.tag, OBJ_ARROW_UP, tConfirm, false, Inp_ColorSweepLow);
-
-   NotifySignal(s, +1);
-   ArmSetupSource(s, +1); // quét dưới -> chờ BUY
-}
-
-//+------------------------------------------------------------------+
-void ConfirmHighSweep(SCRTSource &s, datetime tConfirm)
-{
-   s.sweptHigh     = s.sweepHighExtreme;
-   s.sweptHighTime = tConfirm;
-   s.hasSweptHigh  = true;
-   s.sweepHighActive = false;
-
-   s.lastEventMsg = StringFormat("[%s] QUÉT RÂU TRÊN ✔  High=%s | Swept High=%s | @%s",
-                       s.tag,
-                       DoubleToString(s.boundHigh, _Digits),
-                       DoubleToString(s.sweptHigh, _Digits),
-                       TimeToString(tConfirm, TIME_DATE|TIME_MINUTES));
-
-   PrintFormat("[CRT][%s][%s][LTF %s] %s (cụm quét từ %s)",
-               _Symbol, s.tag, TFToString(Inp_LTF), s.lastEventMsg,
-               TimeToString(s.sweepHighStartTime, TIME_DATE|TIME_MINUTES));
-
-   if(Inp_MarkSweep)
-      MarkConfirmCandle(g_prefix + "SweepHighArrow_" + s.tag, OBJ_ARROW_DOWN, tConfirm, true, Inp_ColorSweepHigh);
-
-   NotifySignal(s, -1);
-   ArmSetupSource(s, -1); // quét trên -> chờ SELL
+   // [v1.75] Chi con MOT duong: mode nen quet. Nhanh BOS/CHOCH da go han o 1.75.
+   ProcessSweepCandleMode(s, highC, lowC, closeC, tC, s.boundLow, s.boundHigh);
 }
 
 //+------------------------------------------------------------------+
@@ -2400,6 +2270,21 @@ void SendPhotoSach(string msg)
 // Còn lại đúng 3 thứ: nhánh setup, khối lượng, Balance.
 // Mở đầu bằng "⚙️ chi tiết nội bộ" để nhìn phát biết ngay đây không phải tín hiệu, tránh
 // forward nhầm sang group member.
+//+------------------------------------------------------------------+
+// [v1.72] Tin VẬN HÀNH = mọi tin mang số liệu TÀI KHOẢN (balance, equity, P&L nhóm) hoặc
+// cấu hình nội bộ: tin khởi động, Account SL, Auto Pass, DD ngày, Lãi ngày, Pool SL.
+// Chúng KHÔNG phải tín hiệu, member không cần, và để lọt lên channel công khai là lộ
+// thẳng số dư tài khoản. Dùng chung công tắc với tin chi tiết: Inp_TG_TinChiTiet vốn
+// mang nghĩa "kênh này là của tôi, gửi thông tin nội bộ được".
+// LƯU Ý ĐÁNH ĐỔI: tắt công tắc này thì chủ bot KHÔNG còn nhận cảnh báo Shield qua
+// Telegram nữa — vẫn còn trong log terminal. Muốn có cả hai thì phải tách chat ID riêng
+// cho tin nội bộ, chưa làm.
+//+------------------------------------------------------------------+
+bool TinVanHanhDuocPhep()
+{
+   return (Inp_EnableTelegram && Inp_TG_TinChiTiet);
+}
+
 //+------------------------------------------------------------------+
 void SendChiTiet(string body)
 {
@@ -2535,9 +2420,7 @@ void NotifySignal(SCRTSource &s, int dir)
       Inp_SL_Mode == SLMode_KhongDatSL ? " (mốc ảo — không đặt SL trên sàn)" : "",
       !Inp_EnableTrading
          ? "👁 <b>Chế độ CHỈ THEO DÕI</b> — bot không tự vào lệnh."
-         : (Inp_TradeMode == TradeMode_NenQuet_LTF
-              ? "⚡ Đang vào cặp lệnh ngay theo nến quét (market + limit 50%)..."
-              : ("⏳ Đang chờ BOS/CHOCH " + TFToString(Inp_EntryTF) + " xác nhận để vào lệnh...")));
+         : "⚡ Đang vào cặp lệnh ngay theo nến quét (market + limit 50%)...");
 
    SendPhotoSach(msg);
 }
@@ -2582,166 +2465,12 @@ void DrawSweepArrow(string name, ENUM_OBJECT type, datetime t, double price, col
    ChartRedraw(0);
 }
 
-//============================ VÀO LỆNH (BOS/CHOCH) ==================
-// Bật arming sau khi quét râu xác nhận. dir: +1 BUY (quét dưới), -1 SELL (quét trên).
-//+------------------------------------------------------------------+
-void ArmSetupSource(SCRTSource &s, int dir)
-{
-   s.armed  = true;
-   s.armDir = dir;
-   s.armOppBoundary = (dir > 0) ? s.boundHigh : s.boundLow; // biên đối diện
-   s.lastActedBreakTime = 0; // cho phép nhận break mới cho setup này
-   s.ordersThisRound = 0;   // tín hiệu MỚI -> vòng đếm lại từ đầu
-   s.profitRounds    = 0;   //               -> số vòng có lãi cũng đếm lại từ đầu
-   PrintFormat("[CRT][%s] ARM %s · chờ BOS/CHOCH %s trên %s (biên đối diện %s)",
-               s.tag, dir > 0 ? "BUY" : "SELL",
-               dir > 0 ? "LÊN" : "XUỐNG",
-               TFToString(Inp_EntryTF),
-               DoubleToString(s.armOppBoundary, _Digits));
-}
-
-//+------------------------------------------------------------------+
-// Ngừng arming + huỷ pending khi giá chạm biên đối diện (theo giá, mỗi tick).
-//+------------------------------------------------------------------+
-void CheckDisarmSource(SCRTSource &s, double bid, double ask)
-{
-   if(!s.armed)
-      return;
-
-   bool hit = (s.armDir > 0 && ask >= s.armOppBoundary)   // BUY: chạm biên trên
-           || (s.armDir < 0 && bid <= s.armOppBoundary);  // SELL: chạm biên dưới
-   if(hit)
-   {
-      PrintFormat("[CRT][%s] Giá chạm biên đối diện %s -> ngừng arming, huỷ pending.",
-                  s.tag, DoubleToString(s.armOppBoundary, _Digits));
-      s.armed = false;
-      if(CancelEAPendings(s.magic) > 0)
-         NotifySignalClosed(s.armDir, "giá đã chạm biên đối diện — cú chạy coi như xong");
-      return;
-   }
-
-   // Giá đã chạy quá xa đường tín hiệu (biên bị quét râu) -> setup hết "tươi", ngừng chờ.
-   // Đo từ chính đường H4 liền kề / Last Major mà râu vừa quét, không phải từ giá râu.
-   if(Inp_MaxDistFromLine_Pips > 0)
-   {
-      double line = (s.armDir > 0) ? s.boundLow : s.boundHigh;
-      double cur  = (s.armDir > 0) ? bid : ask;
-      double dist = MathAbs(cur - line) / GetPipSize();
-      if(dist > Inp_MaxDistFromLine_Pips)
-      {
-         PrintFormat("[CRT][%s] Giá cách đường tín hiệu %.1f pip (> %.1f) -> ngừng arming, chờ tín hiệu mới.",
-                     s.tag, dist, Inp_MaxDistFromLine_Pips);
-         s.armed = false;
-         if(CancelEAPendings(s.magic) > 0)
-            NotifySignalClosed(s.armDir, "giá đã chạy quá xa vùng entry, tín hiệu không còn tươi");
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-// Chạy mỗi nến Entry TF mới (sau engine.Update): nếu đang arm & có BOS/CHOCH
-// thuận hướng (mới, trong range H4 hiện tại) -> vào lệnh.
-//+------------------------------------------------------------------+
-void ProcessEntrySource(SCRTSource &s)
-{
-   if(!s.armed)
-      return;
-   if(IsInNewsWindow())
-      return;
-   // Đủ số lệnh cho vòng này -> chờ đóng hết lệnh mới sang vòng mới (reset ở TrackProfitRounds).
-   // Đây cũng là trần cho số lệnh mở CÙNG LÚC: vòng chỉ kết thúc khi đóng hết, nên số lệnh
-   // đang mở của 1 nguồn không bao giờ vượt quá hạn mức này (trừ khi đặt 0 = không giới hạn).
-   if(s.maxOrdersPerRound > 0 && s.ordersThisRound >= s.maxOrdersPerRound)
-      return;
-   // Đủ số vòng có lãi cho tín hiệu này -> chờ tín hiệu quét râu mới (reset ở ArmSetupSource).
-   if(Inp_MaxRoundsPerSignal > 0 && s.profitRounds >= Inp_MaxRoundsPerSignal)
-      return;
-
-   int      brkDir  = 0;
-   datetime brkTime = 0;
-   if(!GetLatestBreak(brkDir, brkTime))
-      return;
-
-   datetime rangeStart = iTime(_Symbol, Inp_HTF, 0); // mở cửa cây H4 đang hình thành
-   if(brkDir == s.armDir && brkTime != s.lastActedBreakTime && brkTime >= rangeStart)
-   {
-      // Spread giãn quá ngưỡng -> KHÔNG đánh dấu đã act, để bar sau thử lại (vẫn cùng 1 break
-      // đang chờ) chứ không bỏ hẳn setup này chỉ vì spread rộng tạm thời (vd lúc tin ra).
-      if(Inp_MaxSpreadPoints > 0 && CurrentSpreadPoints() > Inp_MaxSpreadPoints)
-      {
-         PrintFormat("[CRT][%s] Bỏ qua vào lệnh: spread %.1f point > ngưỡng %d.",
-                     s.tag, CurrentSpreadPoints(), Inp_MaxSpreadPoints);
-         return;
-      }
-      s.lastActedBreakTime = brkTime;
-      ExecuteEntry(s, s.armDir);
-   }
-}
-
 //+------------------------------------------------------------------+
 double CurrentSpreadPoints()
 {
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    return (ask - bid) / _Point;
-}
-
-//+------------------------------------------------------------------+
-// Lấy sự kiện BOS/CHOCH gần nhất trên nến ĐÃ ĐÓNG của engine entry.
-// dir: +1 (lên) / -1 (xuống); trả false nếu không có.
-//+------------------------------------------------------------------+
-bool GetLatestBreak(int &dir, datetime &t)
-{
-   int n = ArraySize(g_entryEngine.MajorEvent);
-   if(n < 3)
-      return false;
-
-   int limit = MathMin(n - 1, 600);
-   for(int i = 1; i <= limit; i++)
-   {
-      int ev = g_entryEngine.MajorEvent[i];
-      if(ev != 0)
-      {
-         dir = (ev > 0) ? 1 : -1; // ±1 BOS, ±2 CHOCH đều tính là break
-         t   = g_entryEngine.time[i];
-         return true;
-      }
-   }
-   return false;
-}
-
-//+------------------------------------------------------------------+
-// Mode 1 (BOS/CHOCH khung Entry): chọn giá theo Inp_Entry_Mode rồi đặt ĐÚNG 1 lệnh.
-//   EntryMode_Market            -> khớp ngay giá thị trường tại lúc có BOS/CHOCH.
-//   EntryMode_LimitTaiBienHTF   -> chờ TẠI đường biên khung gốc của nguồn này. Giá cố
-//     định -> nhiều BOS/CHOCH liên tiếp sẽ đặt nhiều lệnh CHỒNG NHAU cùng một giá.
-//   EntryMode_LimitTaiZoneEntry -> chờ tại mép Zone khung Entry do chính BOS/CHOCH đó
-//     sinh ra. Mỗi BOS/CHOCH tạo zone mới nên mỗi lệnh nằm ở một giá khác nhau.
-void ExecuteEntry(SCRTSource &s, int dir)
-{
-   bool   isBuy    = (dir > 0);
-   bool   useLimit = (Inp_Entry_Mode != EntryMode_Market);
-   double ask      = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid      = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-   double entry;
-   string mocTxt = "";
-   if(Inp_Entry_Mode == EntryMode_LimitTaiZoneEntry)
-   {
-      entry  = isBuy ? g_entryEngine.current_buy_zone_entry
-                     : g_entryEngine.current_sell_zone_entry;
-      mocTxt = "mép Zone " + TFToString(Inp_EntryTF);
-   }
-   else if(Inp_Entry_Mode == EntryMode_LimitTaiBienHTF)
-   {
-      entry  = isBuy ? s.boundLow : s.boundHigh;
-      mocTxt = "biên " + TFToString(Inp_HTF);
-   }
-   else
-      entry = isBuy ? ask : bid;
-
-   STPConfig cfg = TPCfg_ModeBOS(s);
-   PlaceOneOrder(s, dir, entry, useLimit, mocTxt, "", cfg);
 }
 
 //+------------------------------------------------------------------+
@@ -2773,8 +2502,21 @@ void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupNam
       SendPublicSignal(dir, mkt, limitPrice, true, slPub, true);
       return;
    }
+   // [v1.74] Shield chặn VÀO LỆNH, nhưng KÊNH TÍN HIỆU VẪN CHẠY.
+   // Trước đây thoát thẳng ở đây nên chạm DD/lãi ngày là kênh im lặng đến hết ngày —
+   // member tưởng bot chết. Nay xử lý y như chế độ chỉ-theo-dõi: phát tín hiệu với giá
+   // DỰ KIẾN, chỉ không đặt lệnh. Nhờ vậy tin "bot dừng vào lệnh, tín hiệu vẫn gửi"
+   // mới đúng sự thật.
+   // Chỉ áp cho 3 cờ TRẠNG THÁI TÀI KHOẢN. Các chốt chặn bên dưới (khung giờ tin, spread)
+   // vẫn im lặng như cũ: chúng là điều kiện kỹ thuật của CHÍNH sàn này, sàn của member
+   // khác hẳn nên phát tín hiệu dựa vào đó là sai.
    if(g_halted || g_shieldStopped || g_accountPassed)
-   { PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (Shield/halt đang chặn).", s.tag, setupName); return; }
+   {
+      PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (Shield/halt đang chặn) — vẫn phát tín hiệu.",
+                  s.tag, setupName);
+      SendPublicSignal(dir, mkt, limitPrice, true, slPub, true);
+      return;
+   }
    if(IsInNewsWindow())
    { PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (khung giờ tin tức).", s.tag, setupName); return; }
    if(Inp_MaxSpreadPoints > 0 && CurrentSpreadPoints() > Inp_MaxSpreadPoints)
@@ -2794,7 +2536,14 @@ void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupNam
    bool marketTooFar = (Inp_MaxDistFromLine_Pips > 0 &&
                         MathAbs(mkt - line) / GetPipSize() > Inp_MaxDistFromLine_Pips);
 
-   if(!marketTooFar || Inp_FarFromLine_Action == Far_VanVaoMarket)
+   // [v1.70] Chế độ CHỈ LIMIT thì bỏ qua trọn khối market bên dưới, kể cả nhánh
+   // "quá xa biên -> đổi thành limit tại biên" — nhánh đó sinh ra để CỨU vế market,
+   // không có vế market thì nó không có việc gì để làm.
+   if(Inp_KieuVaoLenh == KieuVao_Limit)
+   {
+      // không làm gì — vế market bị tắt bằng thiết lập
+   }
+   else if(!marketTooFar || Inp_FarFromLine_Action == Far_VanVaoMarket)
    {
       if(PlaceOneOrder(s, dir, mkt, false, "", setupName + " · market", cfg))
       { eMkt = mkt; okMkt = true; lotMkt = g_lotVuaDat; }
@@ -2813,8 +2562,15 @@ void ExecutePairEntry(SCRTSource &s, int dir, double limitPrice, string setupNam
                   s.tag, setupName, MathAbs(mkt - line) / GetPipSize(), Inp_MaxDistFromLine_Pips);
    }
 
-   if(PlaceOneOrder(s, dir, limitPrice, true, "mốc 50%", setupName + " · limit 50%", cfg))
-   { eLim = limitPrice; okLim = true; lotLim = g_lotVuaDat; }
+   // [v1.70] Vế limit 50% chỉ chạy ở chế độ CHỈ LIMIT và CẢ HAI.
+   // Khi setup chỉ còn 1 lệnh, các luật dựa trên "cặp lệnh" tự nhiên không còn việc để
+   // làm — không phải tắt gì thêm: luật "1 lệnh chạm TP -> xử lý lệnh kia" quét theo
+   // magic nên không tìm thấy lệnh cùng chiều, luật huỷ lệnh chờ cũng không có gì để huỷ.
+   if(Inp_KieuVaoLenh != KieuVao_TrucTiep)
+   {
+      if(PlaceOneOrder(s, dir, limitPrice, true, "mốc 50%", setupName + " · limit 50%", cfg))
+      { eLim = limitPrice; okLim = true; lotLim = g_lotVuaDat; }
+   }
 
    // Không lệnh nào vào -> IM LẶNG. Log đã ghi rõ lý do ở PlaceOneOrder; kênh public không
    // được nhận tín hiệu mà bot không hề tham gia.
@@ -2935,6 +2691,34 @@ bool PlaceOneOrder(SCRTSource &s, int dir, double entry, bool useLimit, string m
    double lots = CalcLots(slDist);
    if(lots <= 0) { PrintFormat("[CRT][%s] Bỏ qua %s: lots=0 (hết margin hoặc dưới lot tối thiểu).", s.tag, isBuy ? "BUY" : "SELL"); return false; }
 
+   // [v1.77] CHẶN TRƯỚC THEO DƯ ĐỊA LỖ NGÀY.
+   // Không có chốt này thì bot vẫn vào lệnh khi dư địa gần cạn — ví dụ đang lỗ 190$ với
+   // mốc DD 200$: lệnh rủi ro 100$ vẫn được mở, rồi giá nhúc nhích ngược là Shield đóng
+   // sạch ở −200$. Mốc DD không bị vượt (Shield đo equity NỔI mỗi tick nên nó chặn đúng
+   // chỗ), nhưng lệnh đó chết oan: trả spread + phí cho một lệnh không có chỗ thở, và
+   // một lệnh lẽ ra có thể thắng bị biến thành lỗ nhỏ.
+   // Nay so rủi ro THẬT của chính lệnh này với dư địa còn lại; không đủ chỗ thì nghỉ sớm.
+   // Dư địa tính từ equity NỔI nên đã bao gồm lãi lỗ của các lệnh đang mở.
+   // Không áp cho bên LÃI: ở đó vào thêm lệnh không gây hại — hoặc nó đẩy nhanh tới mục
+   // tiêu, hoặc nó đi ngược và ngày cứ chạy tiếp.
+   if(Inp_DailyDrawdownLimit > 0 && g_sodBalance > 0 && slDist > 0)
+   {
+      double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      if(tickVal > 0 && tickSize > 0)
+      {
+         double ruiRo   = lots * slDist / tickSize * tickVal;
+         double sanLo   = g_sodBalance - BalanceCoSo() * Inp_DailyDrawdownLimit / 100.0;
+         double duDia   = AccountInfoDouble(ACCOUNT_EQUITY) - sanLo;
+         if(ruiRo > duDia)
+         {
+            PrintFormat("[CRT][%s] Bỏ qua %s: rủi ro lệnh %.2f$ > dư địa lỗ ngày còn lại %.2f$ -> nghỉ sớm thay vì vào rồi bị Shield cắt.",
+                        s.tag, isBuy ? "BUY" : "SELL", ruiRo, duDia);
+            return false;
+         }
+      }
+   }
+
    // Chế độ KHÔNG ĐẶT SL: gửi SL=0 lên sàn, giao việc cắt lỗ cho Pool SL / Account SL / Daily DD.
    double slOrder = (Inp_SL_Mode == SLMode_KhongDatSL) ? 0 : sl;
 
@@ -3007,16 +2791,8 @@ void NotifyOrderPlaced(SCRTSource &s, int dir, double lots, double entry, double
       : StringFormat("🛡️ <b>SL:</b> %s (%s pip)",
                      DoubleToString(sl, _Digits), DoubleToString(slPips, 1));
 
-   // Nhãn dòng giá: Mode 2 tự mô tả qua setupName; Mode 1 lấy theo Inp_Entry_Mode.
-   string priceLabel;
-   if(Inp_TradeMode == TradeMode_NenQuet_LTF)
-      priceLabel = useLimit ? "Giá chờ (50%)" : "Entry";
-   else if(Inp_Entry_Mode == EntryMode_LimitTaiZoneEntry)
-      priceLabel = "Giá chờ (Zone " + TFToString(Inp_EntryTF) + ")";
-   else if(Inp_Entry_Mode == EntryMode_LimitTaiBienHTF)
-      priceLabel = "Giá chờ (biên " + TFToString(Inp_HTF) + ")";
-   else
-      priceLabel = "Entry";
+   // Nhãn dòng giá — setupName đã tự mô tả nhánh, ở đây chỉ phân biệt lệnh chờ / market.
+   string priceLabel = useLimit ? "Giá chờ (50%)" : "Entry";
 
    // [v1.63] Không kèm chart nữa: tin tín hiệu ngay trước đó đã có ảnh chart của cùng
    // cây nến, chụp lại lần hai chỉ tốn thời gian và làm dài kênh.
@@ -3093,6 +2869,24 @@ double ComputeTP(SCRTSource &s, int dir, double entry, double sl, STPConfig &cfg
 // Khối lượng lệnh: theo % tài khoản (SL cho trước) hoặc lot cố định.
 // Có giới hạn margin như BOT_TLS: tự cắt lot để tổng margin không vượt ngưỡng.
 //+------------------------------------------------------------------+
+// [v1.74] Mốc quy đổi cho MỌI thiết lập tính bằng % tài khoản. Mặc định là một con số
+// CỐ ĐỊNH do người dùng đặt (10.000$), không phải số dư thật.
+// Lý do: số dư thật thay đổi từng ngày nên cùng một con số % lại ra ngưỡng tiền khác
+// nhau mỗi ngày — muốn biết hôm nay lỗ bao nhiêu $ là chạm DD thì phải tính lại. Chốt
+// một mốc cố định thì 3% luôn đúng bằng 300$, khỏi nhẩm.
+// Để 0 thì quay về hành vi cũ: bám số dư thật, tự co giãn theo tài khoản.
+// DÙNG CHUNG cho: Risk %/lệnh, giới hạn margin, Account SL, DD ngày, Lãi ngày.
+// KHÔNG đụng phép ĐO mức lỗ/lãi thực tế — cái đó vẫn so với số dư đầu ngày thật, chỉ
+// riêng NGƯỠNG là quy từ mốc cố định.
+//+------------------------------------------------------------------+
+double BalanceCoSo()
+{
+   if(Inp_BalanceCoSo > 0)
+      return Inp_BalanceCoSo;
+   return AccountInfoDouble(ACCOUNT_BALANCE);
+}
+
+//+------------------------------------------------------------------+
 double CalcLots(double slDistancePrice)
 {
    double minL  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
@@ -3100,15 +2894,24 @@ double CalcLots(double slDistancePrice)
    double stepL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    double lots;
 
-   if(!Inp_UseRiskPercent)
+   if(Inp_LotMode == LotMode_CoDinh)
       lots = Inp_FixedLotSize;
    else
    {
+      // [v1.69] Hai chế độ tính-ngược đi chung một công thức, chỉ khác chỗ lấy SỐ TIỀN
+      // RỦI RO: % tài khoản thì nhân từ balance, còn LotMode_SoTienUSD thì người dùng gõ
+      // thẳng số $ chịu mất. Số $ cố định KHÔNG co giãn theo balance — đó là điểm khác
+      // biệt duy nhất và cũng là lý do dùng nó: mỗi lệnh thua đúng một khoản đã biết,
+      // không phụ thuộc tài khoản đang lãi hay lỗ.
       if(slDistancePrice <= 0)
+         return 0;   // không có SL thì không suy ra được lot — chỉ lot cố định mới chạy được
+
+      double riskMoney = (Inp_LotMode == LotMode_SoTienUSD)
+                            ? Inp_RiskMoneyUSD
+                            : BalanceCoSo() * Inp_RiskPercent / 100.0;
+      if(riskMoney <= 0)
          return 0;
 
-      double bal      = AccountInfoDouble(ACCOUNT_BALANCE);
-      double riskMoney= bal * Inp_RiskPercent / 100.0;
       double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
       double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
       if(tickVal <= 0 || tickSize <= 0)
@@ -3121,22 +2924,10 @@ double CalcLots(double slDistancePrice)
       lots = riskMoney / lossPerLot;
    }
 
-   if(Inp_UseMarginLimit)
-   {
-      double usedMargin  = AccountInfoDouble(ACCOUNT_MARGIN);
-      double maxMargin   = AccountInfoDouble(ACCOUNT_BALANCE) * Inp_MaxMarginPercent / 100.0;
-      double marginRoom  = maxMargin - usedMargin;
-      if(marginRoom <= 0)
-         return 0;
-
-      double marginPerLot = 0;
-      double askPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      if(!OrderCalcMargin(ORDER_TYPE_BUY, _Symbol, 1.0, askPrice, marginPerLot))
-         marginPerLot = (SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE) * askPrice)
-                      / AccountInfoInteger(ACCOUNT_LEVERAGE);
-      if(marginPerLot > 0)
-         lots = MathMin(lots, marginRoom / marginPerLot);
-   }
+   // [v1.75] Khối giới hạn margin đã gỡ hẳn theo yêu cầu (chỉ cần khi chạy bot quỹ).
+   // Hệ quả cần nhớ: lot KHÔNG còn trần nào ngoài SYMBOL_VOLUME_MAX. Với chế độ rủi ro
+   // theo số tiền, setup có SL rất chặt sẽ ra lot lớn — đó là hành vi đúng của công thức,
+   // muốn chặn thì hạ Inp_RiskMoneyUSD chứ không còn cơ chế tự giảm lot.
 
    if(stepL > 0) lots = MathFloor(lots / stepL) * stepL;
    if(lots < minL)
@@ -3265,14 +3056,14 @@ void CheckAccountStop()
       return;
 
    double eq    = AccountInfoDouble(ACCOUNT_EQUITY);
-   double limit = g_startBalance * (1.0 - Inp_AccountSL_Percent / 100.0);
+   double limit = g_startBalance - BalanceCoSo() * Inp_AccountSL_Percent / 100.0;
    if(eq <= limit)
    {
       CloseAllBotOrders();
       g_halted = true;
       PrintFormat("[CRT] 🛑 ACCOUNT SL: equity %.2f <= %.2f (-%.1f%%). Đóng tất cả & dừng vào lệnh.",
                   eq, limit, Inp_AccountSL_Percent);
-      if(Inp_EnableTelegram)
+      if(TinVanHanhDuocPhep())
          g_radar.SendMessage(StringFormat(
             "🛑 <b>ACCOUNT SL — DỪNG GIAO DỊCH</b>\n━━━━━━━━━━━━━━━\n"
             "💸 Equity %s$ <= ngưỡng %s$ (-%s%%)\n"
@@ -3323,7 +3114,7 @@ void ManageShield()
       g_shieldStopped = true;
       g_shieldReason  = "Đã đạt mục tiêu " + DoubleToString(eq, 2) + "$";
       PrintFormat("[CRT] 🏆 AUTO PASS: equity %.2f >= %.2f. Đóng tất cả & dừng hẳn.", eq, Inp_AutoPassTarget);
-      if(Inp_EnableTelegram)
+      if(TinVanHanhDuocPhep())
          g_radar.SendMessage(StringFormat(
             "🏆 <b>ĐẠT MỤC TIÊU — DỪNG GIAO DỊCH</b>\n━━━━━━━━━━━━━━━\n"
             "💰 Equity: %s$ (mục tiêu %s$)\n✅ Đã chốt toàn bộ lệnh.",
@@ -3336,38 +3127,51 @@ void ManageShield()
 
    if(Inp_DailyDrawdownLimit > 0)
    {
-      double lossLimit = g_sodBalance * (1.0 - Inp_DailyDrawdownLimit / 100.0);
+      double lossLimit = g_sodBalance - BalanceCoSo() * Inp_DailyDrawdownLimit / 100.0;
       if(eq <= lossLimit)
       {
          CloseAllBotOrders();
          g_shieldStopped = true;
          g_shieldReason  = "Chạm Daily DD " + DoubleToString(Inp_DailyDrawdownLimit, 1) + "%";
          PrintFormat("[CRT] 🛑 DAILY DD: equity %.2f <= %.2f. Nghỉ đến hết ngày.", eq, lossLimit);
+         // [v1.74] Tin này GỬI CẢ KÊNH CÔNG KHAI, nên tuyệt đối không có con số tài khoản
+         // — không equity, không số dư, không cả % ngưỡng (biết % là suy ra được số tiền).
+         // Bản nội bộ vẫn in đủ số liệu để chủ bot đối chiếu.
          if(Inp_EnableTelegram)
-            g_radar.SendMessage(StringFormat(
-               "🛑 <b>CHẠM GIỚI HẠN LỖ NGÀY</b>\n━━━━━━━━━━━━━━━\n"
-               "💸 Equity: %s$ (đầu ngày %s$, giới hạn -%s%%)\n"
-               "😴 Nghỉ giao dịch đến hết ngày.",
-               DoubleToString(eq, 2), DoubleToString(g_sodBalance, 2),
-               DoubleToString(Inp_DailyDrawdownLimit, 1)));
+            g_radar.SendMessage(TinVanHanhDuocPhep()
+               ? StringFormat(
+                    "🛑 <b>CHẠM GIỚI HẠN LỖ NGÀY</b>\n━━━━━━━━━━━━━━━\n"
+                    "💸 Equity: %s$ (đầu ngày %s$, giới hạn -%s%%)\n"
+                    "😴 Nghỉ giao dịch đến hết ngày.",
+                    DoubleToString(eq, 2), DoubleToString(g_sodBalance, 2),
+                    DoubleToString(Inp_DailyDrawdownLimit, 1))
+               : "🛑 <b>ĐÃ CHẠM MỐC GIỚI HẠN THUA LỖ NGÀY</b>\n━━━━━━━━━━━━━━━\n"
+                 "😴 Bot dừng vào lệnh đến hết ngày.\n"
+                 "📡 Tín hiệu vẫn tiếp tục được gửi như thường.");
          return;
       }
    }
 
    if(Inp_DailyProfitLimit > 0)
    {
-      double profitPct = (eq - g_sodBalance) / g_sodBalance * 100.0;
-      if(profitPct >= Inp_DailyProfitLimit)
+      double profitMoney  = eq - g_sodBalance;
+      double profitTarget = BalanceCoSo() * Inp_DailyProfitLimit / 100.0;
+      double profitPct    = (g_sodBalance > 0) ? profitMoney / g_sodBalance * 100.0 : 0;
+      if(profitMoney >= profitTarget)
       {
          CloseAllBotOrders();
          g_shieldStopped = true;
          g_shieldReason  = "Đạt Daily Profit +" + DoubleToString(profitPct, 2) + "%";
          PrintFormat("[CRT] 🎯 DAILY PROFIT: +%.2f%% >= %.1f%%. Nghỉ đến hết ngày.", profitPct, Inp_DailyProfitLimit);
          if(Inp_EnableTelegram)
-            g_radar.SendMessage(StringFormat(
-               "🎯 <b>ĐẠT MỤC TIÊU LÃI NGÀY</b>\n━━━━━━━━━━━━━━━\n"
-               "💰 +%s%% (equity %s$)\n✅ Đã chốt toàn bộ lệnh, nghỉ đến hết ngày.",
-               DoubleToString(profitPct, 2), DoubleToString(eq, 2)));
+            g_radar.SendMessage(TinVanHanhDuocPhep()
+               ? StringFormat(
+                    "🎯 <b>ĐẠT MỤC TIÊU LÃI NGÀY</b>\n━━━━━━━━━━━━━━━\n"
+                    "💰 +%s%% (equity %s$)\n✅ Đã chốt toàn bộ lệnh, nghỉ đến hết ngày.",
+                    DoubleToString(profitPct, 2), DoubleToString(eq, 2))
+               : "🎯 <b>ĐÃ ĐẠT MỐC LỢI NHUẬN NGÀY</b>\n━━━━━━━━━━━━━━━\n"
+                 "✅ Bot dừng vào lệnh đến hết ngày.\n"
+                 "📡 Tín hiệu vẫn tiếp tục được gửi như thường.");
       }
    }
 }
@@ -3456,7 +3260,7 @@ void NotifyPoolSL(bool isBuy, double pnl, double balance)
    double pct = MathAbs(pnl) / balance * 100.0;
    PrintFormat("[CRT] 🛑 POOL SL %s: lỗ %.2f$ (-%.2f%%) >= ngưỡng %.1f%%. Đã đóng nhóm lệnh này.",
                isBuy ? "BUY" : "SELL", pnl, pct, Inp_Pool_SL_Percent);
-   if(Inp_EnableTelegram)
+   if(TinVanHanhDuocPhep())
       g_radar.SendMessage(StringFormat(
          "🛑 <b>SL THEO %%: ĐÓNG NHÓM LỆNH %s</b>\n━━━━━━━━━━━━━━━\n"
          "💸 <b>Lỗ:</b> %s$ (-%s%%)\n"
@@ -3571,7 +3375,8 @@ void HandlePairAfterTP(long magic, int dir)
       // của chính nó. Đã cân nhắc 2 hướng khác — đóng luôn lệnh âm, hoặc nuốt dòng log
       // thất bại — và bỏ cả hai. Dòng log "dời SL THẤT BẠI" ở đây là BÌNH THƯỜNG, không
       // phải lỗi cần vá.
-      MovePositionToBreakeven(tk, "1 lệnh trong cặp đã chạm TP");
+      if(Inp_BE_KhiLenhKiaTP)
+         MovePositionToBreakeven(tk, "1 lệnh trong cặp đã chạm TP");
    }
 }
 
@@ -3823,10 +3628,8 @@ void UpdateDashboard()
    }
    else
    {
-      lines[n] = StringFormat("CRT · %s · Gốc %s · Quét %s%s",
-                     Inp_TradeMode == TradeMode_NenQuet_LTF ? "Mode NẾN QUÉT" : "Mode BOS/CHOCH",
-                     TFToString(Inp_HTF), TFToString(Inp_LTF),
-                     Inp_TradeMode == TradeMode_NenQuet_LTF ? "" : (" · Entry " + TFToString(Inp_EntryTF)));
+      lines[n] = StringFormat("CRT · Mode NẾN QUÉT · Gốc %s · Quét %s",
+                     TFToString(Inp_HTF), TFToString(Inp_LTF));
       clrs[n] = cNeutral; n++;
 
       if(AdjacentEnabled())
@@ -3862,8 +3665,7 @@ void UpdateDashboard()
       { entryTxt = "Vào lệnh: ⏸ tạm dừng (khung giờ tin tức)"; entryClr = Inp_ColorSweepHigh; }
       else
       {
-         string vaoTF = (Inp_TradeMode == TradeMode_NenQuet_LTF)
-                        ? TFToString(Inp_LTF) : TFToString(Inp_EntryTF);
+         string vaoTF = TFToString(Inp_LTF);
          if(Inp_EntrySource == Bien_LienKe)
             entryTxt = "Vào lệnh (" + vaoTF + ") · " + EntryStatusText(g_srcAdj);
          else if(Inp_EntrySource == Bien_Swing)
@@ -3905,19 +3707,9 @@ string EntryStatusText(SCRTSource &s)
       if(s.m2Waiting)
          armTxt = (s.m2Dir > 0) ? "chờ nến 2 (BUY)" : "chờ nến 2 (SELL)";
    }
-   else if(s.armed)
-      armTxt = (s.armDir > 0) ? "chờ BUY" : "chờ SELL";
-
-   string limitTxt = "";
-   if(s.maxOrdersPerRound > 0)
-      limitTxt += StringFormat(" · lệnh/vòng %d/%d", s.ordersThisRound, s.maxOrdersPerRound);
-   else
-      limitTxt += StringFormat(" · lệnh/vòng %d", s.ordersThisRound);
-   if(Inp_MaxRoundsPerSignal > 0)
-      limitTxt += StringFormat(" · vòng %d/%d", s.profitRounds, Inp_MaxRoundsPerSignal);
-
-   return StringFormat("[%s] %s · đang mở %d%s", s.tag, armTxt,
-                       CountEAPositions(s.magic), limitTxt);
+   // [v1.75] Bỏ phần "lệnh/vòng" và "vòng" trên dashboard: hai hạn mức đó thuộc Mode 1,
+   // đã gỡ. Mode nến quét bị chặn bởi luật mạnh hơn — 1 phía biên = đúng 1 cặp lệnh.
+   return StringFormat("[%s] %s · đang mở %d", s.tag, armTxt, CountEAPositions(s.magic));
 }
 
 //+------------------------------------------------------------------+

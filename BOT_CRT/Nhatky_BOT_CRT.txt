@@ -1,3 +1,168 @@
+Nhật ký 2026-09-12/20 — BOT_CRT  (CRT_MultiTF_EA v1.66 -> v1.77)
+
+Chặng dài, chia làm 3 mạch: (A) thêm cơ chế quản lý vốn, (B) chuyển kênh Telegram sang
+channel công khai và bịt các chỗ lộ số dư, (C) cắt giảm mạnh — bỏ hẳn BOS/CHOCH.
+Input 82 -> 59. File 4520 -> 4113 dòng.
+
+Trong chặng này tôi (Claude) làm hỏng file 2 lần bằng script PowerShell. Cả hai đã sửa,
+nhưng chép lại ở mục E vì đó là loại lỗi rất dễ lặp.
+
+=====================================================================
+A. QUẢN LÝ VỐN
+=====================================================================
+
+[1.67] Inp_BE_TriggerPips (mặc định 50) — lãi đạt N pip thì dời SL về hoà vốn.
+  Đây là luật hoà vốn THỨ BA, chạy song song 2 luật cũ. Cả ba gọi chung
+  MovePositionToBreakeven() mà hàm đó chỉ dời khi CÓ LỢI -> luật nào kích trước thì
+  thắng, không cần thứ tự ưu tiên, không cần cờ chống trùng.
+  Vì sao cần: 2 luật cũ có thể KHÔNG BAO GIỜ kích. Biên đối diện của nguồn Swing có khi
+  cách cả trăm pip; luật cặp lệnh chỉ chạy nếu vế kia ăn TP.
+  Đo lãi bằng giá ĐÓNG ĐƯỢC (BUY theo Bid, SELL theo Ask) — lấy nhầm chiều là lệch
+  nguyên một spread, vàng 24 pip.
+
+[1.68-1.69] Ba luật hoà vốn nay tắt được độc lập:
+    Inp_BE_TriggerPips = 0       -> tắt luật theo khoảng lãi
+    Inp_BE_TaiBienDoiDien = false -> tắt luật theo biên đối diện
+    Inp_BE_KhiLenhKiaTP = false   -> tắt luật theo cặp lệnh
+
+[1.69-1.70] Inp_LotMode thay input bool Inp_UseRiskPercent — 3 chế độ: lot cố định /
+  % tài khoản / SỐ TIỀN $. Chế độ $ gõ thẳng số tiền chịu mất, bot chia ngược ra lot;
+  KHÔNG co giãn theo balance.
+  THỨ TỰ ENUM CỐ Ý GIỮ: 0 = lot cố định (ứng bool false cũ), 1 = % tài khoản (true cũ).
+  Cả 2 chế độ tính-ngược cần SL > 0; dùng kèm SLMode_KhongDatSL thì lot = 0, lệnh bị bỏ.
+  CẢNH BÁO: $100 là mỗi LỆNH, không phải mỗi setup. Vào cả market + limit = 200$ nếu cả
+  hai khớp rồi cùng dính SL.
+
+[1.70] Inp_KieuVaoLenh 3 chế độ: Trực tiếp / Limit / Cả hai (mặc định).
+  CHỖ DỄ SÓT: chế độ CHỈ LIMIT phải bỏ qua TRỌN khối market, kể cả nhánh "quá xa biên ->
+  đổi market thành limit tại biên". Nhánh đó sinh ra để CỨU vế market; để nó chạy là mọc
+  thêm một limit thứ hai tại đường biên, thành 2 lệnh dù người dùng chọn 1.
+
+[1.74] Inp_BalanceCoSo (mặc định 10.000$) — mốc quy đổi cho MỌI thiết lập tính bằng %.
+  Lý do: số dư thật đổi hằng ngày nên cùng % lại ra ngưỡng tiền khác nhau. Chốt mốc cố
+  định thì 3% luôn đúng 300$. Để 0 là quay về bám số dư thật.
+  Áp cho 5 chỗ: risk %/lệnh, giới hạn margin (sau đã gỡ), Account SL, DD ngày, Lãi ngày.
+  CHỈ ĐỔI NGƯỠNG, không đổi phép ĐO: mức lỗ/lãi thực tế vẫn so với số dư đầu ngày thật.
+
+[1.77] CHẶN TRƯỚC THEO DƯ ĐỊA LỖ NGÀY — không thêm input, tự bật theo DailyDrawdownLimit.
+  Câu hỏi người dùng: đang lỗ 190$ với mốc 200$, vào lệnh rủi ro 100$ thì sao?
+  ĐÃ XÁC MINH: Shield đo EQUITY NỔI mỗi tick nên mốc KHÔNG bị vượt — lệnh mới bị đóng ở
+  khoảng −10$, ngày chốt đúng −200$. Nỗi lo −290$ là không có thật.
+  Nhưng có thiệt hại khác: lệnh chết oan. Mở lệnh rủi ro 100$ với 10$ dư địa thì nó không
+  có chỗ thở, giá nhúc nhích ngược là bị cắt — trả spread + phí cho một lệnh lẽ ra có thể
+  thắng. Nay so rủi ro THẬT của lệnh với dư địa còn lại, không đủ thì nghỉ sớm.
+  Dư địa tính từ equity nổi nên đã gồm lãi lỗ lệnh đang mở, không đếm trùng.
+  KHÔNG áp cho bên LÃI (quyết định người dùng 20/09): ở đó vào thêm lệnh không hại — hoặc
+  đẩy nhanh tới mục tiêu, hoặc đi ngược và ngày cứ chạy tiếp. Chạm mốc lãi vẫn ĐÓNG HẾT.
+
+=====================================================================
+B. TELEGRAM — CHUYỂN SANG CHANNEL CÔNG KHAI
+=====================================================================
+
+Bối cảnh ĐỔI BẢN CHẤT: trước đây bot bắn vào group riêng, chủ bot forward tay tin public
+sang group member. Từ 20/09 bot bắn thẳng vào channel CRT_Signal_TradingZone
+(id -1004487964833) và MEMBER ĐỌC TRỰC TIẾP. Cơ chế lọc-bằng-tay biến mất.
+Bot đã là admin channel, can_post_messages = true (kiểm bằng API, không đoán).
+
+[1.72] BỊT LỘ SỐ DƯ — 6 chỗ, không phải 1.
+  Lần rà đầu tôi chỉ grep ACCOUNT_BALANCE nên SÓT hết nhóm dùng biến trung gian, và đã
+  khẳng định nhầm với người dùng là "không còn Balance ở đâu". Ảnh Telegram thật cho thấy
+  Balance 100263.53$ nằm công khai trên channel.
+  Rà lại theo TỪNG LỜI GỌI gửi tin mới đủ. Sáu chỗ: tin khởi động, Account SL, Auto Pass,
+  DD ngày, Lãi ngày, Pool SL. Tất cả nay qua cổng TinVanHanhDuocPhep() (= Inp_EnableTelegram
+  && Inp_TG_TinChiTiet). Inp_TG_TinChiTiet mặc định TẮT.
+  BÀI HỌC: rà rò rỉ phải đi theo ĐIỂM GỬI, không đi theo tên biến.
+
+[1.73] Tin khởi động tách 2 bản. Bịt xong ở 1.72 thì chủ bot mất luôn cách xác nhận bot
+  đã nối đúng channel — đúng vấn đề gặp ngay sau đó. Nay kênh công khai vẫn nhận bản tối
+  giản (cặp, khung, giờ VN), bản đầy đủ có Balance chỉ khi kênh nội bộ.
+
+[1.74] Tin DD ngày / Lãi ngày cũng tách 2 bản. Bản công khai KHÔNG có con số nào, kể cả
+  % ngưỡng — biết % là suy ngược ra số tiền.
+  KÈM THEO — sửa một chỗ khiến tin nói dối: câu "tín hiệu vẫn tiếp tục được gửi" trước
+  đây SAI. Shield chặn ở đầu ExecutePairEntry và thoát luôn, nên chạm DD/lãi là kênh im
+  lặng tới hết ngày, member tưởng bot chết. Nay 3 cờ trạng thái tài khoản (halted /
+  shieldStopped / accountPassed) chỉ chặn ĐẶT LỆNH, tín hiệu vẫn phát với giá dự kiến.
+  KHÔNG áp cho khung giờ tin và spread: đó là điều kiện kỹ thuật của SÀN NÀY, sàn của
+  member khác hẳn.
+
+  NẾU QUAY LẠI MÔ HÌNH FORWARD TAY: bật lại Inp_TG_TinChiTiet VÀ trỏ ChatID về group
+  riêng. Đừng bật tin chi tiết khi ChatID còn là channel công khai.
+
+=====================================================================
+C. CẮT GIẢM — BỎ HẲN BOS/CHOCH  [1.75-1.76]
+=====================================================================
+
+Bot chỉ còn vào lệnh theo mode nến quét. Không chỉ ẩn input mà XOÁ TRỌN nhánh code:
+8 hàm (ArmSetupSource, CheckDisarmSource, ProcessEntrySource, ExecuteEntry,
+ConfirmLowSweep, ConfirmHighSweep, TPCfg_ModeBOS, StripNonBosObjects, GetLatestBreak),
+engine BOS khung entry (g_entryEngine + prefix + biến phụ), và phần thân Mode 1 trong
+ProcessSourceSweep. Kiểm trước khi xoá: đồ thị gọi khép kín, không chỗ nào ngoài Mode 1
+dùng tới.
+
+GẮN CỨNG (ẩn khỏi Input, giữ nguyên giá trị đang chạy):
+  Inp_TradeMode = NenQuet_LTF · Inp_EntrySource = Ca2_LienKe_Va_Swing
+  Inp_MaxSpreadPoints = 0 · Inp_Lib_Pinbar = true · Inp_Lib_Engulfing = true
+  cả 6 công tắc setup 2.1/2.1b/2.2 (LK và SW) = true
+
+GỠ HẲN: giới hạn margin (chỉ cần khi chạy bot quỹ).
+  HỆ QUẢ: lot không còn trần nào ngoài SYMBOL_VOLUME_MAX. Với chế độ rủi ro theo số tiền,
+  setup có SL rất chặt sẽ ra lot lớn — muốn chặn thì hạ Inp_RiskMoneyUSD.
+
+[1.76] Inp_ShowZones: zone do engine khung entry vẽ, engine đã gỡ nên input thành cái vỏ.
+  Quét toàn bộ 60 input tìm loại chỉ-khai-báo-không-dùng — đúng một mình nó.
+
+Nhóm Input đánh số lại liền mạch 1..7.
+
+=====================================================================
+D. FILE .SET — GỘP CÒN MỘT BẢN
+=====================================================================
+
+Trước có 2: CRT_MultiTF_EA.set (preset repo) và crt.set (bản chạy thật, lệch 13 giá trị).
+Nay còn MỘT: CRT_MultiTF_EA.set, dựng trên nền BẢN CHẠY THẬT vì đó mới là thứ đã qua
+thực chiến. 59 mục, khớp tên và thứ tự với code.
+
+SỰ CỐ khi gộp: script bị chặn trước khi chạy nhưng tôi đọc nhầm thành đã xong, rồi XOÁ
+crt.set TRƯỚC KHI có bản thay thế. Không mất dữ liệu vì 13 giá trị khác biệt đã in ra ở
+bước đối chiếu ngay trước đó nên dựng lại chính xác. Bài học: kiểm file mới tồn tại rồi
+mới xoá file cũ — đúng như quy trình vẫn áp cho backup zip.
+
+=====================================================================
+E. HAI LẦN LÀM HỎNG FILE BẰNG SCRIPT — ĐỌC KỸ TRƯỚC KHI LẶP
+=====================================================================
+
+E.1. MÃ HOÁ (v1.71). Lệnh bump version:
+       (Get-Content file) | Set-Content file -Encoding UTF8
+     File gốc là UTF-8 KHÔNG BOM. Get-Content không thấy BOM nên đọc theo ANSI, mỗi ký tự
+     tiếng Việt vỡ thành 2-3 ký tự rác; Set-Content ghi đè phần rác. 1630 dòng hỏng, và
+     chuỗi tiếng Việt hỏng thì tin Telegram gửi ra cũng hỏng theo.
+     Đảo ngược được vì phép hỏng là song ánh: chuỗi hiện tại -> encode CP1252 -> ra đúng
+     dãy byte UTF-8 gốc. Script kiểm 3 điều kiện trước khi ghi: không mất ký tự, áp lại
+     đúng lỗi cũ phải ra đúng file hỏng, kết quả phải chứa ký tự tiếng Việt thật.
+     => TỪ NAY sửa file nguồn LUÔN dùng ReadAllText/WriteAllText với encoding chỉ định rõ.
+
+E.2. THAY THẾ REGEX (v1.75). Đánh số lại nhóm input bằng:
+       -replace '^(input group "=== )3(\. )', ('$1' + '2' + '$2')
+     PowerShell ghép thành chuỗi '$12' và -replace hiểu là nhóm bắt số 12 (không tồn tại)
+     -> nuốt mất đầu 6 dòng. PHẢI dùng ${1}.
+     => Sau mỗi thao tác script trên file nguồn, KIỂM LẠI KẾT QUẢ, đừng tin thông báo
+        "thành công" của script.
+
+=====================================================================
+F. VIỆC CÒN LẠI
+=====================================================================
+
+· CHƯA NẠP LÊN VPS. Bản trên VPS còn cũ hơn nhiều (trước cả 1.71), tức vẫn dính lỗi mã
+  hoá và lỗ rò số dư. Nạp .ex5 + 3 file include (CSMC_Engine, Telegram_Radar,
+  Signal_Candle) sang MQL5\Include của VPS.
+· CHƯA backtest lại sau khi đổi chế độ lot sang $100 và bật DD 3% / lãi 5%. Ba thay đổi
+  này đổi hành vi thật, số cũ không còn so sánh được.
+· .set đang để DD = 3.0 và Lãi = 5.0 (tức 300$/500$ với mốc 10k). Người dùng nói muốn
+  200$/150$ tức 2.0 / 1.5 — CHƯA ghi vào file, đang chờ xác nhận.
+· Tài liệu đặc tả (artifact) vẫn ở trạng thái v1.62, chưa cập nhật cho 1.63->1.77.
+· Token Telegram vẫn hardcode trong .mq5 và .set.
+
+
 Nhật ký 2026-09-20 — BOT_CRT · CẬP NHẬT FILE DÙNG CHUNG CSMC_Engine.mqh
 
 Bot này KHÔNG bị sửa. Chỉ ghi lại vì nó dùng `#include <CSMC_Engine.mqh>` — file
