@@ -84,6 +84,8 @@ input ENUM_ENTRY_MODE Inp_Entry_Mode   = ENTRY_SMART;
 input double Market_vs_Limit_Pips      = 50.0;
 // Max_Zone_SL_Pips (Khoảng cách SL tối đa cho phép theo pips, nếu zone rộng hơn mức này sẽ bị thu hẹp lại để SL không quá xa)
 input double Max_Zone_SL_Pips          = 300.0;
+// Inp_Min_SL_Pips (Khoảng cách SL tối thiểu theo pips; lệnh có SL hẹp hơn mức này bị bỏ qua vì dễ bị nhiễu và spread quét; để 0 = tắt)
+input double Inp_Min_SL_Pips           = 0.0;
 // Entry_Buffer_Percent (Tỷ lệ % độ rộng zone dùng để dịch điểm vào lệnh: số dương dịch ra ngoài mép zone, số âm dịch vào sâu trong zone)
 input double Entry_Buffer_Percent      = 10.0;
 // Min_Reward_to_Risk_R (Tỷ lệ Reward:Risk - R tối thiểu yêu cầu; nếu mục tiêu lợi nhuận không đạt tỷ lệ này so với rủi ro thì bỏ qua lệnh)
@@ -152,6 +154,8 @@ input group "--- Dashboard Settings ---"
 const color  DashboardColor                = clrBlack;
 // Inp_Debug_Gate (Bật ghi log debug chi tiết cho Gatekeeper vào tab Experts)
 input bool   Inp_Debug_Gate                = false;
+// Inp_Matrix_File (Ten file ma tran CSV trong Common\Files, doi de thu cau hinh khac)
+input string Inp_Matrix_File               = "TLS_Matrix_Trend.csv";
 
 // ==================================================================
 // STRUCTS
@@ -171,6 +175,37 @@ struct TPosTracker {
     bool partial_done; double trail_r_watermark; double realized_pnl; bool be_notified;
 };
 TPosTracker g_trackers[];
+
+// ==================================================================
+// NGHIÊN CỨU QUẢN LÝ LỆNH — CHỈ HOẠT ĐỘNG TRONG STRATEGY TESTER
+// Ghi lãi nổi cao nhất (MFE) của từng lệnh, mô phỏng song song các mốc dời SL
+// và các mức TP ngắn hơn, cùng nhịp xu hướng lúc vào lệnh. KHÔNG đổi cách bot
+// vào/đóng lệnh. OnTester() in các bảng "[STUDY]" để chọn cách quản lý lệnh
+// bằng số liệu thay vì phỏng đoán.
+// ==================================================================
+#define STUDY_NX 5                                   // số mốc kích hoạt dời SL
+#define STUDY_NT 4                                   // số mức TP ngắn hơn
+double g_study_x[STUDY_NX]  = {0.5, 1.0, 1.5, 2.0, 2.5};
+double g_study_tp[STUDY_NT] = {1.0, 1.5, 2.0, 2.5};
+struct TStudy {
+    long   pos_id;  int dir;  double open;  double risk;  double mfe_R;
+    bool   be_arm[STUDY_NX];  bool be_hit[STUDY_NX];     // SL -> điểm vào khi chạm mốc
+    bool   lk_arm[STUDY_NX];  bool lk_hit[STUDY_NX];     // SL -> +0.5R khi chạm mốc
+    int    leg_ltf; int leg_htf;                         // nhịp xu hướng Major lúc vào lệnh
+    datetime open_time;                                  // giờ server lúc vào lệnh
+    int    rule_idx;                                     // dòng ma trận (magic - BaseMagicNumber)
+    // Đặc điểm lúc vào lệnh theo 5 khung: 0=chart, 1=HTF, 2=Trend, 3=H4, 4=D1
+    int    tr_maj[5];                                    // xu hướng Major: 1 tăng, -1 giảm, 0 chưa rõ
+    bool   in_zone[5];                                   // giá vào nằm trong zone CÙNG chiều lệnh
+    double zone_dist[5];                                 // pip từ giá vào tới mép zone cùng chiều (<=0: trong/qua zone), -99999 = không có zone
+    double room[5];                                      // pip tới mép zone NGƯỢC chiều (khoảng trống tới cản), -1 = không có
+    datetime t_1r;                                       // lần đầu lãi nổi chạm 1R (0 = chưa từng)
+    datetime t_mfe;                                      // thời điểm lãi nổi cao nhất
+};
+TStudy g_study[];
+// Nhịp xu hướng Major: 1 tại CHoCH, +1 mỗi BOS cùng chiều. Cập nhật mỗi nến mới.
+int    g_leg_ltf = 0, g_leg_ltf_dir = 0;  double g_leg_ltf_up = 0, g_leg_ltf_dn = 0;
+int    g_leg_htf = 0, g_leg_htf_dir = 0;  double g_leg_htf_up = 0, g_leg_htf_dn = 0;
 
 // ==================================================================
 // BIẾN TOÀN CỤC
@@ -232,6 +267,42 @@ int         g_retry_count = 0;
 // ==================================================================
 // CLOSE RETRY HELPERS
 // ==================================================================
+// Khi thị trường đóng, mọi lệnh modify/close đều trả 10018 và code cũ thử lại
+// MỖI TICK: đo được 14.242 modify hỏng + 3.647 close hỏng chỉ trong một tháng
+// backtest. Chặn lại 5 phút sau mỗi lần dính 10018 rồi mới cho thử tiếp.
+datetime g_mkt_closed_until = 0;
+bool MarketClosedBackoff() { return (TimeCurrent() < g_mkt_closed_until); }
+void NoteRetcode(uint rc) {
+    if(rc == TRADE_RETCODE_MARKET_CLOSED) g_mkt_closed_until = TimeCurrent() + 300;
+}
+
+// Sàn cấm đặt SL/TP quá sát giá lệnh (SYMBOL_TRADE_STOPS_LEVEL). Trước đây lệnh
+// rơi vào vùng cấm bị trả về [Invalid stops] và MẤT LUÔN: đo được 612 lệnh limit
+// (ma trận SL theo Minor protected) và 124 lệnh market (TP OPPOSITE_ZONE) trong
+// một lượt backtest. Nay đẩy mốc ra mức tối thiểu hợp lệ thay vì bỏ lệnh.
+// price = giá của lệnh (giá thị trường hoặc giá limit); is_tp phân biệt TP với SL
+// vì TP nằm cùng chiều lệnh còn SL nằm ngược chiều.
+// Hai tình huống khác nhau, xử lý khác nhau:
+//   a) Mốc đúng phía nhưng quá sát -> đẩy ra mức tối thiểu hợp lệ.
+//   b) Mốc SAI PHÍA (lệnh Buy mà SL cao hơn giá vào) -> KHÔNG kẹp được. Kẹp lại
+//      sẽ tạo SL rộng 0 pip, tức lệnh cầm chắc thua ngay. Trả về -1 để bỏ qua
+//      setup. Đây mới là nguyên nhân thật của 612 lệnh mất trước đây: ma trận
+//      SL-theo-Minor-protected sinh ra mốc bảo vệ nằm ngược phía mép zone.
+//      Với TP sai phía thì chỉ bỏ TP (trả 0), không cần huỷ cả lệnh.
+// Lưu ý: IC Markets có SYMBOL_TRADE_STOPS_LEVEL = 0, nên phải tự áp khoảng cách
+// tối thiểu 1 point, không được thoát sớm khi stops level bằng 0.
+double ClampStopLevel(double price, double stop, int signal, bool is_tp) {
+    if(stop <= 0 || price <= 0) return stop;
+    double pt   = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    long   lvl  = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+    double mind = MathMax((double)lvl, 1.0) * pt;
+    int    dir  = is_tp ? signal : -signal;
+    double gap  = (dir > 0) ? (stop - price) : (price - stop);
+    if(gap >= mind) return NormalizeDouble(stop, _Digits);
+    if(gap <= 0) return is_tp ? 0.0 : -1.0;          // sai phía
+    return NormalizeDouble((dir > 0) ? (price + mind) : (price - mind), _Digits);
+}
+
 bool IsRetryableRetcode(uint rc) {
     return (rc == TRADE_RETCODE_REQUOTE        ||
             rc == TRADE_RETCODE_PRICE_OFF      ||
@@ -339,8 +410,10 @@ string CleanString(string str) {
 }
 
 bool LoadMatrixCSV() {
-    int handle = FileOpen("TLS_Matrix_Trend.csv", FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON, 0, CP_UTF8);
-    if(handle == INVALID_HANDLE) { Print("LỖI: Không tìm thấy TLS_Matrix_Trend.csv!"); return false; }
+    string mfile = (StringLen(Inp_Matrix_File) > 0) ? Inp_Matrix_File : "TLS_Matrix_Trend.csv";
+    int handle = FileOpen(mfile, FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON, 0, CP_UTF8);
+    if(handle == INVALID_HANDLE) { Print("LOI: Khong tim thay ", mfile, "!"); return false; }
+    Print("[MATRIX] Dang doc file: ", mfile);
     ArrayResize(g_matrix_rules, 0);
     bool is_header = true;
     while(!FileIsEnding(handle)) {
@@ -468,6 +541,10 @@ void LoadState() {
 CSMC_Engine SMC_LTF;
 CSMC_Engine SMC_HTF;
 CSMC_Engine SMC_TREND;
+// Chỉ khởi tạo trong Strategy Tester: ghi xu hướng và zone H4/D1 lúc vào lệnh để nghiên cứu
+// đặc điểm các lệnh thắng lớn. Không tham gia bất kỳ quyết định giao dịch nào.
+CSMC_Engine SMC_H4;
+CSMC_Engine SMC_D1;
 
 // ==================================================================
 // PROP SHIELD
@@ -803,6 +880,7 @@ double CalcHardTP(int signal, double entry_price, double sl_price, TMatrixRule &
 }
 
 void ManageTrades_Tick() {
+    if(MarketClosedBackoff()) return;
     // Đăng ký tracker cho position mới (chỉ normal magic)
     for(int i = 0; i < PositionsTotal(); i++) {
         ulong ticket = PositionGetTicket(i);
@@ -890,6 +968,11 @@ void ManageTrades_Tick() {
                         Radar.SendMessage("🛡️ <b>SL TRAILED: VỀ HÒA VỐN</b>\n📈 Lãi nổi: +" + DoubleToString(PositionGetDouble(POSITION_PROFIT), 2) + "$");
                         g_trackers[t_idx].be_notified = true;
                     }
+                } else {
+                    // Thiếu dòng này thì khi sàn nghỉ, khối dời SL về hoà vốn thử lại MỖI
+                    // TICK: đo được 5.965 lần hỏng [Market closed] trên 13 lệnh (có lệnh
+                    // 1.771 lần) trong backtest 43 tháng. Báo retcode để bật chờ 5 phút.
+                    NoteRetcode(trade.ResultRetcode());
                 }
             }
         }
@@ -906,13 +989,326 @@ void ManageTrades_Tick() {
                 if(current_R > g_trackers[t_idx].trail_r_watermark) g_trackers[t_idx].trail_r_watermark = current_R;
                 if(g_trackers[t_idx].trail_r_watermark >= 1.0) { double locked_R = g_trackers[t_idx].trail_r_watermark - 1.0; if(locked_R > 0) new_sl = (type == POSITION_TYPE_BUY) ? (open_price + locked_R * initial_risk) : (open_price - locked_R * initial_risk); }
             }
+            // So sánh phải làm trên giá ĐÃ NORMALIZE. Trước đây so trên giá thô:
+            // TRAIL_R nhích watermark từng chút mỗi tick nên new_sl luôn "lớn hơn"
+            // current_sl vài phần nghìn, nhưng sau NormalizeDouble lại ra ĐÚNG giá
+            // cũ -> sàn trả [Invalid stops] -> lặp lại mỗi tick. Đo được 50.812 lần
+            // modify hỏng trong một tháng backtest.
             if(new_sl > 0 && new_sl != DBL_MAX) {
+                double nsl = NormalizeDouble(new_sl, _Digits);
+                double csl = NormalizeDouble(current_sl, _Digits);
                 bool modify = false;
-                if(type == POSITION_TYPE_BUY)  { if(current_sl == 0 || (new_sl > current_sl && new_sl < current_price)) modify = true; }
-                if(type == POSITION_TYPE_SELL) { if(current_sl == 0 || (new_sl < current_sl && new_sl > current_price)) modify = true; }
-                if(modify) trade.PositionModify(ticket, NormalizeDouble(new_sl, _Digits), PositionGetDouble(POSITION_TP));
+                if(type == POSITION_TYPE_BUY)  { if(nsl < current_price && (csl == 0 || nsl > csl)) modify = true; }
+                if(type == POSITION_TYPE_SELL) { if(nsl > current_price && (csl == 0 || nsl < csl)) modify = true; }
+                if(modify && !trade.PositionModify(ticket, nsl, PositionGetDouble(POSITION_TP)))
+                    NoteRetcode(trade.ResultRetcode());
             }
         }
+    }
+}
+
+// Đếm nhịp xu hướng Major của một engine. BOS ngược chiều (vd "Impulse Up - BoS
+// Down") là phá cấu trúc của nhịp hồi, không phải nhịp mới, nên không tính.
+void UpdateLeg(CSMC_Engine &eng, int &leg, int &last_dir, double &last_up, double &last_dn) {
+    int dir = eng.current_major_trend;
+    if(dir != last_dir) {
+        leg = (dir != 0) ? 1 : 0;
+        last_dir = dir;
+    } else {
+        if(dir ==  1 && eng.current_bos_up_level != last_up) leg++;
+        if(dir == -1 && eng.current_bos_dn_level != last_dn) leg++;
+    }
+    last_up = eng.current_bos_up_level;
+    last_dn = eng.current_bos_dn_level;
+}
+
+// Ghi đặc điểm của một khung tại lúc vào lệnh: xu hướng Major, giá có nằm trong zone cùng
+// chiều lệnh không, cách mép zone đó bao nhiêu pip, và còn bao nhiêu pip tới zone ngược chiều.
+// Buy: zone cùng chiều là demand (entry = mép trên, sl = mép dưới); cản là mép dưới supply.
+// Sell: zone cùng chiều là supply (entry = mép dưới, sl = mép trên); cản là mép trên demand.
+void StudyFeat(CSMC_Engine &e, int k, int s) {
+    double pip = GetPipSize(_Symbol);
+    double px  = g_study[s].open;
+    int    dir = g_study[s].dir;
+    g_study[s].tr_maj[k]    = e.current_major_trend;
+    g_study[s].in_zone[k]   = false;
+    g_study[s].zone_dist[k] = -99999;
+    g_study[s].room[k]      = -1;
+    double z_edge = (dir == 1) ? e.current_buy_zone_entry  : e.current_sell_zone_entry;
+    double z_far  = (dir == 1) ? e.current_buy_zone_sl     : e.current_sell_zone_sl;
+    double o_edge = (dir == 1) ? e.current_sell_zone_entry : e.current_buy_zone_entry;
+    if(z_edge > 0 && z_edge != EMPTY_VALUE && z_far > 0 && z_far != EMPTY_VALUE) {
+        g_study[s].zone_dist[k] = (px - z_edge) * dir / pip;
+        g_study[s].in_zone[k]   = (px >= MathMin(z_edge, z_far) && px <= MathMax(z_edge, z_far));
+    }
+    if(o_edge > 0 && o_edge != EMPTY_VALUE) {
+        double r = (o_edge - px) * dir / pip;
+        if(r > 0) g_study[s].room[k] = r;
+    }
+}
+
+// Chạy mỗi tick khi backtest: ghi MFE và kích hoạt/chạm các mốc dời SL ảo.
+// Giá dùng đúng phía mà sàn dùng để khớp SL/TP (Bid cho Buy, Ask cho Sell), nên
+// kết quả mô phỏng khớp với việc thật sự đặt SL tại các mốc đó.
+void StudyTick() {
+    if(!MQLInfoInteger(MQL_TESTER)) return;
+    for(int i = 0; i < PositionsTotal(); i++) {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket == 0 || !PositionSelectByTicket(ticket)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsNormalMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+        long pid = PositionGetInteger(POSITION_IDENTIFIER);
+        int s = -1;
+        for(int j = ArraySize(g_study) - 1; j >= 0; j--) if(g_study[j].pos_id == pid) { s = j; break; }
+        if(s < 0) {
+            double sl = PositionGetDouble(POSITION_SL);
+            double op = PositionGetDouble(POSITION_PRICE_OPEN);
+            if(sl <= 0 || MathAbs(op - sl) <= 0) continue;   // không có SL thì không quy ra R được
+            s = ArraySize(g_study);
+            ArrayResize(g_study, s + 1, 1024);
+            g_study[s].pos_id = pid;
+            g_study[s].dir    = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? 1 : -1;
+            g_study[s].open   = op;
+            g_study[s].risk   = MathAbs(op - sl);
+            g_study[s].mfe_R  = 0;
+            for(int k = 0; k < STUDY_NX; k++) {
+                g_study[s].be_arm[k] = false; g_study[s].be_hit[k] = false;
+                g_study[s].lk_arm[k] = false; g_study[s].lk_hit[k] = false;
+            }
+            g_study[s].leg_ltf = g_leg_ltf;
+            g_study[s].leg_htf = g_leg_htf;
+            g_study[s].open_time = (datetime)PositionGetInteger(POSITION_TIME);
+            g_study[s].rule_idx  = (int)(PositionGetInteger(POSITION_MAGIC) - BaseMagicNumber);
+            g_study[s].t_1r = 0;
+            g_study[s].t_mfe = 0;
+            StudyFeat(SMC_LTF,   0, s);
+            StudyFeat(SMC_HTF,   1, s);
+            StudyFeat(SMC_TREND, 2, s);
+            StudyFeat(SMC_H4,    3, s);
+            StudyFeat(SMC_D1,    4, s);
+        }
+        double px = (g_study[s].dir == 1) ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        double r  = (px - g_study[s].open) * g_study[s].dir / g_study[s].risk;
+        if(r > g_study[s].mfe_R) { g_study[s].mfe_R = r; g_study[s].t_mfe = TimeCurrent(); }
+        if(g_study[s].t_1r == 0 && r >= 1.0) g_study[s].t_1r = TimeCurrent();
+        for(int k = 0; k < STUDY_NX; k++) {
+            if(!g_study[s].be_hit[k]) {
+                if(g_study[s].be_arm[k] && r <= 0.0) g_study[s].be_hit[k] = true;
+                else if(r >= g_study_x[k])           g_study[s].be_arm[k] = true;
+            }
+            // Khoá +0.5R chỉ có nghĩa khi mốc kích hoạt lớn hơn 0.5R.
+            if(!g_study[s].lk_hit[k] && g_study_x[k] > 0.5) {
+                if(g_study[s].lk_arm[k] && r <= 0.5) g_study[s].lk_hit[k] = true;
+                else if(r >= g_study_x[k])           g_study[s].lk_arm[k] = true;
+            }
+        }
+    }
+}
+
+// In các bảng [STUDY]. Kết quả thật của từng lệnh lấy từ giá deal đóng lệnh.
+// Mô phỏng chính xác theo đường giá, không ước lượng:
+//   - Dời SL về X: nếu lệnh đã chạm mốc rồi quay về X trước khi đóng -> nhận X.
+//   - TP ngắn T: lãi nổi cao nhất ghi đến lúc đóng lệnh là lãi nổi TRƯỚC khi chạm
+//     SL, nên MFE >= T nghĩa là TP T đã khớp trước -> nhận T.
+void StudyReport() {
+    int n = ArraySize(g_study);
+    if(n == 0) { Print("[STUDY] Khong co lenh nao de nghien cuu."); return; }
+
+    HistorySelect(0, TimeCurrent());
+    int total = HistoryDealsTotal();
+    double act[];
+    ArrayResize(act, n);
+    ArrayInitialize(act, EMPTY_VALUE);
+    for(int i = 0; i < total; i++) {
+        ulong d = HistoryDealGetTicket(i);
+        if(d == 0 || HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+        long pid = HistoryDealGetInteger(d, DEAL_POSITION_ID);
+        for(int s = 0; s < n; s++) {
+            if(g_study[s].pos_id != pid) continue;
+            act[s] = (HistoryDealGetDouble(d, DEAL_PRICE) - g_study[s].open) * g_study[s].dir / g_study[s].risk;
+            break;
+        }
+    }
+
+    int    valid = 0, win_act = 0, losers = 0;
+    double sum_act = 0, gw_act = 0, gl_act = 0;
+    int    mfe_bin[7];
+    double be_sum[STUDY_NX], be_gw[STUDY_NX], be_gl[STUDY_NX];
+    int    be_win[STUDY_NX], be_save[STUDY_NX], be_kill[STUDY_NX];
+    double lk_sum[STUDY_NX], lk_gw[STUDY_NX], lk_gl[STUDY_NX];
+    int    lk_win[STUDY_NX], lk_save[STUDY_NX], lk_kill[STUDY_NX];
+    double tp_sum[STUDY_NT], tp_gw[STUDY_NT], tp_gl[STUDY_NT];
+    int    tp_win[STUDY_NT];
+    int    lg_n[2][6], lg_win[2][6];
+    double lg_act[2][6], lg_tp15[2][6], lg_tp20[2][6], lg_be15[2][6], lg_lk20[2][6];
+    // Theo giờ / thứ vào lệnh, tách 2 giai đoạn để phân biệt quy luật thật với
+    // trùng hợp: một khung giờ chỉ đáng loại khi lỗ ở CẢ HAI giai đoạn.
+    datetime split_t = D'2025.01.01';
+    int    hr_n[24], hr_win[24], hr_na[24], hr_nb[24];
+    double hr_r[24], hr_ra[24], hr_rb[24];
+    int    wd_n[7], wd_win[7], wd_na[7], wd_nb[7];
+    double wd_r[7], wd_ra[7], wd_rb[7];
+    ArrayInitialize(hr_n, 0); ArrayInitialize(hr_win, 0); ArrayInitialize(hr_na, 0); ArrayInitialize(hr_nb, 0);
+    ArrayInitialize(hr_r, 0); ArrayInitialize(hr_ra, 0); ArrayInitialize(hr_rb, 0);
+    ArrayInitialize(wd_n, 0); ArrayInitialize(wd_win, 0); ArrayInitialize(wd_na, 0); ArrayInitialize(wd_nb, 0);
+    ArrayInitialize(wd_r, 0); ArrayInitialize(wd_ra, 0); ArrayInitialize(wd_rb, 0);
+    ArrayInitialize(mfe_bin, 0);
+    ArrayInitialize(be_sum, 0); ArrayInitialize(be_gw, 0); ArrayInitialize(be_gl, 0);
+    ArrayInitialize(be_win, 0); ArrayInitialize(be_save, 0); ArrayInitialize(be_kill, 0);
+    ArrayInitialize(lk_sum, 0); ArrayInitialize(lk_gw, 0); ArrayInitialize(lk_gl, 0);
+    ArrayInitialize(lk_win, 0); ArrayInitialize(lk_save, 0); ArrayInitialize(lk_kill, 0);
+    ArrayInitialize(tp_sum, 0); ArrayInitialize(tp_gw, 0); ArrayInitialize(tp_gl, 0);
+    ArrayInitialize(tp_win, 0);
+    for(int f = 0; f < 2; f++) for(int L = 0; L < 6; L++) {
+        lg_n[f][L] = 0; lg_win[f][L] = 0;
+        lg_act[f][L] = 0; lg_tp15[f][L] = 0; lg_tp20[f][L] = 0; lg_be15[f][L] = 0; lg_lk20[f][L] = 0;
+    }
+
+    for(int s = 0; s < n; s++) {
+        if(act[s] == EMPTY_VALUE) continue;
+        double a = act[s];
+        double m = g_study[s].mfe_R;
+        valid++;
+        sum_act += a; if(a > 0) { win_act++; gw_act += a; } else if(a < 0) gl_act -= a;
+        if(a < 0) {
+            losers++;
+            int b = (m < 0.5) ? 0 : (m < 1.0) ? 1 : (m < 1.5) ? 2 : (m < 2.0) ? 3 : (m < 2.5) ? 4 : (m < 3.0) ? 5 : 6;
+            mfe_bin[b]++;
+        }
+        for(int k = 0; k < STUDY_NX; k++) {
+            double vb = g_study[s].be_hit[k] ? 0.0 : a;
+            be_sum[k] += vb; if(vb > 0) { be_win[k]++; be_gw[k] += vb; } else if(vb < 0) be_gl[k] -= vb;
+            if(g_study[s].be_hit[k]) { if(a < 0) be_save[k]++; else if(a > 0) be_kill[k]++; }
+            double vl = g_study[s].lk_hit[k] ? 0.5 : a;
+            lk_sum[k] += vl; if(vl > 0) { lk_win[k]++; lk_gw[k] += vl; } else if(vl < 0) lk_gl[k] -= vl;
+            if(g_study[s].lk_hit[k]) { if(a < 0.5) lk_save[k]++; else lk_kill[k]++; }
+        }
+        for(int t = 0; t < STUDY_NT; t++) {
+            double vt = (m >= g_study_tp[t]) ? g_study_tp[t] : a;
+            tp_sum[t] += vt; if(vt > 0) { tp_win[t]++; tp_gw[t] += vt; } else if(vt < 0) tp_gl[t] -= vt;
+        }
+        for(int f = 0; f < 2; f++) {
+            int L = (f == 0) ? g_study[s].leg_ltf : g_study[s].leg_htf;
+            if(L < 0) L = 0;
+            if(L > 5) L = 5;
+            lg_n[f][L]++; if(a > 0) lg_win[f][L]++;
+            lg_act[f][L]  += a;
+            lg_tp15[f][L] += (m >= 1.5) ? 1.5 : a;
+            lg_tp20[f][L] += (m >= 2.0) ? 2.0 : a;
+            lg_be15[f][L] += g_study[s].be_hit[2] ? 0.0 : a;
+            lg_lk20[f][L] += g_study[s].lk_hit[3] ? 0.5 : a;
+        }
+        MqlDateTime dt;
+        TimeToStruct(g_study[s].open_time, dt);
+        bool early = (g_study[s].open_time < split_t);
+        int  h = dt.hour, w = dt.day_of_week;
+        hr_n[h]++; hr_r[h] += a; if(a > 0) hr_win[h]++;
+        wd_n[w]++; wd_r[w] += a; if(a > 0) wd_win[w]++;
+        if(early) { hr_na[h]++; hr_ra[h] += a; wd_na[w]++; wd_ra[w] += a; }
+        else      { hr_nb[h]++; hr_rb[h] += a; wd_nb[w]++; wd_rb[w] += a; }
+    }
+
+    // Xuất từng lệnh ra Common\Files để phân tích ngoài: lãi nổi cao nhất theo
+    // pips/USD, và ghép với log để dựng lãi lỗ theo ngày. Tên file theo ma trận và
+    // ngày kết thúc test để các lượt khác nhau không ghi đè lên nhau.
+    string mbase = Inp_Matrix_File;
+    StringReplace(mbase, ".csv", "");
+    string dend = TimeToString(TimeCurrent(), TIME_DATE);
+    StringReplace(dend, ".", "");
+    string fname = "study_" + mbase + "_" + dend + ".csv";
+    int fh = FileOpen(fname, FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON, ',');
+    if(fh != INVALID_HANDLE) {
+        FileWrite(fh, "pos_id", "dir", "open_time", "open", "risk_price", "mfe_R", "act_R", "leg_ltf", "leg_htf",
+                  "rule", "t1r_min", "tmfe_min", "be10", "be15", "be20",
+                  "tr_chart", "tr_htf", "tr_trend", "tr_h4", "tr_d1",
+                  "inz_chart", "inz_htf", "inz_trend", "inz_h4", "inz_d1",
+                  "zd_chart", "zd_htf", "zd_trend", "zd_h4", "zd_d1",
+                  "room_chart", "room_htf", "room_trend", "room_h4", "room_d1");
+        for(int s = 0; s < n; s++) {
+            if(act[s] == EMPTY_VALUE) continue;
+            long t1 = (g_study[s].t_1r  > 0) ? (long)(g_study[s].t_1r  - g_study[s].open_time) / 60 : -1;
+            long tm = (g_study[s].t_mfe > 0) ? (long)(g_study[s].t_mfe - g_study[s].open_time) / 60 : -1;
+            FileWrite(fh, g_study[s].pos_id, g_study[s].dir,
+                      TimeToString(g_study[s].open_time, TIME_DATE|TIME_SECONDS),
+                      DoubleToString(g_study[s].open, _Digits), DoubleToString(g_study[s].risk, _Digits),
+                      DoubleToString(g_study[s].mfe_R, 3), DoubleToString(act[s], 3),
+                      g_study[s].leg_ltf, g_study[s].leg_htf,
+                      g_study[s].rule_idx, t1, tm,
+                      (int)g_study[s].be_hit[1], (int)g_study[s].be_hit[2], (int)g_study[s].be_hit[3],
+                      g_study[s].tr_maj[0], g_study[s].tr_maj[1], g_study[s].tr_maj[2], g_study[s].tr_maj[3], g_study[s].tr_maj[4],
+                      (int)g_study[s].in_zone[0], (int)g_study[s].in_zone[1], (int)g_study[s].in_zone[2], (int)g_study[s].in_zone[3], (int)g_study[s].in_zone[4],
+                      DoubleToString(g_study[s].zone_dist[0], 0), DoubleToString(g_study[s].zone_dist[1], 0), DoubleToString(g_study[s].zone_dist[2], 0),
+                      DoubleToString(g_study[s].zone_dist[3], 0), DoubleToString(g_study[s].zone_dist[4], 0),
+                      DoubleToString(g_study[s].room[0], 0), DoubleToString(g_study[s].room[1], 0), DoubleToString(g_study[s].room[2], 0),
+                      DoubleToString(g_study[s].room[3], 0), DoubleToString(g_study[s].room[4], 0));
+        }
+        FileClose(fh);
+        PrintFormat("[STUDY] Da xuat tung lenh ra Common\\Files\\%s", fname);
+    }
+
+    double net = TesterStatistics(STAT_PROFIT);
+    Print("========== [STUDY] SO LIEU NEN ==========");
+    PrintFormat("[STUDY] Lenh co du lieu=%d/%d | Tong R that=%.1f | Thang=%.1f%% | PF(R)=%.3f | 1R ~ %.2f USD",
+                valid, n, sum_act, (valid > 0 ? 100.0 * win_act / valid : 0),
+                (gl_act > 0 ? gw_act / gl_act : 0), (sum_act != 0 ? net / sum_act : 0));
+
+    Print("========== [STUDY] LENH THUA: LAI NOI CAO NHAT TRUOC KHI DINH SL ==========");
+    string mb[7] = {"<0.5R", "0.5-1R", "1-1.5R", "1.5-2R", "2-2.5R", "2.5-3R", ">=3R"};
+    for(int b = 0; b < 7; b++)
+        PrintFormat("[STUDY] MFE %-7s | lenh thua=%5d | %5.1f%%", mb[b], mfe_bin[b],
+                    (losers > 0 ? 100.0 * mfe_bin[b] / losers : 0));
+
+    Print("========== [STUDY] DOI SL VE HOA VON KHI CHAM MOC ==========");
+    for(int k = 0; k < STUDY_NX; k++)
+        PrintFormat("[STUDY] BE @%.1fR | cuu lenh thua=%5d | giet lenh thang=%5d | Tong R=%8.1f (doi %+8.1f) | Thang=%5.1f%% | PF(R)=%.3f",
+                    g_study_x[k], be_save[k], be_kill[k], be_sum[k], be_sum[k] - sum_act,
+                    (valid > 0 ? 100.0 * be_win[k] / valid : 0), (be_gl[k] > 0 ? be_gw[k] / be_gl[k] : 0));
+
+    Print("========== [STUDY] KHOA LAI +0.5R KHI CHAM MOC ==========");
+    for(int k = 1; k < STUDY_NX; k++)
+        PrintFormat("[STUDY] KHOA @%.1fR | cuu lenh thua=%5d | cat lenh thang=%5d | Tong R=%8.1f (doi %+8.1f) | Thang=%5.1f%% | PF(R)=%.3f",
+                    g_study_x[k], lk_save[k], lk_kill[k], lk_sum[k], lk_sum[k] - sum_act,
+                    (valid > 0 ? 100.0 * lk_win[k] / valid : 0), (lk_gl[k] > 0 ? lk_gw[k] / lk_gl[k] : 0));
+
+    Print("========== [STUDY] TP NGAN HON (SL giu nguyen -1R) ==========");
+    for(int t = 0; t < STUDY_NT; t++)
+        PrintFormat("[STUDY] TP %.1fR | Tong R=%8.1f (doi %+8.1f) | Thang=%5.1f%% | PF(R)=%.3f",
+                    g_study_tp[t], tp_sum[t], tp_sum[t] - sum_act,
+                    (valid > 0 ? 100.0 * tp_win[t] / valid : 0), (tp_gl[t] > 0 ? tp_gw[t] / tp_gl[t] : 0));
+    PrintFormat("[STUDY] TP 3.0R (that) | Tong R=%8.1f | Thang=%5.1f%% | PF(R)=%.3f",
+                sum_act, (valid > 0 ? 100.0 * win_act / valid : 0), (gl_act > 0 ? gw_act / gl_act : 0));
+
+    string fn[2] = {"KHUNG CHART", "KHUNG HTF"};
+    for(int f = 0; f < 2; f++) {
+        PrintFormat("========== [STUDY] THEO NHIP XU HUONG MAJOR %s (1=CHoCH, +1 moi BOS cung chieu) ==========", fn[f]);
+        for(int L = 0; L < 6; L++) {
+            if(lg_n[f][L] == 0) continue;
+            string ls = IntegerToString(L);
+            if(L == 0) ls = "chua ro";
+            if(L == 5) ls = "5+";
+            PrintFormat("[STUDY] nhip %-7s | lenh=%5d | thang=%5.1f%% | R/lenh: that=%+.3f TP2=%+.3f TP1.5=%+.3f BE@1.5=%+.3f Khoa@2=%+.3f | Tong R that=%+8.1f",
+                        ls, lg_n[f][L], 100.0 * lg_win[f][L] / lg_n[f][L],
+                        lg_act[f][L] / lg_n[f][L], lg_tp20[f][L] / lg_n[f][L], lg_tp15[f][L] / lg_n[f][L],
+                        lg_be15[f][L] / lg_n[f][L], lg_lk20[f][L] / lg_n[f][L], lg_act[f][L]);
+        }
+    }
+
+    Print("========== [STUDY] THEO GIO VAO LENH (gio SERVER) — R/lenh tach truoc 2025 / tu 2025 ==========");
+    for(int h = 0; h < 24; h++) {
+        if(hr_n[h] == 0) continue;
+        PrintFormat("[STUDY] gio %02d | lenh=%5d | thang=%5.1f%% | R/lenh=%+.3f | truoc2025=%+.3f (%4d) | tu2025=%+.3f (%4d) | Tong R=%+8.1f",
+                    h, hr_n[h], 100.0 * hr_win[h] / hr_n[h], hr_r[h] / hr_n[h],
+                    (hr_na[h] > 0 ? hr_ra[h] / hr_na[h] : 0), hr_na[h],
+                    (hr_nb[h] > 0 ? hr_rb[h] / hr_nb[h] : 0), hr_nb[h], hr_r[h]);
+    }
+    Print("========== [STUDY] THEO THU TRONG TUAN (gio SERVER) ==========");
+    string wdn[7] = {"CN", "T2", "T3", "T4", "T5", "T6", "T7"};
+    for(int w = 0; w < 7; w++) {
+        if(wd_n[w] == 0) continue;
+        PrintFormat("[STUDY] %s | lenh=%5d | thang=%5.1f%% | R/lenh=%+.3f | truoc2025=%+.3f (%4d) | tu2025=%+.3f (%4d) | Tong R=%+8.1f",
+                    wdn[w], wd_n[w], 100.0 * wd_win[w] / wd_n[w], wd_r[w] / wd_n[w],
+                    (wd_na[w] > 0 ? wd_ra[w] / wd_na[w] : 0), wd_na[w],
+                    (wd_nb[w] > 0 ? wd_rb[w] / wd_nb[w] : 0), wd_nb[w], wd_r[w]);
     }
 }
 
@@ -1168,23 +1564,45 @@ void ExecuteTradeLogic() {
     int dash_pos = StringFind(order_cmt, " - "); if(dash_pos > 0) order_cmt = StringSubstr(order_cmt, 0, dash_pos);
     double dist_to_sl_val  = MathAbs(current_price - final_sl);
     double dist_to_sl_pips = dist_to_sl_val / pip_size;
+    // Lọc SL quá hẹp. Rủi ro tính theo đúng loại lệnh sắp gửi (cùng điều kiện với
+    // force_mkt bên dưới): lệnh thị trường tính từ giá hiện tại, lệnh limit tính theo
+    // mức limit. Backtest 43 tháng: lệnh SL dưới 100 pip chiếm 42% số lệnh (73% năm
+    // 2022) nhưng lợi nhuận xấp xỉ 0 ở mọi cấu hình.
+    if(Inp_Min_SL_Pips > 0) {
+        bool   will_mkt  = (Inp_Entry_Mode == ENTRY_MARKET_ONLY) || (dist_to_sl_pips <= Market_vs_Limit_Pips);
+        double plan_risk = will_mkt ? dist_to_sl_val : ((bos_lmt_price > 0) ? bos_risk_val : zone_width_val);
+        double plan_pips = plan_risk / pip_size;
+        if(plan_pips < Inp_Min_SL_Pips) {
+            g_filter_text = "Blocked: SL chi " + DoubleToString(plan_pips, 0) + " pip (< " + DoubleToString(Inp_Min_SL_Pips, 0) + ")";
+            return;
+        }
+    }
     bool success = false;
     double mkt_tp      = CalcHardTP(signal, current_price, final_sl, g_matrix_rules[rule_idx]);
     double lmt_tp      = CalcHardTP(signal, entry_zone,    final_sl, g_matrix_rules[rule_idx]);
     double eff_mkt_tp  = Inp_FlexTP_Enabled ? 0 : mkt_tp;
     double eff_lmt_tp  = Inp_FlexTP_Enabled ? 0 : lmt_tp;
     double eff_bos_tp  = Inp_FlexTP_Enabled ? 0 : bos_lmt_tp;
+    // Kẹp SL/TP theo stops level của sàn, tính riêng cho từng loại lệnh vì mỗi loại
+    // có giá khác nhau (thị trường / limit tại BOS / limit tại mép zone).
+    double bos_ref = (bos_lmt_price > 0) ? bos_lmt_price : current_price;
+    double sl_mkt  = ClampStopLevel(current_price, order_sl, signal, false);
+    double sl_bos  = ClampStopLevel(bos_ref,       order_sl, signal, false);
+    double sl_lmt  = ClampStopLevel(entry_zone,    order_sl, signal, false);
+    eff_mkt_tp     = ClampStopLevel(current_price, eff_mkt_tp, signal, true);
+    eff_bos_tp     = ClampStopLevel(bos_ref,       eff_bos_tp, signal, true);
+    eff_lmt_tp     = ClampStopLevel(entry_zone,    eff_lmt_tp, signal, true);
     if(signal == 1) {
         bool force_mkt = (Inp_Entry_Mode == ENTRY_MARKET_ONLY) || (dist_to_sl_pips <= Market_vs_Limit_Pips);
-        if(force_mkt) { double lot = CalculateLotSize(dist_to_sl_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.Buy(lot, _Symbol, current_price, order_sl, eff_mkt_tp, order_cmt); }
-        else if(bos_lmt_price > 0 && current_price > bos_lmt_price) { double lot = CalculateLotSize(bos_risk_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.BuyLimit(lot, bos_lmt_price, _Symbol, order_sl, eff_bos_tp, ORDER_TIME_GTC, 0, order_cmt); }
-        else if(current_price > entry_zone && Inp_Entry_Mode != ENTRY_LIMIT_BOS) { double lot = CalculateLotSize(zone_width_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.BuyLimit(lot, entry_zone, _Symbol, order_sl, eff_lmt_tp, ORDER_TIME_GTC, 0, order_cmt); }
+        if(force_mkt) { if(sl_mkt < 0) { g_filter_text = "Blocked: SL nam sai phia so voi gia vao"; return; } double lot = CalculateLotSize(dist_to_sl_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.Buy(lot, _Symbol, current_price, sl_mkt, eff_mkt_tp, order_cmt); }
+        else if(bos_lmt_price > 0 && current_price > bos_lmt_price) { if(sl_bos < 0) { g_filter_text = "Blocked: SL nam sai phia so voi gia limit BOS"; return; } double lot = CalculateLotSize(bos_risk_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.BuyLimit(lot, bos_lmt_price, _Symbol, sl_bos, eff_bos_tp, ORDER_TIME_GTC, 0, order_cmt); }
+        else if(current_price > entry_zone && Inp_Entry_Mode != ENTRY_LIMIT_BOS) { if(sl_lmt < 0) { g_filter_text = "Blocked: SL nam sai phia so voi mep zone"; return; } double lot = CalculateLotSize(zone_width_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.BuyLimit(lot, entry_zone, _Symbol, sl_lmt, eff_lmt_tp, ORDER_TIME_GTC, 0, order_cmt); }
         if(success || trade.ResultRetcode() == 10009) g_last_traded_buy_sl = sl_price;
     } else if(signal == -1) {
         bool force_mkt = (Inp_Entry_Mode == ENTRY_MARKET_ONLY) || (dist_to_sl_pips <= Market_vs_Limit_Pips);
-        if(force_mkt) { double lot = CalculateLotSize(dist_to_sl_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.Sell(lot, _Symbol, current_price, order_sl, eff_mkt_tp, order_cmt); }
-        else if(bos_lmt_price > 0 && current_price < bos_lmt_price) { double lot = CalculateLotSize(bos_risk_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.SellLimit(lot, bos_lmt_price, _Symbol, order_sl, eff_bos_tp, ORDER_TIME_GTC, 0, order_cmt); }
-        else if(current_price < entry_zone && Inp_Entry_Mode != ENTRY_LIMIT_BOS) { double lot = CalculateLotSize(zone_width_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.SellLimit(lot, entry_zone, _Symbol, order_sl, eff_lmt_tp, ORDER_TIME_GTC, 0, order_cmt); }
+        if(force_mkt) { if(sl_mkt < 0) { g_filter_text = "Blocked: SL nam sai phia so voi gia vao"; return; } double lot = CalculateLotSize(dist_to_sl_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.Sell(lot, _Symbol, current_price, sl_mkt, eff_mkt_tp, order_cmt); }
+        else if(bos_lmt_price > 0 && current_price < bos_lmt_price) { if(sl_bos < 0) { g_filter_text = "Blocked: SL nam sai phia so voi gia limit BOS"; return; } double lot = CalculateLotSize(bos_risk_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.SellLimit(lot, bos_lmt_price, _Symbol, sl_bos, eff_bos_tp, ORDER_TIME_GTC, 0, order_cmt); }
+        else if(current_price < entry_zone && Inp_Entry_Mode != ENTRY_LIMIT_BOS) { if(sl_lmt < 0) { g_filter_text = "Blocked: SL nam sai phia so voi mep zone"; return; } double lot = CalculateLotSize(zone_width_val / _Point, risk_mult); if(lot <= 0) { g_filter_text = "Blocked: Hết Margin"; return; } success = trade.SellLimit(lot, entry_zone, _Symbol, sl_lmt, eff_lmt_tp, ORDER_TIME_GTC, 0, order_cmt); }
         if(success || trade.ResultRetcode() == 10009) g_last_traded_sell_sl = sl_price;
     }
     if(success || trade.ResultRetcode() == 10009) {
@@ -1205,6 +1623,7 @@ void ExecuteTradeLogic() {
 
 void CheckFlexTP() {
     if(!Inp_FlexTP_Enabled) return;
+    if(MarketClosedBackoff()) return;
     double pip_size = GetPipSize(_Symbol); double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double buy_usd = 0, sell_usd = 0, buy_pips = 0, sell_pips = 0;
     int buy_cnt = 0, sell_cnt = 0;
@@ -1250,6 +1669,7 @@ void CheckFlexTP() {
             if(trade.PositionClose(ticket)) any_closed = true;
             else {
                 uint rc = trade.ResultRetcode();
+                NoteRetcode(rc);
                 Print("[FLEX_TP] Close FAILED ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ")");
                 if(IsRetryableRetcode(rc)) QueueCloseRetry(ticket, "FLEX_TP");
             }
@@ -1279,6 +1699,7 @@ void CheckFlexTP() {
 // ==================================================================
 void CheckPoolSL() {
     if(Inp_Pool_SL_Percent <= 0) return;
+    if(MarketClosedBackoff()) return;
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     if(balance <= 0) return;
     double limit_usd = balance * (Inp_Pool_SL_Percent / 100.0);
@@ -1306,6 +1727,7 @@ void CheckPoolSL() {
             if(trade.PositionClose(ticket)) closed_buy = true;
             else {
                 uint rc = trade.ResultRetcode();
+                NoteRetcode(rc);
                 Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ")");
                 if(IsRetryableRetcode(rc)) QueueCloseRetry(ticket, "POOL_SL");
             }
@@ -1314,6 +1736,7 @@ void CheckPoolSL() {
             if(trade.PositionClose(ticket)) closed_sell = true;
             else {
                 uint rc = trade.ResultRetcode();
+                NoteRetcode(rc);
                 Print("[POOL_SL] Close FAILED ticket=", ticket, " retcode=", rc, " (", trade.ResultRetcodeDescription(), ")");
                 if(IsRetryableRetcode(rc)) QueueCloseRetry(ticket, "POOL_SL");
             }
@@ -1644,6 +2067,15 @@ int OnInit() {
     SMC_TREND.Init(_Symbol, Trend_Timeframe, "TLS_TREND_", true, false, false,
         clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE,
         Trend_PeriodsInMajorSwing, Trend_PeriodsInMinorSwing, MaxZones, MaxBOSLines, MaxMinorBOSLines);
+    if(MQLInfoInteger(MQL_TESTER)) {
+        // Số nến swing lấy như khung Trend: chỉ dùng để phân loại xu hướng / zone lúc vào lệnh.
+        SMC_H4.Init(_Symbol, PERIOD_H4, "TLS_H4_", true, false, false,
+            clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE,
+            Trend_PeriodsInMajorSwing, Trend_PeriodsInMinorSwing, MaxZones, MaxBOSLines, MaxMinorBOSLines);
+        SMC_D1.Init(_Symbol, PERIOD_D1, "TLS_D1_", true, false, false,
+            clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE, clrNONE,
+            Trend_PeriodsInMajorSwing, Trend_PeriodsInMinorSwing, MaxZones, MaxBOSLines, MaxMinorBOSLines);
+    }
     string s_trend = EnumToString(Trend_Timeframe); StringReplace(s_trend, "PERIOD_", "");
     string s_htf   = EnumToString(HTF_Timeframe);   StringReplace(s_htf,   "PERIOD_", "");
     string s_ltf   = EnumToString(_Period);          StringReplace(s_ltf,   "PERIOD_", "");
@@ -1687,12 +2119,19 @@ void OnTick() {
     CheckFlexTP();
     CheckPoolSL();
     ManageTrades_Tick();
+    StudyTick();               // chỉ chạy trong Strategy Tester
     UpdateZoneRoundTracking(); // [ZONE LIMIT] phát hiện tập lệnh normal vừa chốt lãi
     UpdateGatekeeperState();
     if(IsNewBar()) {
         SMC_TREND.Update();
         SMC_HTF.Update();
         SMC_LTF.Update();
+        if(MQLInfoInteger(MQL_TESTER)) {
+            SMC_H4.Update();
+            SMC_D1.Update();
+            UpdateLeg(SMC_LTF, g_leg_ltf, g_leg_ltf_dir, g_leg_ltf_up, g_leg_ltf_dn);
+            UpdateLeg(SMC_HTF, g_leg_htf, g_leg_htf_dir, g_leg_htf_up, g_leg_htf_dn);
+        }
         ExecuteTradeLogic();
     }
     UpdateDashboard();
@@ -1700,5 +2139,149 @@ void OnTick() {
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam) {
     if(id == CHARTEVENT_CHART_CHANGE) SMC_HTF.HandleChartEvent();
+}
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| OnTester — CHỈ tồn tại trong Strategy Tester, MQL5 không gọi hàm  |
+//| này khi EA chạy thật, nên phần dưới không ảnh hưởng bot trên VPS. |
+//|                                                                   |
+//| In 3 bảng phục vụ việc chọn kịch bản:                             |
+//|   1. Thống kê tổng (lãi, sụt vốn, profit factor, kỳ vọng/lệnh)    |
+//|   2. Phân tầng theo 3 trục xu hướng: khung lớn (HTF) x Major x    |
+//|      Minor -> 8 nhóm, để biết nên thuận hay nghịch xu hướng chính |
+//|   3. Thống kê từng dòng luật của ma trận CSV (magic tự khai rule) |
+//+------------------------------------------------------------------+
+// Pha lưu trong g_matrix_rules đã qua CleanString: viết hoa, bỏ dấu cách
+// -> "IMPULSEUP-BOSUP", "IMPULSEDOWN-CHOCHDOWN"...
+int ImpulseDir(string s) { return (StringFind(s, "IMPULSEUP") >= 0) ? 1 : -1; }
+int BreakDir(string s)   { return (StringFind(s, "BOSUP") >= 0 || StringFind(s, "CHOCHUP") >= 0) ? 1 : -1; }
+
+double OnTester()
+{
+    double dep    = TesterStatistics(STAT_INITIAL_DEPOSIT);
+    double net    = TesterStatistics(STAT_PROFIT);
+    double pf     = TesterStatistics(STAT_PROFIT_FACTOR);
+    double payoff = TesterStatistics(STAT_EXPECTED_PAYOFF);
+    double trades = TesterStatistics(STAT_TRADES);
+    double won    = TesterStatistics(STAT_PROFIT_TRADES);
+    double lost   = TesterStatistics(STAT_LOSS_TRADES);
+    double ddbal  = TesterStatistics(STAT_BALANCEDD_PERCENT);
+    double ddeq   = TesterStatistics(STAT_EQUITYDD_PERCENT);
+    double ddrel  = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+    double maxdd  = MathMax(ddeq, ddrel);
+
+    Print("========== [TESTER] THONG KE TONG ==========");
+    PrintFormat("[TESTER] Von dau=%.2f | Lai rong=%.2f (%.2f%%) | Profit factor=%.2f | Ky vong/lenh=%.2f",
+                dep, net, (dep > 0 ? net / dep * 100.0 : 0), pf, payoff);
+    PrintFormat("[TESTER] So lenh=%.0f | Thang=%.0f | Thua=%.0f | Ty le thang=%.1f%%",
+                trades, won, lost, (trades > 0 ? won / trades * 100.0 : 0));
+    PrintFormat("[TESTER] Sut von: balance=%.2f%% | equity=%.2f%% | equity tuong doi=%.2f%%",
+                ddbal, ddeq, ddrel);
+    // Điểm xếp hạng: lãi %/tháng chia sụt vốn tối đa. Thời lượng test suy từ
+    // khoảng thời gian thật của lịch sử deal, không hardcode.
+    datetime t_first = 0, t_last = 0;
+    HistorySelect(0, TimeCurrent());
+    int total = HistoryDealsTotal();
+    for(int i = 0; i < total; i++) {
+        ulong d = HistoryDealGetTicket(i);
+        if(d == 0) continue;
+        datetime dt = (datetime)HistoryDealGetInteger(d, DEAL_TIME);
+        if(t_first == 0 || dt < t_first) t_first = dt;
+        if(dt > t_last) t_last = dt;
+    }
+    double months = (t_last > t_first) ? ((double)(t_last - t_first) / (30.44 * 86400.0)) : 0;
+    double per_month = (months > 0 && dep > 0) ? (net / dep * 100.0 / months) : 0;
+    double score = (maxdd > 0.01) ? (per_month / maxdd) : 0;
+    PrintFormat("[TESTER] Thoi luong=%.1f thang | Lai/thang=%.2f%% | DIEM (lai-thang/sut-von)=%.2f",
+                months, per_month, score);
+
+    // ---- gom theo rule va theo nhom xu huong ----
+    int nb = ArraySize(g_matrix_rules);
+    if(nb <= 0) { Print("[TESTER] Khong co ma tran rule de phan tang."); return score; }
+
+    int    r_cnt[], r_win[];  double r_pnl[];
+    ArrayResize(r_cnt, nb); ArrayResize(r_win, nb); ArrayResize(r_pnl, nb);
+    ArrayInitialize(r_cnt, 0); ArrayInitialize(r_win, 0); ArrayInitialize(r_pnl, 0.0);
+
+    int    b_cnt[8], b_win[8];  double b_pnl[8];
+    ArrayInitialize(b_cnt, 0);  ArrayInitialize(b_win, 0);  ArrayInitialize(b_pnl, 0.0);
+    int    t_cnt[2], t_win[2];  double t_pnl[2];   // 0 = thuan HTF, 1 = nghich HTF
+    ArrayInitialize(t_cnt, 0);  ArrayInitialize(t_win, 0);  ArrayInitialize(t_pnl, 0.0);
+
+    // Lượt 1: lập bản đồ position_id -> magic từ các deal MỞ lệnh.
+    // BẮT BUỘC phải làm vậy: deal ĐÓNG do sàn tự sinh (stop out, hết kỳ test) có
+    // magic = 0, nếu lọc theo magic của chính deal đóng thì toàn bộ lệnh thua
+    // thảm khốc bị loại khỏi thống kê -> bảng trông toàn lãi trong khi tài khoản cháy.
+    ulong map_pos[]; long map_mag[]; int nmap = 0;
+    ArrayResize(map_pos, total); ArrayResize(map_mag, total);
+    for(int i = 0; i < total; i++) {
+        ulong d = HistoryDealGetTicket(i);
+        if(d == 0) continue;
+        if(HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN) continue;
+        map_pos[nmap] = (ulong)HistoryDealGetInteger(d, DEAL_POSITION_ID);
+        map_mag[nmap] = HistoryDealGetInteger(d, DEAL_MAGIC);
+        nmap++;
+    }
+
+    for(int i = 0; i < total; i++) {
+        ulong d = HistoryDealGetTicket(i);
+        if(d == 0) continue;
+        if(HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+        ulong pid = (ulong)HistoryDealGetInteger(d, DEAL_POSITION_ID);
+        long magic = -1;
+        for(int m = 0; m < nmap; m++) if(map_pos[m] == pid) { magic = map_mag[m]; break; }
+        if(magic < 0 || !IsNormalMagic(magic)) continue;
+        int ri = (int)(magic - BaseMagicNumber);
+        if(ri < 0 || ri >= nb) continue;
+
+        double p = HistoryDealGetDouble(d, DEAL_PROFIT)
+                 + HistoryDealGetDouble(d, DEAL_SWAP)
+                 + HistoryDealGetDouble(d, DEAL_COMMISSION);
+
+        r_cnt[ri]++; r_pnl[ri] += p; if(p > 0) r_win[ri]++;
+
+        int hd = ImpulseDir(g_matrix_rules[ri].HTF_State);
+        int md = BreakDir(g_matrix_rules[ri].Maj_State);   // = chieu vao lenh
+        int nd = BreakDir(g_matrix_rules[ri].Min_State);
+        int b  = (hd > 0 ? 0 : 4) + (md > 0 ? 0 : 2) + (nd > 0 ? 0 : 1);
+        b_cnt[b]++; b_pnl[b] += p; if(p > 0) b_win[b]++;
+
+        int t = (md == hd) ? 0 : 1;
+        t_cnt[t]++; t_pnl[t] += p; if(p > 0) t_win[t]++;
+    }
+
+    Print("========== [TESTER] THUAN HAY NGHICH XU HUONG KHUNG LON ==========");
+    string tn[2] = {"THUAN HTF", "NGHICH HTF"};
+    for(int t = 0; t < 2; t++)
+        PrintFormat("[TESTER] %-11s | lenh=%4d | thang=%5.1f%% | PnL=%10.2f | ky vong/lenh=%7.2f",
+                    tn[t], t_cnt[t], (t_cnt[t] > 0 ? 100.0 * t_win[t] / t_cnt[t] : 0),
+                    t_pnl[t], (t_cnt[t] > 0 ? t_pnl[t] / t_cnt[t] : 0));
+
+    Print("========== [TESTER] PHAN TANG 3 TRUC: HTF x MAJOR x MINOR ==========");
+    for(int b = 0; b < 8; b++) {
+        if(b_cnt[b] == 0) continue;
+        string hs = ((b & 4) == 0) ? "HTF tang " : "HTF giam ";
+        string ms = ((b & 2) == 0) ? "Maj tang " : "Maj giam ";
+        string ns = ((b & 1) == 0) ? "Min tang" : "Min giam";
+        PrintFormat("[TESTER] %s| %s| %s | lenh=%4d | thang=%5.1f%% | PnL=%10.2f | ky vong=%7.2f",
+                    hs, ms, ns, b_cnt[b], 100.0 * b_win[b] / b_cnt[b],
+                    b_pnl[b], b_pnl[b] / b_cnt[b]);
+    }
+
+    Print("========== [TESTER] TUNG DONG LUAT CO PHAT SINH LENH ==========");
+    int used = 0;
+    for(int i = 0; i < nb; i++) {
+        if(r_cnt[i] == 0) continue;
+        used++;
+        PrintFormat("[TESTER] rule=%3d | lenh=%4d | thang=%5.1f%% | PnL=%10.2f | %s | %s | %s | type=%d",
+                    i, r_cnt[i], 100.0 * r_win[i] / r_cnt[i], r_pnl[i],
+                    g_matrix_rules[i].HTF_State, g_matrix_rules[i].Maj_State,
+                    g_matrix_rules[i].Min_State, g_matrix_rules[i].Entry_Type);
+    }
+    PrintFormat("[TESTER] So dong luat thuc su phat sinh lenh: %d / %d", used, nb);
+
+    StudyReport();
+    return score;
 }
 //+------------------------------------------------------------------+

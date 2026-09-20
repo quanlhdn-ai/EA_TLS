@@ -1,3 +1,34 @@
+Nhật ký 2026-09-20 — BOT_CRT · CẬP NHẬT FILE DÙNG CHUNG CSMC_Engine.mqh
+
+Bot này KHÔNG bị sửa. Chỉ ghi lại vì nó dùng `#include <CSMC_Engine.mqh>` — file
+dùng chung vừa đổi, nên chart của bot sẽ nhìn khác đi một chút.
+
+1. CSMC_Engine.mqh thêm method PruneBOS(queue, cut_time). Khi CHOCH, ngoài
+   ClearQueue() hàng đợi BOS NGƯỢC chiều như cũ, nay dọn thêm ở hàng đợi CÙNG
+   chiều những đường có mốc BẮT ĐẦU <= nến Protected Level (= mép TRÁI đường
+   CHOCH). Đường bắt đầu SAU mốc đó tuy hình thành trước thời điểm CHOCH nhưng
+   hiển thị nằm trong phạm vi sóng hiện tại nên GIỮ. Áp cho cả 4 nhánh
+   Major/Minor × tăng/giảm.
+   Cạm bẫy đã vấp khi làm bản TradingView: cắt theo THỜI ĐIỂM XẢY RA CHOCH thì
+   giết luôn các đường BOS hợp lệ của sóng mới — phải cắt theo MÉP TRÁI.
+2. THUẦN ĐỒ HOẠ, không đổi tín hiệu. Bot đọc MajorEvent[]/OriginIdx[]/entry-stop
+   của zone từ mảng nội bộ của engine, không đọc chart. Đã đối chiếu lại đúng
+   điểm này trước khi sửa vì ban đầu tưởng CSMC_Engine là thư viện tính toán
+   thuần — thực tế nó có 45 lệnh ObjectCreate/Delete và mang hàng đợi BOS riêng.
+3. Trần số đường (max_bos = 5, max_mbos = 3) vẫn do bot truyền qua Init(), CHƯA
+   đổi. Bên TradingView đã nâng lên 60/40. Giờ PruneBOS lo phần dọn nên hai số
+   này chỉ còn là trần an toàn — muốn chart hiện nhiều đường BOS hơn thì sửa
+   tham số trong lời gọi Init() của bot này.
+4. Nguồn gốc thay đổi: port ngược từ chỉ báo TradingView TradingZone_Signal.
+   Chi tiết đầy đủ ở nhật ký 2026-09-20 của BOT_TLS.
+5. Đã mirror đủ 4 bản CSMC_Engine.mqh (BOT_CRT, BOT_TLS, BOT_OB_Radar,
+   BOT_TLS_GetChart), md5 46807dc2 trùng nhau, và copy vào MQL5\Include của cả
+   hai terminal trên máy này. Biên dịch lại CRT_MultiTF_EA: 0 errors, 3 warnings
+   (đúng 3 warning quen thuộc: POSITION_COMMISSION ×2 + ushort→uchar trong
+   Telegram_Radar.mqh, không có warning nào từ CSMC_Engine).
+6. Lưu ý triển khai: CRT_MultiTF_EA hiện CHỈ có trong terminal "MetaTrader 5",
+   chưa từng được copy sang "MetaTrader 5 IC Markets Global".
+
 Nhật ký 2026-08-27 (bổ sung) — BOT_CRT · ĐỐI SOÁT LIÊN MÁY
 
 Không sửa dòng code nào. Đây là lần đối soát đầu tiên sau khi bản v1.63->v1.65 được làm

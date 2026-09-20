@@ -682,7 +682,7 @@ public:
                   }
 
                   if (ActiveLow.time == maj_prot_low_time) ActiveLow.isActive = false;
-                  ClearQueue(BOSUpQueue);
+                  ClearQueue(BOSUpQueue); PruneBOS(BOSDnQueue, maj_prot_low_time);
                   major_trend = -1; maj_extreme_low = low[i]; maj_extreme_low_time = time[i]; maj_extreme_low_idx = i;
 
                   // Reset confirmed extreme + kích hoạt Radar cho downtrend mới
@@ -742,7 +742,7 @@ public:
                   }
 
                   if (ActiveHigh.time == maj_prot_high_time) ActiveHigh.isActive = false;
-                  ClearQueue(BOSDnQueue);
+                  ClearQueue(BOSDnQueue); PruneBOS(BOSUpQueue, maj_prot_high_time);
                   major_trend = 1; maj_extreme_high = high[i]; maj_extreme_high_time = time[i]; maj_extreme_high_idx = i;
 
                   // Reset confirmed extreme + kích hoạt Radar cho uptrend mới
@@ -854,7 +854,7 @@ public:
                      }
 
                      if (ActiveMinorLow.time == min_prot_low_time) ActiveMinorLow.isActive = false;
-                     ClearQueue(MinorBOSUpQueue); ClearZoneQueue(MinorBuyZonesQueue);
+                     ClearQueue(MinorBOSUpQueue); PruneBOS(MinorBOSDnQueue, min_prot_low_time); ClearZoneQueue(MinorBuyZonesQueue);
                      minor_trend = -1; min_extreme_low = low[i]; min_extreme_low_time = time[i]; min_extreme_low_idx = i;
 
                      min_confirmed_extreme_high = EMPTY_VALUE;
@@ -907,7 +907,7 @@ public:
                      }
 
                      if (ActiveMinorHigh.time == min_prot_high_time) ActiveMinorHigh.isActive = false;
-                     ClearQueue(MinorBOSDnQueue); ClearZoneQueue(MinorSellZonesQueue);
+                     ClearQueue(MinorBOSDnQueue); PruneBOS(MinorBOSUpQueue, min_prot_high_time); ClearZoneQueue(MinorSellZonesQueue);
                      minor_trend = 1; min_extreme_high = high[i]; min_extreme_high_time = time[i]; min_extreme_high_idx = i;
 
                      min_confirmed_extreme_low = EMPTY_VALUE;
@@ -1090,6 +1090,30 @@ private:
    void ClearQueue(string &queue[]) {
       for(int i=0; i<ArraySize(queue); i++) { if(m_showGraphics) { ObjectDelete(0, queue[i]); ObjectDelete(0, queue[i] + "_lbl"); } }
       ArrayResize(queue, 0);
+   }
+
+   // 20/09/2026 — dọn hàng đợi BOS CÙNG chiều khi CHOCH.
+   // cut_time = thời gian nến Protected Level = mép TRÁI đường CHOCH vừa vẽ.
+   // Đường bắt đầu <= mốc đó nằm trọn phía trước đường CHOCH trên trục ngang nên
+   // thuộc xu hướng cũ -> bỏ. Đường bắt đầu SAU mốc đó tuy hình thành trước thời
+   // điểm CHOCH nhưng hiển thị nằm trong phạm vi sóng hiện tại -> GIỮ.
+   // Cạm bẫy đã vấp khi làm bản TradingView: nếu cắt theo THỜI ĐIỂM XẢY RA CHOCH
+   // thì giết luôn các đường BOS hợp lệ của sóng mới. Phải cắt theo MÉP TRÁI.
+   // Thuần đồ hoạ — bot đọc MajorEvent[]/OriginIdx[]/zone từ mảng nội bộ, không
+   // đọc chart, nên hàm này không đổi bất kỳ quyết định vào lệnh nào.
+   void PruneBOS(string &queue[], datetime cut_time) {
+      for(int i = ArraySize(queue) - 1; i >= 0; i--) {
+         bool drop = true;
+         if(m_showGraphics && ObjectFind(0, queue[i]) >= 0) {
+            datetime t1 = (datetime)ObjectGetInteger(0, queue[i], OBJPROP_TIME, 0);
+            drop = (t1 <= cut_time);
+         }
+         if(drop) {
+            if(m_showGraphics) { ObjectDelete(0, queue[i]); ObjectDelete(0, queue[i] + "_lbl"); }
+            for(int k = i; k < ArraySize(queue) - 1; k++) queue[k] = queue[k+1];
+            ArrayResize(queue, ArraySize(queue) - 1);
+         }
+      }
    }
 
    void PushZone(TZone &queue[], string name, double entry, double stop, int max_count) {

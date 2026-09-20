@@ -1,0 +1,7 @@
+# Chua mat khau tai khoan - khong bao gio dua vao git
+account.local.ini
+
+# Log backtest, sinh lai duoc, dung lam nang repo
+logs/
+account.*.ini
+!account.*.ini.example

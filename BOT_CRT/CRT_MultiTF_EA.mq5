@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.65"
+#property version   "1.68"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -638,6 +638,64 @@
 //       mà HistoryDealGetX(trans.deal, ...) đang dựa vào. Mọi giá trị của trans.deal phải
 //       đọc XONG trước khi gọi nó. Đã gom sẵn lotDong/giaDong/posId lên đầu hàm.
 //
+//   [1.66] GẮN THƯ VIỆN NẾN DÙNG CHUNG Signal_Candle.mqh — 2 input mới, CẢ HAI MẶC ĐỊNH
+//     TẮT nên hành vi bot KHÔNG đổi cho tới khi tự tay bật.
+//     · Thư viện (bản gốc ở EA_TLS/Lib_Signal_Candle/) giữ định nghĩa pinbar + engulfing
+//       dùng chung cho mọi bot, chỉ xét HÌNH DẠNG nến. Mọi điều kiện vị trí (đã quét qua
+//       biên, đóng lại trong biên, cửa sổ 2 cây) vẫn nằm nguyên ở bot này.
+//       Bản trong MQL5/Include phải luôn giống hệt bản gốc — xem EA_TLS/CLAUDE.md.
+//     · Inp_Lib_Pinbar đổi PassesWickFilter sang luật thư viện. KHÁC BIỆT: luật cũ cho nến
+//       THUẬN chiều qua thẳng không đo râu gì cả, chỉ nến ngược chiều mới bị đo râu/thân.
+//       Luật thư viện KHÔNG xét màu thân, mà đòi râu mũi >= 60% biên độ VÀ râu đối diện
+//       <= 25% biên độ VÀ râu mũi >= 1.5 x thân. Bật lên là 2.1/2.1b vào ít lệnh hơn —
+//       phải backtest lại, đừng bật thẳng trên tài khoản thật.
+//       [2026-09-12] Thư viện lên v1.1: BỎ điều kiện "nến đóng thuận chiều lệnh" của v1.0,
+//       sau khi soi tay 6 cây nến bot này loại trong backtest 01-11/09/2026 — 4 cây trượt
+//       DUY NHẤT vì màu thân dù hình dạng đạt thoáng (ca nặng nhất: râu mũi 92% biên độ,
+//       thân 4.3 pip). Lý do đầy đủ ghi ở đầu Signal_Candle.mqh.
+//     · Inp_Lib_Engulfing đổi điều kiện ĐỦ của 2.2.1: thêm yêu cầu cây 2 TRÙM cả High lẫn
+//       Low nến gốc, ngoài yêu cầu đóng vượt mốc như cũ. Nến gốc nay lưu thêm Open/Close
+//       (m2OriginOpen/Close) để dựng đủ cây nến truyền cho thư viện.
+//     · Các dòng log 2.1 / 2.1b / 2.2 tự đổi câu chữ theo luật đang bật, để đọc log biết
+//       ngay lượt chạy đó dùng luật nào.
+//
+//   [1.67] HOÀ VỐN THEO KHOẢNG LÃI — Inp_BE_TriggerPips (input mới, mặc định 50 pip).
+//     Lãi của một vị thế đạt ngưỡng này thì SL dời về đúng giá vào lệnh. Để 0 là tắt.
+//     Đây là luật hoà vốn THỨ BA, chạy song song chứ không thay thế 2 luật cũ:
+//       · chạm biên đối diện   (v1.44) — bám MỐC GIÁ
+//       · 1 lệnh trong cặp TP  (v1.37) — bám SỰ KIỆN
+//       · lãi đạt N pip        (1.67)  — bám KHOẢNG LÃI
+//     Cả ba cùng gọi MovePositionToBreakeven(), mà hàm đó chỉ dời khi việc dời CÓ LỢI —
+//     nên luật nào kích trước thì thắng, luật sau không phá được kết quả của luật trước.
+//     Không cần thứ tự ưu tiên, không cần cờ chống trùng.
+//     VÌ SAO CẦN THÊM: hai luật cũ đều có thể KHÔNG BAO GIỜ kích. Biên đối diện của nguồn
+//     Swing có khi cách cả trăm pip, còn luật cặp lệnh chỉ chạy nếu vế kia ăn TP. Giá chạy
+//     thuận rất xa rồi quay đầu về SL gốc là ca hoàn toàn có thật, trước 1.67 không có gì
+//     chặn.
+//     Đo lãi bằng giá ĐÓNG ĐƯỢC: BUY theo Bid, SELL theo Ask — đúng thứ sàn dùng tính lãi
+//     lỗ. Lấy nhầm chiều giá là lệch nguyên một spread; vàng spread 24 pip nên sai chỗ này
+//     đủ để lệnh kích hoà vốn sớm hơn thực tế.
+//     Đặt NGOÀI khối bảo vệ của OnTick như 2 luật kia: siết SL luôn an toàn, phải chạy
+//     được cả khi Shield/halt đang chặn vào lệnh mới.
+//
+//   [1.68] THÊM OnTester() — phục vụ đợt tối ưu TP / SL / BE / cặp khung.
+//     · MQL5 KHÔNG gọi OnTester khi EA chạy thật, nên phần này không đụng gì tới bot
+//       đang chạy. Không thêm input, không đổi logic vào lệnh.
+//     · In bảng [TESTER]: thống kê tổng, tách theo nguồn biên (LiềnKề / Swing) và theo
+//       chiều lệnh. Tiền tố [TESTER] để Tools/Summarize-Backtest.ps1 bóc được.
+//     · In KỲ VỌNG MỖI LỆNH KÈM SAI SỐ và chỉ số t. Không có sai số thì không phân biệt
+//       được "cấu hình này tốt hơn" với "lượt này gặp may" — đúng cái bẫy đã làm hỏng
+//       19 lượt chạy của BOT_TLS_GetChart.
+//     · Inp_BE_TaiBienDoiDien (mặc định BẬT = giữ nguyên hành vi cũ): công tắc cho luật
+//       hoà vốn v1.44. Trước đây luật này chạy cứng, không tắt được — mà nó kéo SL về
+//       entry nên CẮT NGANG hành trình lệnh, lượt đo không thấy được lệnh thật sự chạy
+//       tới đâu. Nay tắt được để đo, và cũng thành một tham số so sánh được khi tối ưu.
+//     · Trả điểm cho chế độ Optimization (Tools/Run-Backtest.ps1 đặt sẵn
+//       OptimizationCriterion=6 = Custom max). TRƯỚC 1.68 BOT NÀY KHÔNG CÓ OnTester nên
+//       mọi lượt tối ưu đều bị chấm 0 điểm — bảng xếp hạng vô nghĩa.
+//       Điểm = lãi% / sụt vốn%, phạt tuyến tính nếu dưới 100 lệnh, loại thẳng nếu dưới
+//       30 lệnh. Cố ý KHÔNG dùng lãi thuần làm tiêu chí: nó luôn chọn cấu hình liều nhất.
+//
 //   GHI CHÚ MÔ HÌNH — chỉ còn 2 cổng, và một cửa sổ 2 cây:
 //     1. ĐI TỪ TRONG RA: nến LTF liền trước phải đóng cửa TRONG biên phía đang xét.
 //     2. CHẠM BIÊN: râu vượt qua line -> QUÉT CRT ĐÃ XONG, dù chỉ vượt 1 point.
@@ -649,6 +707,7 @@
 #include <Trade/Trade.mqh>
 #include <CSMC_Engine.mqh>     // cần có trong MQL5/Include (dùng chung với BOT_TLS, BOT_OB_Radar)
 #include <Telegram_Radar.mqh>  // dùng chung với BOT_TLS
+#include <Signal_Candle.mqh>   // thư viện nến tín hiệu dùng chung (bản gốc: Lib_Signal_Candle/)
 
 // Lưu ý: MQL5 không cho phép tên enum chứa dấu tiếng Việt hay khoảng trắng (giới hạn của
 // ngôn ngữ), nên dropdown trong Input sẽ luôn hiện đúng các tên sau — không thể hiện chữ
@@ -706,6 +765,13 @@ input ENUM_CRT_SL_MODE Inp_SL_Mode          = SLMode_RauQuet; // Cách đặt SL
 input double           Inp_SL_BufferPips    = 30;        //   • nếu SLMode_RauQuet — SL lùi ra ngoài râu quét (pip)
 input double           Inp_MaxSL_Pips       = 200;       // SL xa hơn số pip này thì bỏ lệnh (0=không giới hạn)
 input double           Inp_MaxDistFromLine_Pips = 100;   // Giá cách biên quá số pip này -> Mode BOS: bỏ chờ; Mode Nến quét: xử lý theo mục 3 (0=tắt)
+input double           Inp_BE_TriggerPips   = 50;        // Lãi đạt bao nhiêu pip thì dời SL về hoà vốn (0=tắt)
+// [1.68] Công tắc cho luật hoà vốn v1.44 (chạm biên đối diện -> kéo SL về entry). MẶC ĐỊNH
+// BẬT nên hành vi bot không đổi. Thêm vào vì hai lý do:
+//   · Đo: luật này cắt ngang hành trình lệnh, tắt đi mới quan sát được trọn vẹn lệnh chạy
+//     tới đâu — cần cho lượt chạy ghi hành trình.
+//   · Tối ưu: nay nó thành một tham số so sánh được, thay vì luật cứng không kiểm chứng.
+input bool             Inp_BE_TaiBienDoiDien = true;     // Chạm biên đối diện thì kéo SL về hoà vốn
 input ENUM_CRT_CANCEL_AT Inp_CancelPendingAt = CancelAt_Middle; // Huỷ lệnh chờ chưa khớp khi giá chạm:
 input double           Inp_Pool_SL_Percent  = 0;         // Nhóm lệnh cùng chiều lỗ quá % này thì đóng cả nhóm (0=tắt)
 
@@ -745,6 +811,17 @@ input double           Inp_BOS_TPPips_SW    = 50.0;       //   • nếu Pips �
 //   · nhánh 2.2.1 (engulfing 2 nến) — mặc định TP theo 2R
 input group "=== 3. RIÊNG Mode Nến quét ==="
 input ENUM_CRT_FAR_ACTION Inp_FarFromLine_Action = Far_BoLenhMarket; // Khi giá đã cách biên > Inp_MaxDistFromLine_Pips:
+// [1.66] Luật nến của thư viện dùng chung Signal_Candle.mqh — định nghĩa đầy đủ ghi ở đầu
+// file đó. CẢ HAI MẶC ĐỊNH TẮT: bật lên là ĐỔI HÀNH VI VÀO LỆNH, phải backtest lại trước
+// khi chạy tài khoản thật. Để dạng input để chạy đối chứng mà không phải compile lại.
+//   · Pinbar thư viện (v1.1) KHÔNG xét màu thân nến: đòi râu mũi >= 60% biên độ VÀ râu đối
+//     diện <= 25% biên độ VÀ râu mũi >= 1.5 x thân. Luật cũ thì cho nến THUẬN chiều qua
+//     thẳng khỏi đo râu, chỉ đo nến ngược chiều. Nhiều setup 2.1/2.1b đang vào lệnh sẽ bị
+//     loại (nến do dự hai đầu râu), đổi lại búa/sao băng đẹp không còn bị loại vì màu thân.
+//   · Engulfing thư viện đòi thêm cây 2 phải TRÙM cả High lẫn Low nến gốc, trong khi luật
+//     cũ chỉ đòi đóng vượt mốc nến gốc. Nhánh 2.2.1 sẽ vào ít lệnh hơn.
+input bool             Inp_Lib_Pinbar       = false;      // 2.1/2.1b: dùng pinbar thư viện thay lọc râu cũ
+input bool             Inp_Lib_Engulfing    = false;      // 2.2.1: dùng engulfing thư viện thay điều kiện đủ cũ
 input bool             Inp_On_21_LK         = true;       // BẬT setup [LIỀN KỀ · 2.1 pinbar]
 input bool             Inp_On_21b_LK        = true;       // BẬT setup [LIỀN KỀ · 2.1b pinbar cây 2]
 input bool             Inp_On_22_LK         = true;       // BẬT setup [LIỀN KỀ · 2.2 engulfing]
@@ -815,6 +892,11 @@ input bool             Inp_ShowMidLine     = true;       // Vẽ đường Middl
 input bool             Inp_ShowDashboard   = true;       // Hiện bảng dashboard trên chart
 input bool             Inp_ShowStructure   = false;      // Vẽ BOS/CHOCH của khung entry lên chart
 input bool             Inp_ShowZones       = false;      // Vẽ khung zone (sẽ đè lên nến M1)
+// [1.68] Ghi hành trình từng lệnh ra CSV — CHỈ chạy trong Strategy Tester, bật tay khi cần
+// đo. Mục đích: từ MỘT lượt chạy tính ngược ra kết quả của mọi mức TP và mọi mốc BE, khỏi
+// phải quét hàng chục lượt. Muốn thấy hành trình đầy đủ thì lượt đó phải để TP thật xa và
+// BE tắt, nếu không lệnh bị cắt ngang và số liệu vô nghĩa.
+input bool             Inp_Ghi_HanhTrinh   = false;      // (Tester) Ghi hành trình từng lệnh ra CSV
 
 // === KỸ THUẬT / GIAO DIỆN (cố định, không hiện trên màn hình Input) ===
 // Đổi giá trị ở đây rồi compile lại (F7) nếu cần.
@@ -945,6 +1027,8 @@ struct SCRTSource
    double   m2OriginLow;        // Low nến gốc
    double   m2OriginBodyEdge;   // Mép THÂN nến gốc phía quét — cùng với High/Low tạo thành
                                 // râu quét THẬT, dùng làm mốc 50% cho nhánh 2.1b
+   double   m2OriginOpen;       // [1.66] Open/Close nến gốc — để dựng đủ cây nến truyền cho
+   double   m2OriginClose;      // SC_IsEngulfing khi bật Inp_Lib_Engulfing
    datetime m2OriginTime;
    // Biên đã DÙNG XONG -> ngưng mọi setup trên biên này cho tới khi biên đổi giá trị.
    // Đặt = true ở CẢ 3 kết cục: 2.1 vào lệnh, 2.2.1 vào lệnh, 2.2.2 thất bại.
@@ -1178,6 +1262,7 @@ void ResetSourceFull(SCRTSource &s)
    s.lineUsedLow = false; s.lineUsedHigh = false; s.sweepBlockLogged = false;
    s.m2Waiting = false; s.m2WaitKind = 0; s.m2Dir = 0;
    s.m2OriginHigh = 0; s.m2OriginLow = 0; s.m2OriginBodyEdge = 0; s.m2OriginTime = 0;
+   s.m2OriginOpen = 0; s.m2OriginClose = 0;
    s.sweepBlockLogged = false;
    s.lastEventMsg = "";
 }
@@ -1234,6 +1319,7 @@ void ResetSourceSweepAndArm(SCRTSource &s, bool highChanged, bool lowChanged)
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   HT_Ketthuc();                       // [1.68] ghi nốt lệnh còn mở rồi đóng file CSV
    ObjectsDeleteAll(0, g_prefix);      // line, label, arrow, dashboard
    ObjectsDeleteAll(0, g_entryPrefix); // BOS/CHOCH của engine entry
    Comment("");
@@ -1269,6 +1355,10 @@ void OnTick()
    ProcessLTFSweep();
    RefreshAll(false);
 
+   // [1.68] Ghi hành trình lệnh (chỉ khi bật + chạy trong tester). Để ngoài khối bảo vệ
+   // bên dưới để vẫn ghi được cả khi Shield/halt đang chặn vào lệnh mới.
+   HT_CapNhat();
+
    // Huỷ lệnh chờ khi giá chạm mốc đã chọn (Middle hoặc biên đối diện) — CẢ 2 MODE.
    // Để ngoài khối bảo vệ bên dưới vì huỷ lệnh chờ luôn là hành động an toàn, cần
    // chạy được cả khi Shield/halt đang chặn vào lệnh mới.
@@ -1279,6 +1369,11 @@ void OnTick()
    // Cũng để ngoài khối bảo vệ: siết SL luôn an toàn, phải chạy cả khi Shield/halt bật.
    MoveSLToEntryAtOppositeBound(g_srcAdj);
    MoveSLToEntryAtOppositeBound(g_srcLM);
+
+   // Hoà vốn theo KHOẢNG LÃI — cùng lý do đặt ngoài khối bảo vệ: siết SL luôn an toàn,
+   // phải chạy được cả khi Shield/halt đang chặn vào lệnh mới.
+   MoveSLToEntryAtProfitPips(g_srcAdj);
+   MoveSLToEntryAtProfitPips(g_srcLM);
 
    if(Inp_EnableTrading)
    {
@@ -1747,6 +1842,15 @@ bool PassesWickFilter(int dir, double h, double l, double o, double c)
 {
    bool isBuy = (dir > 0);
 
+   // [1.66] Luật thư viện — thay TOÀN BỘ phép đo bên dưới, kể cả đường miễn lọc của nến
+   // thuận chiều. Vị trí nến (đã quét qua biên, đóng lại trong biên) vẫn do bot kiểm ở
+   // ClassifyOriginCandle; thư viện chỉ xét hình dạng.
+   if(Inp_Lib_Pinbar)
+   {
+      SCandle k; k.o = o; k.h = h; k.l = l; k.c = c;
+      return SC_IsPinbar(dir, k);
+   }
+
    bool candleWithTrade = isBuy ? (c > o) : (c < o);
    if(candleWithTrade)
       return true;   // nến thuận chiều lệnh -> miễn lọc, tự nó đã thể hiện lực
@@ -1768,6 +1872,18 @@ bool PassesWickFilter(int dir, double h, double l, double o, double c)
 string WickPassReason(int dir, double h, double l, double o, double c)
 {
    bool isBuy = (dir > 0);
+   if(Inp_Lib_Pinbar)
+   {
+      double rangeL = h - l;
+      double topL   = MathMax(o, c);
+      double botL   = MathMin(o, c);
+      double noseL  = isBuy ? (botL - l) : (h - topL);
+      double oppL   = isBuy ? (h - topL) : (botL - l);
+      return StringFormat("pinbar thư viện (râu mũi %s = %.0f%% biên độ, râu đối diện %.0f%%)",
+                          DoubleToString(noseL, _Digits),
+                          rangeL > 0 ? noseL / rangeL * 100.0 : 0.0,
+                          rangeL > 0 ? oppL  / rangeL * 100.0 : 0.0);
+   }
    if(isBuy ? (c > o) : (c < o))
       return "nến THUẬN chiều lệnh";
 
@@ -1797,9 +1913,11 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
       s.m2Waiting    = true;
       s.m2WaitKind   = 1;
       s.m2Dir        = dir;
-      s.m2OriginHigh = highC;
-      s.m2OriginLow  = lowC;
-      s.m2OriginTime = tC;
+      s.m2OriginHigh  = highC;
+      s.m2OriginLow   = lowC;
+      s.m2OriginOpen  = openC;
+      s.m2OriginClose = closeC;
+      s.m2OriginTime  = tC;
       PrintFormat("[CRT][%s] 2.2 Nến gốc quét biên %s đóng NGOÀI biên @%s (H=%s L=%s) -> chờ 1 cây %s kế tiếp.",
                   s.tag, isBuy ? "dưới" : "trên", TimeToString(tC, TIME_DATE|TIME_MINUTES),
                   DoubleToString(highC, _Digits), DoubleToString(lowC, _Digits), TFToString(Inp_LTF));
@@ -1817,15 +1935,20 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
       s.m2Dir            = dir;
       s.m2OriginHigh     = highC;
       s.m2OriginLow      = lowC;
+      s.m2OriginOpen     = openC;
+      s.m2OriginClose    = closeC;
       s.m2OriginBodyEdge = bodyEdge;   // giữ lại để tính mốc 50% theo râu quét THẬT
       s.m2OriginTime     = tC;
-      PrintFormat("[CRT][%s] 2.1 nến gốc %s @%s bị loại (nến ngược chiều, râu %s < %.1f x thân %s = %s) -> chờ 1 cây %s kế tiếp.",
+      string lyDo = Inp_Lib_Pinbar
+         ? "không đạt hình pinbar thư viện"
+         : StringFormat("nến ngược chiều, râu %s < %.1f x thân %s = %s",
+                        DoubleToString(isBuy ? (bodyEdge - lowC) : (highC - bodyEdge), _Digits),
+                        Inp_WickBodyRatio,
+                        DoubleToString(MathAbs(closeC - openC), _Digits),
+                        DoubleToString(MathAbs(closeC - openC) * Inp_WickBodyRatio, _Digits));
+      PrintFormat("[CRT][%s] 2.1 nến gốc %s @%s bị loại (%s) -> chờ 1 cây %s kế tiếp.",
                   s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES),
-                  DoubleToString(isBuy ? (bodyEdge - lowC) : (highC - bodyEdge), _Digits),
-                  Inp_WickBodyRatio,
-                  DoubleToString(MathAbs(closeC - openC), _Digits),
-                  DoubleToString(MathAbs(closeC - openC) * Inp_WickBodyRatio, _Digits),
-                  TFToString(Inp_LTF));
+                  lyDo, TFToString(Inp_LTF));
       return;
    }
 
@@ -1909,14 +2032,27 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
             PrintFormat("[CRT][%s] 2.1b KHÔNG ĐỦ ĐK (%s) -> bỏ setup, biên %s coi như đã dùng.",
                         s.tag,
                         !closedIn ? "cây 2 đóng ngoài biên"
-                                  : StringFormat("cây 2 ngược chiều và râu < %.1f x thân", Inp_WickBodyRatio),
+                                  : (Inp_Lib_Pinbar
+                                     ? "cây 2 không đạt hình pinbar thư viện"
+                                     : StringFormat("cây 2 ngược chiều và râu < %.1f x thân", Inp_WickBodyRatio)),
                         TFToString(Inp_HTF));
          return;
       }
 
       // --- Nhánh 2.2: nến gốc đóng ngoài biên, chờ cây engulfing đảo chiều.
-      bool engulfed = isBuy ? (closeC >= s.m2OriginHigh)
-                            : (closeC <= s.m2OriginLow);         // điều kiện ĐỦ
+      // [1.66] Bật Inp_Lib_Engulfing thì điều kiện ĐỦ lấy theo thư viện: cây 2 phải trùm
+      // cả High lẫn Low nến gốc VÀ đóng vượt ra ngoài biên nến gốc. Luật cũ chỉ đòi vế sau.
+      bool engulfed;
+      if(Inp_Lib_Engulfing)
+      {
+         SCandle goc; goc.o = s.m2OriginOpen; goc.h = s.m2OriginHigh;
+                      goc.l = s.m2OriginLow;  goc.c = s.m2OriginClose;
+         SCandle cay2; cay2.o = openC; cay2.h = highC; cay2.l = lowC; cay2.c = closeC;
+         engulfed = SC_IsEngulfing(s.m2Dir, goc, cay2);
+      }
+      else
+         engulfed = isBuy ? (closeC >= s.m2OriginHigh)
+                          : (closeC <= s.m2OriginLow);           // điều kiện ĐỦ
       if(closedIn && engulfed)
       {
          if(!SetupEnabled_22(s))
@@ -1928,8 +2064,9 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
          }
          // 2.2.1 — cặp nến kiểu engulfing đảo chiều. Limit @ 50% TOÀN THÂN cây thứ 2.
          double limitPrice = (highC + lowC) / 2.0;
-         PrintFormat("[CRT][%s] 2.2.1 ENGULFING %s @%s · close %s %s High/Low gốc %s -> vào cặp lệnh (limit @50%% thân = %s)",
+         PrintFormat("[CRT][%s] 2.2.1 ENGULFING %s @%s · %s · close %s %s High/Low gốc %s -> vào cặp lệnh (limit @50%% thân = %s)",
                      s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES),
+                     Inp_Lib_Engulfing ? "luật thư viện (trùm H/L + đóng vượt)" : "luật cũ (chỉ đòi đóng vượt)",
                      DoubleToString(closeC, _Digits), isBuy ? ">=" : "<=",
                      DoubleToString(isBuy ? s.m2OriginHigh : s.m2OriginLow, _Digits),
                      DoubleToString(limitPrice, _Digits));
@@ -1941,7 +2078,9 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
       {
          PrintFormat("[CRT][%s] 2.2.2 KHÔNG ĐỦ ĐK (%s) -> bỏ setup, biên %s coi như đã dùng.",
                      s.tag,
-                     !closedIn ? "cây thứ 2 vẫn đóng ngoài biên" : "đóng chưa vượt mốc nến gốc",
+                     !closedIn ? "cây thứ 2 vẫn đóng ngoài biên"
+                               : (Inp_Lib_Engulfing ? "chưa trùm H/L nến gốc hoặc đóng chưa vượt"
+                                                    : "đóng chưa vượt mốc nến gốc"),
                      TFToString(Inp_HTF));
       }
       return;
@@ -3474,8 +3613,49 @@ bool MovePositionToBreakeven(ulong ticket, string reason)
 //   · SELL (quét biên trên) -> biên đối diện là boundLow
 // Chạy mỗi tick, cho cả 2 mode và cả 2 nguồn. Không đụng lệnh chờ.
 //+------------------------------------------------------------------+
+// [v1.67] Luật hoà vốn THỨ BA, chạy song song với 2 luật cũ (chạm biên đối diện, 1 lệnh
+// trong cặp chạm TP). Ba luật cùng gọi MovePositionToBreakeven() nên luật nào kích trước
+// thì thắng, và luật sau không phá được kết quả của luật trước — hàm đó chỉ dời SL khi
+// việc dời có LỢI, không bao giờ nới lỏng một SL đang tốt.
+// KHÁC VỚI 2 LUẬT KIA: chúng bám MỐC GIÁ (biên đối diện) hoặc SỰ KIỆN (lệnh kia TP), còn
+// luật này bám KHOẢNG LÃI. Nên nó kích được cả khi biên đối diện ở quá xa — đúng ca hay
+// gặp với nguồn Swing, nơi range rộng tới mức giá chạy thuận cả trăm pip mà vẫn chưa tới
+// biên, lệnh vẫn có thể quay đầu về SL gốc.
+// Đo bằng giá ĐÓNG ĐƯỢC (BUY đo theo Bid, SELL đo theo Ask) — đúng thứ sàn dùng để tính
+// lãi lỗ; lấy nhầm chiều giá là lệch nguyên một spread, với vàng thì spread 24 pip không
+// phải nhỏ.
+//+------------------------------------------------------------------+
+void MoveSLToEntryAtProfitPips(SCRTSource &s)
+{
+   if(Inp_BE_TriggerPips <= 0)
+      return;   // 0 = tắt hẳn luật này
+
+   double trigger = Inp_BE_TriggerPips * GetPipSize();
+   double bid     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask     = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk == 0 || !PositionSelectByTicket(tk))         continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol)  continue;
+      if(PositionGetInteger(POSITION_MAGIC)  != s.magic) continue;
+
+      bool   isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+      double open  = PositionGetDouble(POSITION_PRICE_OPEN);
+      double profit = isBuy ? (bid - open) : (open - ask);
+      if(profit < trigger) continue;
+
+      MovePositionToBreakeven(tk, StringFormat("[%s] Lãi đạt %.1f pip (>= %.1f)",
+                              s.tag, profit / GetPipSize(), Inp_BE_TriggerPips));
+   }
+}
+
+//+------------------------------------------------------------------+
 void MoveSLToEntryAtOppositeBound(SCRTSource &s)
 {
+   if(!Inp_BE_TaiBienDoiDien)   // [1.68] tắt được để đo hành trình lệnh trọn vẹn
+      return;
    if(!s.boundReady || s.boundHigh <= 0 || s.boundLow <= 0)
       return;
 
@@ -3839,5 +4019,330 @@ string TFToString(ENUM_TIMEFRAMES tf)
    string s = EnumToString(tf);
    StringReplace(s, "PERIOD_", "");
    return s;
+}
+
+//+------------------------------------------------------------------+
+//| [1.68] GHI HÀNH TRÌNH TỪNG LỆNH (chỉ trong Strategy Tester)      |
+//|                                                                   |
+//| Vì sao cần: TP và BE chỉ đổi cách THOÁT lệnh. Nếu biết hành trình |
+//| giá của từng lệnh thì tính ngược ra được kết quả của MỌI mức TP   |
+//| và MỌI mốc BE từ đúng một lượt chạy, thay vì quét hàng chục lượt. |
+//|                                                                   |
+//| Mỗi lệnh đóng ghi 1 dòng CSV: MFE/MAE, chạm các mốc 10/20/30/50/  |
+//| 100 pip lúc nào, và sau khi chạm mốc đó giá có QUAY VỀ ENTRY hay  |
+//| không — đúng câu hỏi "chạy 30 pip rồi quay đầu cắn entry".        |
+//|                                                                   |
+//| Không đụng gì tới logic vào lệnh. Tắt mặc định.                   |
+//+------------------------------------------------------------------+
+// Mốc lãi (pip) được theo dõi. Càng nhiều mốc thì từ MỘT lượt chạy càng mô phỏng offline
+// được nhiều mức TP và nhiều mốc BE. Mốc lớn nhất phải <= TP đặt trong lượt ghi hành
+// trình, vì quá TP thì lệnh đã đóng, không quan sát được nữa.
+#define HT_SO_MOC 9
+const double HT_MOC_PIP[HT_SO_MOC] = {10, 20, 30, 50, 80, 100, 150, 200, 300};
+
+struct SHanhTrinh
+{
+   ulong    ticket, posId;
+   long     magic;
+   int      dir;
+   datetime tVao;
+   double   giaVao, slGoc, R_pip;
+   double   mfe_pip, mae_pip;
+   bool     chamMoc[HT_SO_MOC];
+   int      phutToiMoc[HT_SO_MOC];
+   bool     veEntrySauMoc[HT_SO_MOC];
+   // Ghi cả THỜI ĐIỂM quay về entry, không chỉ có/không. Lý do: để mô phỏng BE offline
+   // phải biết giá quay về entry TRƯỚC hay SAU khi chạm mức TP đang xét — chỉ có cờ
+   // có/không thì không xếp được thứ tự hai sự kiện, mô phỏng sẽ đoán mò.
+   int      phutVeEntry[HT_SO_MOC];
+};
+
+SHanhTrinh g_ht[];
+int        g_htFile = INVALID_HANDLE;
+
+bool HT_Bat() { return (Inp_Ghi_HanhTrinh && MQLInfoInteger(MQL_TESTER)); }
+
+void HT_MoFile()
+{
+   if(g_htFile != INVALID_HANDLE) return;
+   string ten = StringFormat("CRT_HT_%s_%s_%s.csv", _Symbol,
+                             TFToString(Inp_HTF), TFToString(Inp_LTF));
+   // FILE_COMMON là BẮT BUỘC: trong Strategy Tester, FileOpen không kèm cờ này sẽ ghi vào
+   // hộp cát riêng của agent (%APPDATA%\MetaQuotes\Tester\<GUID>\Agent-...\MQL5\Files),
+   // không phải MQL5\Files của terminal — chạy xong không thấy file đâu.
+   // Có FILE_COMMON thì file nằm ở %APPDATA%\MetaQuotes\Terminal\Common\Files.
+   g_htFile = FileOpen(ten, FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
+   if(g_htFile == INVALID_HANDLE)
+   {
+      PrintFormat("[CRT][HT] KHÔNG mở được file %s (lỗi %d) — tắt ghi hành trình.", ten, GetLastError());
+      return;
+   }
+   // Header dựng động theo HT_MOC_PIP, viết thẳng bằng FileWriteString để số cột đổi
+   // theo số mốc mà không phải sửa tay.
+   string h = "time_vao,time_dong,chieu,nguon,gia_vao,sl_goc,R_pip,mfe_pip,mae_pip,mfe_R,mae_R";
+   for(int m = 0; m < HT_SO_MOC; m++)
+   {
+      string p = DoubleToString(HT_MOC_PIP[m], 0);
+      h += ",cham" + p + ",phut" + p + ",phut_ve_entry_" + p;
+   }
+   h += ",ket_cuc,lai_usd,phut_giu\r\n";
+   FileWriteString(g_htFile, h);
+   PrintFormat("[CRT][HT] Ghi hành trình vào <Terminal>/Common/Files/%s", ten);
+}
+
+int HT_Tim(ulong ticket)
+{
+   for(int i = 0; i < ArraySize(g_ht); i++)
+      if(g_ht[i].ticket == ticket) return i;
+   return -1;
+}
+
+void HT_Xoa(int idx)
+{
+   int n = ArraySize(g_ht);
+   for(int i = idx; i < n - 1; i++) g_ht[i] = g_ht[i + 1];
+   ArrayResize(g_ht, n - 1);
+}
+
+void HT_GhiDong(const SHanhTrinh &h, datetime tDong, string ketCuc, double lai)
+{
+   if(g_htFile == INVALID_HANDLE) return;
+   string d = TimeToString(h.tVao, TIME_DATE | TIME_MINUTES) + ","
+            + TimeToString(tDong, TIME_DATE | TIME_MINUTES) + ","
+            + (h.dir > 0 ? "BUY" : "SELL") + ","
+            + (h.magic == Inp_MagicNumber ? "LienKe" : "Swing") + ","
+            + DoubleToString(h.giaVao, _Digits) + "," + DoubleToString(h.slGoc, _Digits) + ","
+            + DoubleToString(h.R_pip, 1) + "," + DoubleToString(h.mfe_pip, 1) + ","
+            + DoubleToString(h.mae_pip, 1) + ","
+            + DoubleToString(h.R_pip > 0 ? h.mfe_pip / h.R_pip : 0, 2) + ","
+            + DoubleToString(h.R_pip > 0 ? h.mae_pip / h.R_pip : 0, 2);
+   for(int i = 0; i < HT_SO_MOC; i++)
+   {
+      // Rỗng = chưa chạm mốc · "-" = chạm mốc nhưng KHÔNG quay về entry · số = phút quay về.
+      d += "," + (h.chamMoc[i] ? "1" : "0")
+         + "," + (h.chamMoc[i] ? IntegerToString(h.phutToiMoc[i]) : "")
+         + "," + (h.chamMoc[i] ? (h.veEntrySauMoc[i] ? IntegerToString(h.phutVeEntry[i]) : "-") : "");
+   }
+   d += "," + ketCuc + "," + DoubleToString(lai, 2)
+      + "," + IntegerToString((int)((tDong - h.tVao) / 60)) + "\r\n";
+   FileWriteString(g_htFile, d);
+}
+
+// Đọc kết cục của vị thế đã đóng. DEAL_REASON nói rõ SL / TP / lệnh của EA / đóng tay.
+void HT_DocKetCuc(ulong posId, datetime &tDong, string &ketCuc, double &lai)
+{
+   tDong = TimeCurrent(); ketCuc = "?"; lai = 0;
+   if(!HistorySelectByPosition(posId)) return;
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong tk = HistoryDealGetTicket(i);
+      if(tk == 0) continue;
+      if(HistoryDealGetInteger(tk, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      lai  += HistoryDealGetDouble(tk, DEAL_PROFIT)
+            + HistoryDealGetDouble(tk, DEAL_SWAP)
+            + HistoryDealGetDouble(tk, DEAL_COMMISSION);
+      tDong = (datetime)HistoryDealGetInteger(tk, DEAL_TIME);
+      long r = HistoryDealGetInteger(tk, DEAL_REASON);
+      ketCuc = (r == DEAL_REASON_SL) ? "SL" : (r == DEAL_REASON_TP) ? "TP"
+             : (r == DEAL_REASON_EXPERT) ? "BOT_DONG" : "KHAC";
+   }
+}
+
+// Gọi mỗi tick. Theo dõi vị thế đang mở, và ghi dòng khi vị thế biến mất.
+void HT_CapNhat()
+{
+   if(!HT_Bat()) return;
+   HT_MoFile();
+   if(g_htFile == INVALID_HANDLE) return;
+
+   double pip = GetPipSize();
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   // 1. Vị thế đang mở: thêm mới hoặc cập nhật hành trình.
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk == 0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      long mg = PositionGetInteger(POSITION_MAGIC);
+      if(!IsBotMagic(mg)) continue;
+
+      int idx = HT_Tim(tk);
+      if(idx < 0)
+      {
+         SHanhTrinh h;
+         ZeroMemory(h);
+         h.ticket = tk;
+         h.posId  = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+         h.magic  = mg;
+         h.dir    = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? 1 : -1;
+         h.tVao   = (datetime)PositionGetInteger(POSITION_TIME);
+         h.giaVao = PositionGetDouble(POSITION_PRICE_OPEN);
+         h.slGoc  = PositionGetDouble(POSITION_SL);
+         h.R_pip  = (h.slGoc > 0) ? MathAbs(h.giaVao - h.slGoc) / pip : 0;
+         idx = ArraySize(g_ht);
+         ArrayResize(g_ht, idx + 1);
+         g_ht[idx] = h;
+      }
+
+      // Lãi/lỗ hiện tại tính bằng giá ĐÓNG ĐƯỢC: BUY theo Bid, SELL theo Ask —
+      // cùng quy ước với luật hoà vốn 1.67, nếu không sẽ lệch nguyên một spread.
+      double fav = (g_ht[idx].dir > 0) ? (bid - g_ht[idx].giaVao) : (g_ht[idx].giaVao - ask);
+      double favPip = fav / pip;
+      if(favPip > g_ht[idx].mfe_pip) g_ht[idx].mfe_pip = favPip;
+      if(-favPip > g_ht[idx].mae_pip) g_ht[idx].mae_pip = -favPip;
+
+      for(int m = 0; m < HT_SO_MOC; m++)
+      {
+         if(!g_ht[idx].chamMoc[m])
+         {
+            if(favPip >= HT_MOC_PIP[m])
+            {
+               g_ht[idx].chamMoc[m]    = true;
+               g_ht[idx].phutToiMoc[m] = (int)((TimeCurrent() - g_ht[idx].tVao) / 60);
+            }
+         }
+         else if(!g_ht[idx].veEntrySauMoc[m] && favPip <= 0)
+         {
+            // Đã chạy được mốc đó rồi quay về cắn entry — ghi luôn phút xảy ra.
+            g_ht[idx].veEntrySauMoc[m] = true;
+            g_ht[idx].phutVeEntry[m]   = (int)((TimeCurrent() - g_ht[idx].tVao) / 60);
+         }
+      }
+   }
+
+   // 2. Vị thế đã biến mất khỏi danh sách -> đã đóng, ghi dòng rồi bỏ khỏi mảng.
+   for(int i = ArraySize(g_ht) - 1; i >= 0; i--)
+   {
+      if(PositionSelectByTicket(g_ht[i].ticket)) continue;
+      datetime tDong; string ketCuc; double lai;
+      HT_DocKetCuc(g_ht[i].posId, tDong, ketCuc, lai);
+      HT_GhiDong(g_ht[i], tDong, ketCuc, lai);
+      HT_Xoa(i);
+   }
+}
+
+// Cuối lượt chạy: ghi nốt các lệnh còn mở rồi đóng file.
+void HT_Ketthuc()
+{
+   if(g_htFile == INVALID_HANDLE) return;
+   for(int i = ArraySize(g_ht) - 1; i >= 0; i--)
+      HT_GhiDong(g_ht[i], TimeCurrent(), "CON_MO", 0);
+   ArrayResize(g_ht, 0);
+   FileClose(g_htFile);
+   g_htFile = INVALID_HANDLE;
+}
+
+//+------------------------------------------------------------------+
+//| [1.68] OnTester — CHỈ tồn tại trong Strategy Tester. MQL5 không   |
+//| gọi hàm này khi EA chạy thật, nên phần dưới KHÔNG ảnh hưởng bot   |
+//| đang chạy trên tài khoản/VPS.                                     |
+//|                                                                   |
+//| Hai việc:                                                         |
+//|  1. In bảng thống kê (tiền tố [TESTER] để Summarize-Backtest.ps1  |
+//|     bóc được), tách theo nguồn biên và theo chiều lệnh, KÈM SAI   |
+//|     SỐ của kỳ vọng mỗi lệnh — không có sai số thì không biết một  |
+//|     cấu hình "tốt hơn" là thật hay chỉ là may rủi.                |
+//|  2. Trả điểm cho chế độ Optimization (OptimizationCriterion=6).   |
+//+------------------------------------------------------------------+
+struct SNhomTester
+{
+   string ten;
+   int    n, thang;
+   double tong, lai, lo;
+};
+
+void CongVaoNhom(SNhomTester &g, double profit)
+{
+   g.n++;
+   g.tong += profit;
+   if(profit >= 0) { g.thang++; g.lai += profit; }
+   else            { g.lo += -profit; }
+}
+
+void InNhomTester(const SNhomTester &g)
+{
+   if(g.n == 0) { PrintFormat("[TESTER] %-16s | 0 lệnh", g.ten); return; }
+   double pf = (g.lo > 0) ? g.lai / g.lo : 0;
+   PrintFormat("[TESTER] %-16s | %4d lệnh | thắng %5.1f%% | tổng %+10.2f | TB/lệnh %+7.2f | PF %.2f",
+               g.ten, g.n, g.thang * 100.0 / g.n, g.tong, g.tong / g.n, pf);
+}
+
+double OnTester()
+{
+   double dep    = TesterStatistics(STAT_INITIAL_DEPOSIT);
+   double net    = TesterStatistics(STAT_PROFIT);
+   double pf     = TesterStatistics(STAT_PROFIT_FACTOR);
+   double payoff = TesterStatistics(STAT_EXPECTED_PAYOFF);
+   double trades = TesterStatistics(STAT_TRADES);
+   double ddeq   = TesterStatistics(STAT_EQUITYDD_PERCENT);
+   double ddrel  = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+   double maxdd  = MathMax(ddeq, ddrel);
+
+   SNhomTester gAll, gLK, gSW, gBuy, gSell;
+   ZeroMemory(gAll); ZeroMemory(gLK); ZeroMemory(gSW); ZeroMemory(gBuy); ZeroMemory(gSell);
+   gAll.ten = "TẤT CẢ"; gLK.ten = "Nguồn LiềnKề"; gSW.ten = "Nguồn Swing";
+   gBuy.ten = "Lệnh BUY"; gSell.ten = "Lệnh SELL";
+
+   // Gom từng lệnh đã đóng. Tổng bình phương để tính SAI SỐ của kỳ vọng mỗi lệnh.
+   double tongBp = 0;
+   HistorySelect(0, TimeCurrent());
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong tk = HistoryDealGetTicket(i);
+      if(tk == 0) continue;
+      if(HistoryDealGetInteger(tk, DEAL_ENTRY) != DEAL_ENTRY_OUT)      continue;
+      if(HistoryDealGetString(tk, DEAL_SYMBOL) != _Symbol)             continue;
+      long mg = HistoryDealGetInteger(tk, DEAL_MAGIC);
+      if(!IsBotMagic(mg))                                              continue;
+
+      double p = HistoryDealGetDouble(tk, DEAL_PROFIT)
+               + HistoryDealGetDouble(tk, DEAL_SWAP)
+               + HistoryDealGetDouble(tk, DEAL_COMMISSION);
+      CongVaoNhom(gAll, p);
+      tongBp += p * p;
+      if(mg == Inp_MagicNumber) CongVaoNhom(gLK, p); else CongVaoNhom(gSW, p);
+      // Deal ĐÓNG mang chiều NGƯỢC với vị thế: đóng lệnh BUY sinh ra deal SELL.
+      if(HistoryDealGetInteger(tk, DEAL_TYPE) == DEAL_TYPE_SELL) CongVaoNhom(gBuy, p);
+      else                                                       CongVaoNhom(gSell, p);
+   }
+
+   Print("[TESTER] ================= THỐNG KÊ TỔNG =================");
+   PrintFormat("[TESTER] Vốn đầu %.2f | Lãi ròng %+.2f (%+.2f%%) | Sụt vốn tối đa %.2f%% | PF %.2f | Kỳ vọng/lệnh %+.2f | %d lệnh",
+               dep, net, (dep > 0 ? net / dep * 100.0 : 0), maxdd, pf, payoff, (int)trades);
+
+   // Kỳ vọng mỗi lệnh KÈM SAI SỐ: |t| < 2 nghĩa là kết quả chưa phân biệt được với ngẫu nhiên.
+   double tb = 0, se = 0, t = 0;
+   if(gAll.n > 1)
+   {
+      tb = gAll.tong / gAll.n;
+      double phuongSai = MathMax(tongBp / gAll.n - tb * tb, 0.0);
+      se = MathSqrt(phuongSai / gAll.n);
+      t  = (se > 0) ? tb / se : 0;
+   }
+   PrintFormat("[TESTER] TB/lệnh %+.2f ± %.2f (sai số) -> t = %+.2f %s",
+               tb, se, t, (MathAbs(t) < 2.0 ? "· CHƯA phân biệt được với ngẫu nhiên" : "· có ý nghĩa thống kê"));
+
+   Print("[TESTER] ---------------- TÁCH NHÓM ----------------");
+   InNhomTester(gAll); InNhomTester(gLK); InNhomTester(gSW); InNhomTester(gBuy); InNhomTester(gSell);
+
+   // --- Điểm cho chế độ Optimization ---
+   // Lãi thuần KHÔNG dùng làm tiêu chí: nó luôn chọn cấu hình liều nhất. Dùng lãi/sụt vốn,
+   // rồi phạt cấu hình quá ít lệnh — ít lệnh thì con số đẹp mấy cũng là may rủi.
+   if(trades < 30)
+   {
+      Print("[TESTER] Điểm tối ưu = -1000000 (dưới 30 lệnh, không đủ để kết luận).");
+      return -1000000.0;
+   }
+   double laiPct = (dep > 0) ? net / dep * 100.0 : 0;
+   double diem   = laiPct / MathMax(maxdd, 1.0);
+   if(trades < 100) diem *= trades / 100.0;
+   PrintFormat("[TESTER] Điểm tối ưu = %.3f (lãi %.2f%% / sụt vốn %.2f%%%s)",
+               diem, laiPct, MathMax(maxdd, 1.0),
+               (trades < 100 ? StringFormat(", phạt vì chỉ %d lệnh", (int)trades) : ""));
+   return diem;
 }
 //+------------------------------------------------------------------+

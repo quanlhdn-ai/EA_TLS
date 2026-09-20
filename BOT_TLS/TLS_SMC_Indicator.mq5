@@ -63,8 +63,8 @@ input int   PeriodsInMinorSwing   = 5;           // Số nến Swing Minor
 // --- Cố định (gỡ khỏi Inputs cho gọn, giữ nguyên giá trị mặc định cũ) ---
 // Lưu ý: MovingAveragePeriods đổi giá trị thì phải sửa luôn số "(21)" trong
 // comment của ShowEMALine ở trên cho khớp (không tự động liên kết được).
-const int   MaxBOSLines           = 5;
-const int   MaxMinorBOSLines      = 3;
+const int   MaxBOSLines           = 60;  // 20/09/2026: 5 -> 60, khớp TradingZone_Signal. Giờ chỉ là trần an toàn vì PruneBOS() dọn theo mốc CHOCH.
+const int   MaxMinorBOSLines      = 40;  // 20/09/2026: 3 -> 40, lý do như trên.
 const int   MaxZones              = 1;
 const int   MovingAveragePeriods  = 21;
 const color MajorSwingColor       = C'80,80,80';
@@ -183,6 +183,7 @@ void CreateBOSLine(string name, datetime t1, double p1, datetime t2, color clr, 
 void CreateRayLine(string name, datetime t1, double p1, color clr, string text, bool isDown);
 void PushBOS(string &queue[], string name, int max_count);
 void ClearQueue(string &queue[]);
+void PruneBOS(string &queue[], datetime cut_time);
 void ClearZoneQueue(TZone &queue[]);
 void PushZone(TZone &queue[], string name, double entry, double stop, int max_count);
 void CreateTrackingRayWithLabel(string name, datetime t1, double p1, color clr, string text, bool isDown, datetime current_time);
@@ -734,8 +735,8 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                   PushZone(SellZonesQueue, zone_name, zEntry, zStop, MaxZones);
                }
                
-               if (ActiveLow.time == maj_prot_low_time) ActiveLow.isActive = false; 
-               ClearQueue(BOSUpQueue); 
+               if (ActiveLow.time == maj_prot_low_time) ActiveLow.isActive = false;
+               ClearQueue(BOSUpQueue); PruneBOS(BOSDnQueue, maj_prot_low_time);
                major_trend = -1; maj_extreme_low = low[i]; maj_extreme_low_time = time[i]; maj_extreme_low_idx = i;
                
                maj_confirmed_extreme_high = EMPTY_VALUE;
@@ -787,7 +788,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                   PushZone(BuyZonesQueue, zone_name, zEntry, zStop, MaxZones);
                }
                
-               if (ActiveHigh.time == maj_prot_high_time) ActiveHigh.isActive = false; ClearQueue(BOSDnQueue); 
+               if (ActiveHigh.time == maj_prot_high_time) ActiveHigh.isActive = false; ClearQueue(BOSDnQueue); PruneBOS(BOSUpQueue, maj_prot_high_time);
                major_trend = 1; maj_extreme_high = high[i]; maj_extreme_high_time = time[i]; maj_extreme_high_idx = i;
                
                maj_confirmed_extreme_low = EMPTY_VALUE;
@@ -889,7 +890,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                }
 
                if (ActiveMinorLow.time == min_prot_low_time) ActiveMinorLow.isActive = false; 
-               ClearQueue(MinorBOSUpQueue); ClearZoneQueue(MinorBuyZonesQueue);
+               ClearQueue(MinorBOSUpQueue); PruneBOS(MinorBOSDnQueue, min_prot_low_time); ClearZoneQueue(MinorBuyZonesQueue);
                minor_trend = -1; min_extreme_low = low[i]; min_extreme_low_time = time[i]; min_extreme_low_idx = i;
                
                min_confirmed_extreme_high = EMPTY_VALUE;
@@ -936,7 +937,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
                    PushZone(MinorBuyZonesQueue, m_zone_name, zEntry, zStop, MaxZones);
                }
 
-               if (ActiveMinorHigh.time == min_prot_high_time) ActiveMinorHigh.isActive = false; ClearQueue(MinorBOSDnQueue); ClearZoneQueue(MinorSellZonesQueue);
+               if (ActiveMinorHigh.time == min_prot_high_time) ActiveMinorHigh.isActive = false; ClearQueue(MinorBOSDnQueue); PruneBOS(MinorBOSUpQueue, min_prot_high_time); ClearZoneQueue(MinorSellZonesQueue);
                minor_trend = 1; min_extreme_high = high[i]; min_extreme_high_time = time[i]; min_extreme_high_idx = i;
                
                min_confirmed_extreme_low = EMPTY_VALUE;
@@ -1093,6 +1094,7 @@ void UpdateLevelLabels(datetime current_time) {
    DrawLevelGroup(lowSrc, current_time, false);
 }
 
+void PruneBOS(string &queue[], datetime cut_time) { for(int i = ArraySize(queue) - 1; i >= 0; i--) { bool drop = true; if(ObjectFind(ChartID(), queue[i]) >= 0) { datetime t1 = (datetime)ObjectGetInteger(ChartID(), queue[i], OBJPROP_TIME, 0); drop = (t1 <= cut_time); } if(drop) { ObjectDelete(ChartID(), queue[i]); ObjectDelete(ChartID(), queue[i] + "_lbl"); for(int k = i; k < ArraySize(queue) - 1; k++) queue[k] = queue[k+1]; ArrayResize(queue, ArraySize(queue) - 1); } } }
 void ClearQueue(string &queue[]) { for(int i=0; i<ArraySize(queue); i++) { ObjectDelete(ChartID(), queue[i]); ObjectDelete(ChartID(), queue[i] + "_lbl"); } ArrayResize(queue, 0); }
 void ClearZoneQueue(TZone &queue[]) { for(int i=0; i<ArraySize(queue); i++) { ObjectDelete(ChartID(), queue[i].name); } ArrayResize(queue, 0); }
 void PushBOS(string &queue[], string name, int max_count) { for(int i=0; i<ArraySize(queue); i++) if(queue[i] == name) return; int size = ArraySize(queue); ArrayResize(queue, size + 1); queue[size] = name; if(ArraySize(queue) > max_count) { ObjectDelete(ChartID(), queue[0]); ObjectDelete(ChartID(), queue[0] + "_lbl"); for(int i = 0; i < ArraySize(queue) - 1; i++) queue[i] = queue[i+1]; ArrayResize(queue, ArraySize(queue) - 1); } }

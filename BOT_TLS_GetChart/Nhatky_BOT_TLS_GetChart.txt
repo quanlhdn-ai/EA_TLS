@@ -1,0 +1,785 @@
+Nhật ký 2026-09-20 — BOT_TLS_GetChart · CẬP NHẬT FILE DÙNG CHUNG CSMC_Engine.mqh
+
+Bot này KHÔNG bị sửa, và việc phát triển vẫn dừng theo quyết định 2026-09-09.
+Chỉ ghi lại vì nó tham gia quy tắc mirror của CSMC_Engine.mqh.
+
+1. CSMC_Engine.mqh thêm method PruneBOS(queue, cut_time). Khi CHOCH, ngoài
+   ClearQueue() hàng đợi BOS NGƯỢC chiều như cũ, nay dọn thêm ở hàng đợi CÙNG
+   chiều những đường có mốc BẮT ĐẦU <= nến Protected Level (= mép TRÁI đường
+   CHOCH). Đường bắt đầu SAU mốc đó thì GIỮ. Áp cho cả 4 nhánh Major/Minor ×
+   tăng/giảm. Cạm bẫy: cắt theo THỜI ĐIỂM XẢY RA CHOCH sẽ giết luôn các đường
+   BOS hợp lệ của sóng mới — phải cắt theo MÉP TRÁI.
+2. THUẦN ĐỒ HOẠ, không đổi tín hiệu — bot đọc dữ liệu từ mảng nội bộ của engine
+   chứ không đọc chart. Kết quả backtest cũ do đó KHÔNG bị ảnh hưởng.
+3. Thư mục này include bằng DẤU NHÁY (`#include "CSMC_Engine.mqh"`) để copy
+   nguyên thư mục sang máy khác là chạy được — quy ước 2026-09-06, giữ nguyên.
+   Vì vậy bản cập nhật được copy vào ĐÚNG hai chỗ: thư mục repo này, và
+   MQL5\Experts\BOT_TLS_GetChart\ của cả hai terminal. KHÔNG lấy từ
+   MQL5\Include\.
+4. Biên dịch lại TLS_GetChart_Bot ở cả hai terminal: 0 errors, 4 warnings — đúng
+   4 warning quen thuộc (POSITION_COMMISSION ×3 + ushort→uchar trong
+   Telegram_Radar.mqh). Không có warning nào từ CSMC_Engine.
+5. Trần số đường (max_bos = 5, max_mbos = 3) truyền qua Init(), CHƯA đổi. Bên
+   TradingView đã nâng 60/40.
+6. Nguồn gốc thay đổi: port ngược từ chỉ báo TradingView TradingZone_Signal.
+   Chi tiết đầy đủ ở nhật ký 2026-09-20 của BOT_TLS.
+
+Nhật ký 2026-09-06 — BOT_TLS_GetChart
+
+[Mở topic "Topic_Bot_TLS_By_GetChart" — tạo thư mục bot mới]
+1. Người dùng mở topic mới để xây một bot giao dịch mới, đặt trong thư mục
+   riêng BOT_TLS_GetChart/ theo đúng quy ước "mỗi bot một thư mục" của repo
+   (giống BOT_TLS, BOT_CRT, BOT_OB_Radar, BOT_ChartSnapshot).
+2. Tên thư mục lấy theo tên topic: "TLS ... By GetChart" — ý là bot giao dịch
+   TLS chạy dựa trên phần lấy/đọc chart của BOT_ChartSnapshot (bot mà file
+   preset đang chạy tên là config_bot_getchart.set). Nếu người dùng muốn tên
+   khác thì đổi tên thư mục + file là xong, chưa có gì phụ thuộc vào tên.
+3. Mô tả chiến lược CHƯA có tại thời điểm tạo thư mục — người dùng sẽ mô tả
+   trong các lượt tiếp theo. Vì vậy CHƯA tạo file .mq5, .set và bản sao lưu
+   .zip: không đoán trước logic bot, tránh để lại file khung rỗng gây hiểu
+   nhầm là code thật.
+
+[Quy ước áp dụng cho thư mục này (chốt trước, khỏi hỏi lại sau)]
+1. File dùng chung: CSMC_Engine.mqh và Telegram_Radar.mqh KHÔNG viết bản
+   riêng cho bot này — dùng đúng bản chuẩn đang có trong BOT_TLS/BOT_CRT/
+   BOT_OB_Radar (hiện 3 bản đều byte-identical: CSMC_Engine MD5 22E82059...,
+   Telegram_Radar MD5 9F7A4B6E...). Nếu sau này bot này cần một bản copy nằm
+   trong thư mục để tiện deploy thì phải copy y nguyên và kể từ đó mọi sửa
+   đổi phải mirror sang CẢ 4 thư mục, kiểm bằng md5sum.
+   Cả hai đều include bằng ngoặc nhọn <...> nên khi compile lấy từ
+   <MT5 data folder>\MQL5\Include\, không lấy từ thư mục bot.
+2. Nếu bot dùng tới phần chụp/mở chart của BOT_ChartSnapshot thì file
+   Telegram_ChartBot.mqh (hiện chỉ BOT_ChartSnapshot có) cũng thành file dùng
+   chung — lúc đó áp cùng luật mirror như trên.
+3. Các quy ước còn lại theo CLAUDE.md: .set là UTF-16LE có BOM và phải cập
+   nhật cùng lượt với mỗi lần thêm/bớt input; tham số hình thức (màu, độ
+   rộng, kiểu đường) để const chứ không phải input; mọi vòng lặp lệnh/vị thế
+   phải lọc theo magic number riêng của bot này; log prefix [BOT][module];
+   nhật ký + zip sao lưu chỉ làm khi người dùng yêu cầu.
+
+[Việc còn lại — ĐÃ XONG HẾT ngày 06/09/2026, xem entry bổ sung bên dưới]
+- Người dùng mô tả chiến lược -> chốt tên file .mq5 chính, magic number
+  riêng (không trùng các bot đang chạy), danh sách input.
+- Sau khi có code: compile bằng MetaEditor64.exe (dò lại đường dẫn máy này),
+  tạo file .set khớp số lượng input, thêm dòng cho bot này vào bảng thư mục
+  trong CLAUDE.md, và tạo Backup_BOT_TLS_GetChart_<ddMMyyyy>.zip khi người
+  dùng yêu cầu.
+
+Nhật ký 2026-09-06 (bổ sung) — BOT_TLS_GetChart
+
+[TLS_GetChart_Bot.mq5 — bản v1.0, code lần đầu]
+Người dùng mô tả bot qua 8 phần hỏi-đáp, chốt từng phần một. Toàn bộ quyết định
+ghi lại dưới đây để sau này không phải suy luận lại từ code.
+
+1. NGUỒN TÍN HIỆU. Bot TỰ TÍNH Zone bằng CSMC_Engine chứ KHÔNG đọc tin Telegram
+   của BOT_ChartSnapshot và không dùng iCustom(TLS_SMC_Indicator). Lý do chọn:
+   không phụ thuộc bot kia còn sống, không phải parse text, và quan trọng nhất là
+   BACKTEST ĐƯỢC. Đánh đổi đã biết: engine và indicator là 2 file riêng, nếu sau
+   này ai sửa 1 bên thì Zone của bot có thể lệch so với tin đang gửi lên kênh.
+2. HAI KHUNG. SMC_TREND (mặc định H1) + SMC_ZONE (mặc định M1), đều showGraphics
+   = false. Bot KHÔNG dùng khung của chart đang gắn EA làm khung tín hiệu (khác
+   BOT_TLS dùng _Period) — đổi timeframe chart không ảnh hưởng hành vi bot.
+3. T (Trend): current_major_trend của khung Trend. +1 chỉ cho Buy, -1 chỉ cho
+   Sell, 0 (chưa xác định) CHẶN CẢ HAI. Trend đảo lúc lệnh chờ đang treo -> huỷ
+   lệnh chờ, vị thế đã khớp giữ nguyên cho SL/TP tự chạy.
+4. L (Level): chỉ nhận Zone MỚI hình thành. Lần đọc đầu sau khi EA khởi động chỉ
+   ghi mốc so sánh, không vào lệnh (sao y cờ "seen" của CheckZoneFormed trong bot
+   GetChart). Mốc này được lưu vào GlobalVariable nên EA reload không coi Zone
+   đang có là Zone mới.
+5. HAI MỐC VÀO LỆNH / 1 ZONE. Vị trí nhập theo % ĐỘ RỘNG ZONE, chạy từ mép Entry
+   (mép gần giá) về phía mép SL: mốc 1 = 0% (đúng mép Zone), mốc 2 = 50% (giữa
+   Zone). Mỗi mốc có công tắc riêng, TP riêng (đơn vị PIPS, mặc định 100 pips =
+   10 giá vàng), magic riêng (2027001 / 2027002) để sau này thống kê tách được
+   hiệu quả từng mốc. Mỗi mốc bắn tối đa 1 lần cho mỗi Zone. HAI MỐC ĐỘC LẬP
+   HOÀN TOÀN: mốc 1 trượt thì mốc 2 vẫn vào được.
+6. S (Signal): enum 4 lựa chọn (Không cần nến / Pinbar / Engulfing / Pinbar hoặc
+   Engulfing), xét trên cùng khung Zone, áp RIÊNG cho từng mốc.
+   - Không cần nến -> đặt sẵn 2 lệnh Limit ngay khi Zone hình thành.
+   - Có lọc nến -> giá chạm mốc nào thì mốc đó "lên đạn" VĨNH VIỄN tới khi Zone
+     chết; tín hiệu xuất hiện lúc nào vào Market lúc đó, KHÔNG giới hạn số nến
+     chờ. Đây là khác biệt cố ý so với BOT_CRT (bên đó chỉ xét đúng 1 cây kế
+     tiếp rồi "đốt biên"). Người dùng yêu cầu rõ: giá chạm mép Zone rồi đóng
+     ngược ra vẫn tiếp tục theo dõi, cây nến tín hiệu xuất hiện muộn vẫn tính.
+   - Vì bỏ điểm neo "râu phải chọc qua mốc" nên định nghĩa nến phải viết lại độc
+     lập, KHÔNG bê nguyên PassesWickFilter của BOT_CRT:
+       · Vị trí: nến tín hiệu phải đóng ở PHÍA TRONG mốc (từ mốc trở vào giữa
+         Zone) và chưa đóng xuyên mép SL. Nhờ vậy giá vào không bao giờ xấu hơn
+         giá mốc.
+       · Pinbar: nến phải THUẬN chiều lệnh VÀ râu phía quét >= 1.5 x thân. CẢ HAI
+         điều kiện đều bắt buộc — khác BOT_CRT (bên đó nến thuận chiều được miễn
+         đo râu). Nếu miễn như BOT_CRT thì ở đây một cây nến giảm trơn không râu
+         cũng thành tín hiệu bán, vì không còn ràng buộc chọc qua biên.
+       · Engulfing: nến 2 phải trùm CẢ High LẪN Low nến 1 và đóng thuận chiều.
+         Không đòi nến 1 ngược chiều — điều kiện trùm toàn biên độ đã đủ chặt.
+   - Tỷ lệ râu/thân 1.5 để const (WICK_BODY_RATIO) đúng quy ước BOT_CRT.
+   - Inp_MaxDistFromLevel_Pips (mặc định 0 = tắt) chặn trường hợp tín hiệu xuất
+     hiện quá muộn, lúc giá đã đi xa mốc.
+7. SL: sao y công thức của bot GetChart để con số trùng đúng tin đã công bố —
+   mép xa -> đệm theo thang 30-35-40-45-50 pips -> làm tròn số nguyên -> nới thêm
+   Inp_SL_Extra_Pips (20). Thang để const, 2 tham số cuối thành input. SL DÙNG
+   CHUNG cho cả 2 lệnh. Hệ quả đã báo trước với người dùng: lệnh mốc 50% có
+   khoảng SL ngắn hơn nên với cùng RiskPercent nó ăn LOT LỚN HƠN lệnh mốc mép.
+8. Rủi ro tính RIÊNG từng lệnh (mỗi lệnh = RiskPercent), tức 1 setup đủ 2 lệnh
+   thì tổng rủi ro = 2 x RiskPercent.
+9. BE: lệnh nào chạm TP trước thì kéo SL các lệnh CÒN LẠI CÙNG SETUP về hoà vốn.
+   Không trailing. Thực hiện trong OnTradeTransaction khi DEAL_REASON = TP, dựa
+   trên group_id lưu trong sổ g_trades.
+10. Huỷ lệnh chờ khi: Zone vỡ (giá xuyên mép SL Zone gốc, xét theo tick không
+    chờ nến đóng) / có Zone mới cùng chiều / trend đảo / vào giờ tin. KHÔNG hết
+    hạn theo thời gian (người dùng chọn 0 = không hết hạn).
+11. Lá chắn + quản lý vốn port nguyên từ BOT_TLS: lot theo RiskPercent hoặc
+    FixedLotSize + trần margin, lỗ ngày, lãi ngày, mục tiêu equity, giờ tin,
+    Pool SL, FlexTP, hàng đợi đóng lệnh retry, cứu trạng thái sau crash,
+    dashboard, log [GCB][module]. Tài khoản chạy RIÊNG nên lá chắn đóng mọi vị
+    thế mang magic của bot (không có bot khác trên tài khoản này).
+12. Telegram: token/chat để trống chờ người dùng cấp. Lệnh điều khiển đầy đủ:
+    /start /stop (hoặc /pause) /closeall /status /config /chart /resetshield.
+
+[Ba quyết định kỹ thuật tự chốt trong lúc code — đọc kỹ nếu sau này thấy lạ]
+1. Inp_Min_Entry_Dist_Pips (30) CHỈ áp giữa các setup KHÁC nhau, không áp giữa 2
+   mốc của cùng một Zone. Bắt buộc phải vậy: Zone mẫu của người dùng rộng 20 pips
+   nên mốc 50% chỉ cách mép 10 pips — để nguyên luật của BOT_TLS thì lệnh thứ 2
+   KHÔNG BAO GIỜ vào được. Cài đặt bằng cách so group_id trong sổ g_trades.
+2. Inp_Max_Risk_Trades mặc định 4 (BOT_TLS là 3). Mỗi setup ăn 2 lệnh nên để 3 sẽ
+   thành "1,5 setup", chặn giữa chừng rất khó hiểu. 4 = đúng 2 setup.
+3. TryCreateSetup có chốt chặn "Zone vừa sinh ra đã ở phía sau giá" (giá đã vượt
+   mép SL). Thiếu chốt này thì ở chế độ không-cần-nến bot sẽ vào Market ngay tại
+   giá hiện tại rồi mới bị ProcessSetupTick huỷ setup ở tick kế tiếp — tức là vào
+   một lệnh mà Zone coi như đã vỡ.
+
+[Hành vi cần chú ý khi đọc kết quả backtest]
+- Giá đã nằm TRONG Zone lúc Zone hình thành: người dùng chọn "vào Market ngay"
+  (phần 3.2). Nếu giá đã đi qua CẢ HAI mốc thì cả 2 lệnh cùng vào Market tại
+  cùng một giá, chỉ khác TP — tức là ăn 2 lần rủi ro ở một vị trí không đẹp.
+  Nếu backtest thấy khó chịu thì sửa: chỉ cho mốc 1 vào Market, mốc 2 bỏ qua.
+- Lệnh chờ bị huỷ vì giờ tin sẽ được ĐẶT LẠI sau khi qua giờ tin (ProcessSetupBar
+  phát hiện vé lệnh biến mất mà chưa thành vị thế). Cố ý như vậy vì Zone vẫn còn
+  sống; nếu muốn "huỷ là thôi" thì bỏ nhánh đặt lại đó.
+- Vị thế mồ côi sau khi EA reload (không rõ thuộc setup nào) vào sổ với
+  group_id = -1: vẫn được báo cáo khi đóng nhưng KHÔNG kéo BE theo nhóm được nữa.
+
+[Build]
+- Máy này: MetaEditor C:\Program Files\MetaTrader 5\MetaEditor64.exe, data folder
+  ...\Terminal\D0E8209F77C8CF37AD8BF550E51FF075 (dò lại mỗi phiên, máy khác sẽ
+  khác GUID).
+- Kết quả: Result: 0 errors, 4 warnings. 4 cảnh báo đều thuộc nhóm đã biết và vô
+  hại: 3 x POSITION_COMMISSION is deprecated + 1 x ushort->uchar trong
+  Telegram_Radar.mqh. (CLAUDE.md ghi 2 x POSITION_COMMISSION cho các bot khác,
+  bot này 3 vì dùng ở 3 chỗ: CheckFlexTP, CheckPoolSL, SendStatusMessage.)
+- Đã copy .ex5 vào MQL5\Experts và TLS_GetChart_Bot.set vào MQL5\Profiles\Tester
+  để bấm backtest là nạp preset được ngay.
+- File dùng chung CSMC_Engine.mqh và Telegram_Radar.mqh: KHÔNG copy vào thư mục
+  bot, dùng bản chuẩn của BOT_TLS (deploy vào MQL5\Include). Include bằng ngoặc
+  nhọn nên compiler lấy từ Include, không lấy từ thư mục bot.
+
+[Bọc hàm gửi Telegram — Notify() / NotifyPhoto()]
+- Mọi lời gọi Radar.SendMessage / SendMessageWithPhoto trong bot đều đi qua 2 hàm
+  bọc Notify() / NotifyPhoto(); 2 hàm này thoát sớm khi MQLInfoInteger(MQL_TESTER).
+  Lý do: trong Strategy Tester WebRequest luôn bị chặn (lỗi 4014) nên mỗi lần gửi
+  vừa tốn thời gian vừa đổ rác vào log — Zone khung M1 sinh rất nhiều tin, backtest
+  sẽ chậm hẳn. Chạy thật thì hành vi không đổi.
+- CỐ Ý không sửa Telegram_Radar.mqh: đó là file dùng chung, sửa 1 bản là phải mirror
+  sang cả BOT_TLS, BOT_CRT, BOT_OB_Radar.
+
+[Việc còn lại]
+- Người dùng backtest bản v1.0 rồi phản hồi để chỉnh.
+- Chưa có token/chat_id Telegram thật (đang để YOUR_BOT_TOKEN_HERE): trong
+  Strategy Tester WebRequest bị chặn nên log sẽ có "TELEGRAM POST ERROR: Code -1
+  | Error: 4014" — bình thường, không phải lỗi bot.
+- Chưa tạo Backup_BOT_TLS_GetChart_<ddMMyyyy>.zip (chờ người dùng yêu cầu).
+- Chưa thêm dòng cho bot này vào bảng thư mục trong CLAUDE.md (làm cùng lúc với
+  lần cập nhật kế tiếp nếu người dùng đồng ý).
+
+Nhật ký 2026-09-06 (bổ sung 2) — BOT_TLS_GetChart
+
+[Thư mục tự chứa — copy 1 thư mục sang máy khác là chạy]
+1. Người dùng yêu cầu mọi file cần để chạy bot phải nằm đủ trong thư mục này. Đã
+   copy CSMC_Engine.mqh và Telegram_Radar.mqh từ BOT_TLS vào đây (byte-identical,
+   md5 22E82059... và 9F7A4B6E... — đã kiểm cả 4 thư mục sau khi copy).
+2. ĐỔI CÁCH INCLUDE: dùng dấu NGOẶC KÉP #include "CSMC_Engine.mqh" thay vì ngoặc
+   nhọn. Nhờ vậy compiler lấy bản nằm cùng thư mục, KHÔNG cần chép gì vào
+   MQL5\Include nữa. Đây là điểm KHÁC 3 bot còn lại trong repo — đừng "sửa lại
+   cho đồng bộ", sửa là hỏng mục tiêu copy-1-thư-mục.
+3. Cách deploy từ nay: copy NGUYÊN thư mục BOT_TLS_GetChart vào
+   <MT5 data folder>\MQL5\Experts\ rồi compile tại chỗ. File .ex5 sinh ra nằm
+   trong chính thư mục đó, MT5 hiện EA trong Navigator ở nhánh
+   Experts\BOT_TLS_GetChart. Hướng dẫn 4 bước đã ghi ngay đầu file .mq5.
+4. LUẬT MIRROR NAY THÀNH 4 BẢN: sửa CSMC_Engine.mqh hoặc Telegram_Radar.mqh là
+   phải đồng bộ sang BOT_CRT, BOT_TLS, BOT_OB_Radar VÀ BOT_TLS_GetChart. Đã cập
+   nhật CLAUDE.md (mục "Shared includes" + thêm dòng bot này vào bảng thư mục).
+5. Vẫn KHÔNG giữ .ex5 trong repo (theo quy ước cũ, xem Nhatky_BOT_OB_Radar). Nếu
+   sau này muốn copy sang máy khác mà khỏi compile thì phải chủ động chép thêm
+   file .ex5 — hiện tại bước 2 của hướng dẫn là bấm compile.
+
+[Gắn cứng Telegram]
+1. Inp_BotToken = 8365052004:AAEEqNwnzI... và Inp_ChatID = -5442190551 (lấy từ
+   web.telegram.org/k/#-5442190551). Đã sửa cả giá trị mặc định trong .mq5 lẫn
+   file TLS_GetChart_Bot.set để 2 nơi không lệch nhau.
+2. CẢNH BÁO ĐÃ BÁO NGƯỜI DÙNG, CHƯA XỬ LÝ: token này ĐANG DÙNG CHUNG với BOT_TLS
+   (exness_trieudo.set). Hai EA cùng gọi getUpdates trên một token sẽ ăn tranh
+   update của nhau — getUpdates có offset, EA nào đọc trước thì EA kia mất tin,
+   nên lệnh /status /stop có thể rơi nhầm bot. Chỉ ảnh hưởng chiều NHẬN lệnh;
+   chiều GỬI tin (sendMessage) thì 2 bot dùng chung token vẫn chạy song song bình
+   thường, chỉ là tin của cả 2 bot hiện cùng một tên bot trong group. Khi người
+   dùng tạo bot riêng qua BotFather thì đổi đúng 1 dòng token.
+3. chat_id -5442190551 là group THƯỜNG (không phải supergroup, vì supergroup có
+   dạng -100xxxxxxxxxx). Nếu group được nâng cấp lên supergroup thì ID này chết
+   và bot câm lặng — đúng sự cố đã ghi trong Nhatky_BOT_ChartSnapshot. Cách
+   phòng: nếu group có username công khai thì điền thẳng "@ten_group" vào
+   Inp_ChatID, Bot API nhận và không bị đổi ID khi nâng cấp.
+4. Bot vẫn BỎ QUA IM LẶNG mọi tin sai chat_id, không in log gì cả (khác bot
+   GetChart có in "chat_id nhận / chat_id cấu hình"). Đã đề nghị thêm dòng log
+   này khi Inp_Debug = true, người dùng chưa trả lời -> chưa làm.
+
+[Build sau khi đổi layout]
+- Compile tại <data folder>\MQL5\Experts\BOT_TLS_GetChart\TLS_GetChart_Bot.mq5:
+  Result: 0 errors, 4 warnings (vẫn đúng 4 cảnh báo vô hại đã biết).
+- Đã gỡ bản deploy kiểu cũ (TLS_GetChart_Bot.mq5/.ex5 nằm thẳng trong
+  MQL5\Experts\) để Navigator không hiện 2 EA trùng tên.
+- TLS_GetChart_Bot.set đã copy lại vào MQL5\Profiles\Tester\ với token/chat mới.
+
+Nhật ký 2026-09-06 (bổ sung 3) — BOT_TLS_GetChart
+
+[Bot tự vẽ cấu trúc SMC, không cần gắn chỉ báo]
+1. Người dùng hỏi bot có tự hiện được các đường như TLS_SMC_Indicator không. Trả
+   lời: CÓ, không phải viết thêm gì — CSMC_Engine đã có sẵn toàn bộ phần vẽ, chỉ
+   cần bật cờ showGraphics trong Init() và truyền màu vào (trước đó bot truyền
+   showGraphics = false + clrNONE nên không vẽ gì).
+2. Bộ đối tượng engine vẽ được (đều là MAJOR): Zone Supply/Demand (hình chữ nhật),
+   đường BOS, đường CHOCH, Key Level (tia), và tia Tracking có nhãn "Protected
+   High/Low" hoặc "Active High/Low" tuỳ trạng thái cấu trúc. Đủ 4 nhóm người dùng
+   hỏi (Strong / Key Level / Protected / Zone).
+   LƯU Ý engine KHÔNG vẽ: đường EMA, nến Heikin Ashi, chấm Swing High/Low, đường
+   Weak High/Low, đường "mốc Đỉnh/Đáy gần nhất" — các thứ này chỉ có trong
+   TLS_SMC_Indicator.mq5, muốn xem thì vẫn phải gắn chỉ báo.
+3. Thêm input Inp_Draw_Mode (enum 4 lựa chọn: Không vẽ / khung Zone / khung Trend
+   / cả hai), mặc định VE_KHUNG_ZONE. Làm enum thay vì bool để khi Trend và Zone
+   là 2 khung khác nhau thì chọn được vẽ khung nào. CẢNH BÁO đã ghi trong code:
+   khi 2 khung TRÙNG nhau (mặc định Trend = CURRENT, Zone = M1, chart M1) mà chọn
+   VE_CA_HAI thì 2 bộ đối tượng giống hệt nhau vẽ đè lên nhau.
+4. Màu vẽ để const (CLR_BUY_ZONE, CLR_SELL_ZONE, CLR_KEY_LEVEL, CLR_BOS_UP,
+   CLR_BOS_DN), lấy đúng bộ màu HTF của BOT_TLS cho 2 bot nhìn giống nhau — theo
+   quy ước repo, bảng Inputs chỉ chứa tham số vận hành.
+5. Thêm OnChartEvent -> HandleChartEvent() của engine tương ứng. Bắt buộc phải có:
+   tia Tracking (Protected/Active High-Low) kéo tới mép phải chart nên mỗi lần
+   cuộn/phóng to chart phải vẽ lại, y như BOT_TLS làm với SMC_HTF.
+
+[Khung xu hướng mặc định = CURRENT]
+- Inp_Trend_Timeframe đổi mặc định từ PERIOD_H1 sang PERIOD_CURRENT (= 0), tức
+  dùng luôn khung của chart đang gắn EA. .set cập nhật theo (Inp_Trend_Timeframe=0).
+- Hệ quả cần nhớ khi đọc backtest: với chart M1 + Zone M1 thì T và L thành CÙNG
+  một khung, bộ lọc xu hướng không còn là "khung lớn hơn" nữa mà chỉ là cấu trúc
+  Major của chính khung Zone.
+
+[Bỏ tham số Minor khỏi bảng Inputs]
+- Gỡ Inp_Trend_MinorSwing và Inp_Zone_MinorSwing, thay bằng const MINOR_SWING = 5
+  truyền vào Init(). Lý do: bot chỉ dùng cấu trúc MAJOR (xu hướng lẫn Zone), số
+  nến Swing Minor không còn là tham số vận hành.
+- KHÔNG cắt phần tính Minor trong CSMC_Engine.mqh — đúng yêu cầu người dùng và
+  đúng luật file dùng chung (sửa 1 bản là phải mirror sang cả 4 bot). showMinor
+  vẫn = false ở cả 2 engine nên phần Minor không vẽ ra chart.
+- Số input: 41 -> 40 (bỏ 2 Minor, thêm 1 Inp_Draw_Mode). Đã diff lại tên + thứ tự
+  giữa .set và .mq5: khớp 100%.
+
+[Build]
+- Result: 0 errors, 4 warnings (vẫn đúng 4 cảnh báo vô hại đã biết).
+
+[Bẫy khi tạo lại file .set — ghi để lần sau khỏi dính]
+- Cách tạo .set ở đây là decode UTF-16 -> sed -> encode lại và tự chèn BOM. Nếu
+  không xoá ký tự BOM (U+FEFF) còn sót trong phần text trước khi encode thì mỗi
+  lần sửa file lại chồng thêm 1 BOM — đã dính 4 BOM ở đầu file, phải làm lại.
+  Lệnh cần có: sed "s/﻿//g" trước khi encode.
+
+Nhật ký 2026-09-06 (bổ sung 4) — BOT_TLS_GetChart
+
+[LỖI THẬT tìm ra từ backtest đầu tiên: BE không chạy]
+1. Bằng chứng từ log backtest 01-31/08/2026 (chart M1, Visualization):
+   - 01:37 setup Zone BUY 4053.297–4047.364, SL 4042: mốc 1 khớp @4053.297 (lệnh
+     #10), mốc 2 khớp @4050.331 (lệnh #11).
+   - 02:00:40 lệnh #11 chạm TP 4060.331.
+   - SAU đó KHÔNG có dòng "CTrade::OrderSend: modify" nào, và ảnh chart cho thấy
+     lệnh #10 vẫn giữ SL gốc 4042 chứ không về hoà vốn 4053.297.
+   => Nhánh kéo BE nằm trong OnTradeTransaction đã KHÔNG chạy tới nơi.
+2. Chưa xác định được chắc chắn nó chết ở bộ lọc nào. Nghi ngờ số 1: deal do
+   SERVER sinh ra khi chạm SL/TP có thể không mang DEAL_MAGIC của EA, nên dòng
+   if(!IsMyMagic(HistoryDealGetInteger(trans.deal, DEAL_MAGIC))) return; thoát
+   sớm. Đã thêm DebugLog("DEAL", ...) in ra magic/entry/reason ngay đầu
+   OnTradeTransaction — bật Inp_Debug = true là lần backtest sau biết ngay.
+3. CÁCH SỬA: không đi tìm bộ lọc nào chết nữa mà chuyển đường phát hiện TP sang
+   chỗ chắc chắn chạy — SyncTradeRecords() (gọi mỗi tick). Khi một vé rời khỏi sổ
+   (không còn là vị thế, cũng không còn là lệnh chờ) mà nó TỪNG là vị thế thật thì
+   tra HistorySelectByPosition() xem có deal đóng nào mang DEAL_REASON_TP hoặc
+   tổng lãi > 0 -> coi là đã chạm TP. Cách này không phụ thuộc DEAL_MAGIC, không
+   phụ thuộc OnTradeTransaction, chỉ chậm hơn tối đa 1 tick.
+   OnTradeTransaction vẫn giữ nguyên làm đường phát hiện NHANH (nếu nó chạy được
+   thì BE về ngay trong cùng tick), 2 đường gọi chung 1 hàm idempotent.
+
+[Thêm: chạm TP là huỷ lệnh chờ còn lại của cùng setup]
+- Yêu cầu người dùng 06/09/2026. Gộp chung vào hàm mới HandleGroupTP(group_id,
+  closed_ticket), làm 3 việc theo thứ tự:
+    1. Huỷ mọi lệnh chờ CHƯA KHỚP của cùng setup (cùng group_id).
+    2. MarkSetupDoneByGroup() — khoá cả 2 mốc lại (done = true) để ProcessSetupBar
+       không đặt lại lệnh chờ ở chế độ "không cần nến", và mốc còn lại cũng không
+       vào lệnh nữa dù có tín hiệu nến.
+    3. ApplyBEForGroup() — kéo SL các vị thế còn mở của setup về giá mở của chính
+       nó.
+- Nghĩa là: Zone nào đã ăn TP thì coi như XONG, không vào thêm lệnh nào từ Zone
+  đó nữa. Đây là diễn giải của "huỷ lệnh khi giá đã chạm TP" — nếu người dùng
+  muốn mốc còn lại vẫn được vào lệnh tiếp thì bỏ bước 2.
+- HandleGroupTP viết idempotent (gọi lại nhiều lần vô hại): OrderDelete bỏ qua vé
+  không còn tồn tại, ApplyBEForGroup có cờ be_done và kiểm tra SL hiện tại.
+
+[Thêm log để lần sau soi được ngay, không phải đoán]
+- "[GCB][TP] Lệnh #x của setup #g đã chạm TP"
+- "[GCB][TP] Đã huỷ n lệnh chờ của setup #g vì đã có lệnh chạm TP"
+- "[GCB][BE] Kéo SL lệnh #x về hoà vốn <giá>"
+- "[GCB][BE] LỖI kéo BE lệnh #x retcode=..." (trước đây PositionModify thất bại
+  là im lặng hoàn toàn vì chỉ báo qua Telegram, mà Telegram thì tắt trong tester)
+- Bài học ghi lại: mọi hành động quan trọng phải có Print() chứ không chỉ Notify()
+  — Notify() thoát sớm trong Strategy Tester nên backtest không thấy gì.
+
+[Build]
+- Result: 0 errors, 4 warnings. Không thêm/bớt input, .set giữ nguyên 40 dòng.
+
+Nhật ký 2026-09-06 (bổ sung 5) — BOT_TLS_GetChart
+
+[Huỷ lệnh chờ khi giá chạy thẳng tới TP mà chưa khớp entry]
+1. Tình huống người dùng bắt được khi xem Visualization (03/08 khoảng 03:55): setup
+   Zone BUY 4063.315–4059.171 đặt 2 lệnh chờ (mốc 1 @4063.315 TP 4073.315, mốc 2
+   @4061.243 TP 4071.243). Giá không hề quay xuống chạm mốc nào mà đi thẳng lên
+   4069.4 rồi tiếp tục. Hai lệnh chờ vẫn treo nguyên -> nếu sau đó giá quay đầu về
+   thì bot vào lệnh MUA ở đúng lúc sóng tăng đã kết thúc, tức là vào một setup đã
+   diễn xong mà mình không có mặt trong đó.
+2. Luật mới: xét RIÊNG TỪNG MỐC (2 mốc có 2 mức TP khác nhau). Khi giá chạm mức TP
+   dự kiến của mốc nào thì huỷ lệnh chờ của mốc đó và khoá mốc lại (done = true),
+   không đặt lại nữa. Buy so bằng Bid >= TP, Sell so bằng Ask <= TP — đúng bên giá
+   mà lệnh TP thật sẽ kích hoạt.
+   Vì mốc 2 nằm sâu hơn trong Zone nên TP của nó THẤP hơn (với Buy) -> mốc 2 luôn
+   bị khoá trước mốc 1. Đúng logic, không phải lỗi.
+3. Áp cho cả chế độ có lọc nến: mốc đang "lên đạn" chờ nến mà giá đã chạy tới TP
+   thì cũng khoá luôn, dù lúc đó chưa có lệnh chờ nào để huỷ.
+4. Chặn thêm ở PlaceEntry: nếu ngay lúc chuẩn bị đặt lệnh chờ mà giá HIỆN TẠI đã
+   vượt mức TP dự kiến thì bỏ luôn, không đặt. Nếu không có chốt này thì lệnh vừa
+   đặt xong sẽ bị ProcessSetupTick huỷ ngay ở tick kế tiếp — vô ích và rác log.
+   KHÔNG áp cho lệnh thị trường: TP của lệnh Market tính từ chính giá vào nên không
+   bao giờ rơi vào tình huống này.
+5. Không áp dụng khi tp_pips = 0 (không đặt TP).
+6. Log mới:
+   - "[GCB][TP] Huỷ lệnh chờ mốc n (#x): giá đã chạy tới TP <giá> mà lệnh chưa khớp"
+   - "[GCB][TP] Khoá mốc n: giá đã chạy tới TP <giá> mà chưa vào được lệnh"
+   - "[GCB][LỆNH] Bỏ mốc n: giá hiện tại đã vượt mức TP dự kiến <giá>..."
+
+[Phân biệt 3 đường huỷ lệnh chờ — dễ lẫn khi đọc log]
+- HandleGroupTP: MỘT LỆNH ĐÃ KHỚP và chạm TP -> huỷ lệnh chờ còn lại + kéo BE +
+  khoá cả 2 mốc. (bổ sung 4)
+- Luật mới ở trên: CHƯA CÓ LỆNH NÀO KHỚP, giá tự chạy tới mức TP -> chỉ khoá mốc
+  tương ứng, không có BE vì không có vị thế nào.
+- KillSetup: Zone vỡ / Zone mới cùng chiều / trend đảo -> huỷ hết, kết thúc setup.
+
+[Build]
+- Result: 0 errors, 4 warnings. Không thêm/bớt input, .set giữ nguyên 40 dòng.
+
+Nhật ký 2026-09-06 (bổ sung 6) — BOT_TLS_GetChart
+
+[Xác nhận bằng backtest 17:50 — 3 cơ chế vừa sửa đều chạy đúng]
+1. BE ĐÃ CHẠY (lỗi ở bổ sung 4 đã hết):
+     02:00:40  [TP] Lệnh #8 của setup #4 đã chạm TP
+     02:00:43  CTrade::OrderSend: modify position #7 (sl: 4053.297) [done]
+     02:00:43  [BE] Kéo SL lệnh #7 về hoà vốn 4053.297
+   Sau đó 02:12:40 lệnh #7 bị quét đúng tại 4053.297 — thoát hoà vốn thay vì ăn
+   nguyên SL 4042 như lượt test trước. Chứng minh đường dò theo lịch sử trong
+   SyncTradeRecords hoạt động, không cần phụ thuộc OnTradeTransaction.
+2. Huỷ lệnh chờ khi giá chạy thẳng tới TP: 3 lần bắt đúng — 00:01:44 (#5),
+   02:47:48 (#12), 04:36:23 (#15). Cả 3 đều là mốc 2, đúng như dự đoán (mốc 2 nằm
+   sâu hơn nên TP thấp hơn -> luôn bị khoá trước mốc 1 với chiều Buy).
+3. Chặn đặt lệnh khi giá đã vượt TP dự kiến: bắt được ngay setup đầu tiên
+   22:02:00, bỏ cả 2 mốc thay vì đặt rồi huỷ ở tick sau.
+
+[Lỗ hổng LOG mới lộ ra: entry bị chặn mà không nói lý do]
+1. Trong log có đoạn khó hiểu: 02:48:00 báo "Zone BUY mới: 4055.558 – 4052.431"
+   rồi im hoàn toàn, không có dòng [LỆNH] nào, tới 02:49:40 thì 2 mốc bị khoá vì
+   giá đã chạy tới TP. Đọc log không thể biết vì sao bot không đặt lệnh.
+2. Truy ra: bị Inp_Min_Entry_Dist_Pips (30) chặn. Lúc đó đang có vị thế #11 mở tại
+   4054.351 thuộc setup #5; setup mới là #6 nên KHÔNG được miễn luật khoảng cách:
+     mốc 1 = 4055.558 -> cách 12 pips  < 30  -> chặn
+     mốc 2 = 4053.994 -> cách 3.6 pips < 30  -> chặn
+   Đây là hành vi ĐÚNG THIẾT KẾ, không phải lỗi — nhưng nó câm.
+3. Đã sửa: PlaceEntry ghi rõ số pip ngưỡng vào g_filter_text + DebugLog; và
+   TryCreateSetup in hẳn "[LỆNH] Không đặt được lệnh mốc n — <lý do>" khi mốc đang
+   bật mà không đặt được lệnh. Từ nay mọi lần bot đứng ngoài đều có lý do trên log.
+4. Nhắc lại bài học của bổ sung 4, nay đã áp đủ: hành động/quyết định quan trọng
+   phải có Print() thật, không được chỉ nằm trong g_filter_text (chỉ hiện trên
+   dashboard) hay Notify() (tắt hẳn trong Strategy Tester).
+
+[Điểm cần cân nhắc khi tối ưu, chưa sửa]
+- Inp_Min_Entry_Dist_Pips = 30 khá chặt với Zone khung M1: các Zone M1 liên tiếp
+  thường chỉ cách nhau 10-40 pips nên setup mới hay bị chặn sạch cả 2 mốc ngay sau
+  khi có một vị thế đang mở. Nếu muốn bot bắt nhiều setup hơn thì hạ xuống 10-15
+  hoặc 0. Để nguyên 30 cho tới khi người dùng quyết.
+
+Nhật ký 2026-09-06 (bổ sung 7) — BOT_TLS_GetChart
+
+[KẾT LUẬN DỨT ĐIỂM: vì sao 2 lệnh SELL không dính SL]
+1. Người dùng phản biện đúng: 03/08/2026 là THỨ HAI, nến M1 chạy liền mạch, nên
+   suy đoán "thị trường đã đóng từ trước 18:57" ở bổ sung 6 là KHÔNG có bằng
+   chứng. Ghi lại để nhớ: lúc đó mới chỉ chứng minh được đoạn 20:25-22:01.
+2. Đã dựng lưới SL ảo vừa để bảo vệ vừa làm MÁY ĐO, rồi chạy backtest headless
+   riêng ngày 03/08 (Model 0 = every tick). Kết quả in ra đúng con số cần:
+     18:52:39  [SL-ẢO] #26 SELL open=4036.920 SL(sàn báo)=4044.000
+               Bid=4043.764 Ask=4044.004 -> thử đóng bằng lệnh thị trường
+     18:52:39  [SL-ẢO] #26 đóng THẤT BẠI retcode=10018 (market closed)
+   => THỊ TRƯỜNG ĐÓNG CỬA ngay từ 18:52:39, đúng thời điểm Ask lần đầu chạm 4044.
+   Và SL trên sàn cũng KHÔNG SAI: nó vẫn là 4044.000 y như lúc đặt lệnh.
+3. Khoảng đóng cửa kéo dài liên tục 18:52:39 -> 22:01:00 (hơn 3 tiếng), chứng
+   minh bằng 52 lần thử đóng đều trả 10018. Lệnh cuối gửi thành công trước đó là
+   15:04:00; lệnh đầu tiên gửi lại được là 22:01:00.
+4. Vì sao nến vẫn chạy trong lúc "đóng cửa": Strategy Tester sinh tick từ LỊCH SỬ
+   M1, còn việc cho phép giao dịch thì tra BẢNG PHIÊN của symbol. Hai nguồn này
+   trên server demo Exness-MT5Trial7 KHÔNG khớp nhau — có nến nhưng không có
+   phiên. Nên cả hai quan sát đều đúng và không mâu thuẫn.
+5. HỆ QUẢ QUAN TRỌNG CHO VIỆC BACKTEST: mọi kết quả rơi vào khung 18:52-22:01
+   (giờ server) trên symbol này đều méo — lệnh không được quản lý, SL nổ trễ và
+   trượt giá theo gap mở cửa. Cú 03/08 lỗ -100.85 và -124.66 thay vì -47.2 và
+   -49.6 theo thiết kế (gấp 2.2-2.5 lần) là do đúng cơ chế này, không phải rủi ro
+   thị trường thật. Trước khi tin vào số liệu backtest, nên kiểm bảng phiên của
+   XAUUSDm (chuột phải trong Market Watch > Specification) hoặc đổi sang server
+   khác. ĐÂY LÀ VIỆC CÒN TREO, chưa xử lý.
+
+[Ba sửa đổi đã làm]
+1. Lưới SL ảo (CheckVirtualSL, gọi mỗi tick trong OnTick): vị thế nào có giá đã
+   vượt SL của chính nó mà còn mở thì bot tự đóng bằng lệnh thị trường. Log in cả
+   Bid, Ask và SL sàn đang báo — chính dòng log này đã giải được câu hỏi trên.
+   Khi SL sàn chạy bình thường thì hàm này không bao giờ ra tay.
+2. Chặn spam khi thị trường đóng: gặp retcode 10018 thì đặt g_market_closed_until
+   = TimeCurrent() + 60 và TradingBlocked() chặn mọi lệnh mới tới mốc đó. Dùng
+   TimeCurrent() chứ KHÔNG dùng GetTickCount64() — trong tester đồng hồ máy chạy
+   nhanh gấp bội thời gian test nên cooldown theo ms là vô nghĩa.
+   Kết quả đo được: số lần gửi lệnh hỏng vì 10018 giảm từ 12 xuống 0.
+3. Thêm TRADE_RETCODE_MARKET_CLOSED vào IsRetryableRetcode để lá chắn không vứt
+   lệnh cần đóng khi thị trường đang đóng cửa.
+4. (kèm theo) PlaceEntry lấy trade.ResultPrice() làm giá vào cho lệnh thị trường,
+   thay vì in giá dự kiến trước khi gửi — trước đây lệch 6-7 pips trên log và
+   trên tin Telegram.
+
+[Lỗi do chính bản vá đẻ ra, đã xử lý ngay trong cùng phiên]
+- Lưới SL ảo lúc đầu để nhịp thử lại 5 giây. Gặp đúng 3 tiếng đóng cửa liên tục
+  thì nó đẻ ra ~4.500 lệnh đóng hỏng (mỗi lần MT5 lại ghi một dòng "failed market
+  buy ... [Market closed]"). Tức là vá được spam chỗ này thì thủng chỗ kia.
+- Sửa: khi thất bại vì 10018 thì giãn nhịp riêng cho vé đó lên 300 giây thay vì
+  5 giây. Đo lại: 52 lần trong hơn 3 tiếng. Vẫn đủ nhanh để bắt lúc mở cửa lại
+  (server SL nổ lúc 22:01, ta chỉ chậm hơn tối đa 5 phút và thực tế không cần ra
+  tay vì SL sàn đã nổ trước).
+- Nhắc mình: mọi cơ chế tự-thử-lại đều phải hỏi "nếu tình huống này kéo dài 3
+  tiếng thì sao" trước khi chọn nhịp.
+
+[Cách chạy backtest headless — dùng lại cho những lần soi log sau]
+- File cấu hình .ini (Expert / Symbol / Period / Model=0 / FromDate / ToDate /
+  Deposit / ShutdownTerminal=1), chạy:
+    & 'C:\Program Files\MetaTrader 5\terminal64.exe' /config:"<file>.ini"
+  Yêu cầu: MT5 phải ĐÓNG trước, nếu không terminal chỉ bật lại cửa sổ cũ.
+- Log của tester KHÔNG nằm trong thư mục Terminal mà ở:
+    %APPDATA%\MetaQuotes\Tester\<GUID>\Agent-127.0.0.1-3000\logs\<ngày>.log
+  File UTF-16, phải iconv sang UTF-8 mới grep được tiếng Việt.
+- Một ngày M1 every-tick chạy hết 2.8 giây — soi log kiểu này nhanh hơn hẳn so
+  với bật Visualization rồi canh ảnh.
+
+Nhật ký 2026-09-07 — BOT_TLS_GetChart
+
+[BẢNG PHIÊN GIAO DỊCH XAUUSDm — chốt hạ nguyên nhân vụ SL 03/08]
+Đổ bằng SymbolInfoSessionTrade/SessionQuote (EA tạm GCB_SessionDump, chạy trong
+tester rồi xoá). Server Exness-MT5Trial7, TRADE_MODE = FULL:
+    CN     22:01-00:00
+    T2     00:00-18:28  |  22:01-00:00     <-- THỨ HAI ĐÓNG LÚC 18:28
+    T3     00:00-20:58  |  22:00-00:00
+    T4     00:00-20:58  |  22:00-00:00
+    T5     00:00-20:58  |  22:00-00:00
+    T6     00:00-20:58
+    T7     (không giao dịch)
+Phiên báo giá TRÙNG y hệt phiên giao dịch ở mọi ngày.
+
+1. 03/08/2026 là THỨ HAI -> phiên đóng 18:28, mở lại 22:01. Lưới SL ảo thử đóng
+   lần đầu lúc 18:52:39, tức 24 phút SAU khi phiên đã đóng. Mọi con số khớp:
+   không đóng được suốt 18:52->22:00, tới 22:01 SL sàn nổ và trượt 107 pips.
+2. Vậy giả thuyết "thị trường đóng cửa" ở bổ sung 6 là ĐÚNG, chỉ sai mốc thời
+   gian (đoán 18:57, thực tế 18:28). Người dùng phản biện cũng đúng ở chỗ nến M1
+   vẫn chạy: tester sinh tick từ LỊCH SỬ M1, không tra bảng phiên, nên có nến sau
+   18:28 dù phiên đã đóng. Hai nguồn dữ liệu này lệch nhau.
+3. Nghỉ phiên thứ Hai dài BẤT THƯỜNG: 3,5 tiếng (18:28-22:01) trong khi T3-T6
+   chỉ nghỉ 1 tiếng (20:58-22:00). Nhiều khả năng là cấu hình riêng của server
+   demo. CHƯA kiểm chứng trên tài khoản thật — nếu tài khoản thật cũng có bảng
+   phiên này thì rủi ro gap là RỦI RO THẬT chứ không phải lỗi backtest.
+
+[Hệ quả và việc cần làm]
+- Mỗi tuần có ít nhất 4 khoảng bot không quản lý được vị thế: T2 3,5 tiếng,
+  T3-T5 1 tiếng, và cuối tuần từ T6 20:58 tới CN 22:01. Vị thế mở qua các khoảng
+  này chịu rủi ro gap không giới hạn — cú 03/08 lỗ gấp 2,2-2,5 lần thiết kế.
+- ĐỀ XUẤT (chưa làm, chờ người dùng quyết): thêm input
+  Inp_CloseBeforeSessionEnd_Min (0 = tắt). Bot tự đọc giờ kết thúc phiên của
+  ngày hiện tại bằng SymbolInfoSessionTrade rồi X phút trước mốc đó thì đóng hết
+  vị thế + huỷ hết lệnh chờ. Cách này chạy đúng trên mọi sàn, không hardcode giờ.
+  Kèm theo: chặn vào lệnh mới trong X phút cuối phiên.
+
+[Cách đổ bảng phiên — dùng lại khi đổi sàn/symbol]
+- Viết EA tạm chỉ có OnInit gọi SymbolInfoSessionQuote/SessionTrade cho 7 ngày,
+  compile vào MQL5\Experts, chạy 1 ngày trong tester, đọc log, rồi xoá EA đó.
+  Không cần bấm chuột vào Specification.
+
+[BẪY: file .ini cấu hình tester KHÔNG được có BOM]
+- PowerShell 5.1 `Set-Content -Encoding utf8` ghi UTF-8 CÓ BOM -> MT5 không đọc
+  được mục [Tester], nên terminal khởi động ở CHẾ ĐỘ THƯỜNG thay vì chạy tester:
+  nó nạp profile cũ, gắn TLS_GetChart_Bot lên chart XAUUSDm M5 của tài khoản
+  demo thật và bật giao dịch. Đã tắt terminal ngay; log tài khoản xác nhận
+  "0 positions, 0 orders" nên không có lệnh nào được đặt.
+- Từ nay ghi file .ini bằng công cụ ghi file thường (không BOM), và sau khi chạy
+  phải kiểm log terminal xem có dòng "Startup ... initialized from start config"
+  kèm test chạy thật hay không.
+
+Nhật ký 2026-09-07 (bổ sung) — BOT_TLS_GetChart
+
+[XOÁ SẠCH CACHE VÀ TẢI LẠI — loại trừ khả năng dữ liệu hỏng ở máy]
+1. Người dùng chưa tin kết luận "thị trường đóng cửa" (hợp lý: vàng thứ Hai
+   18:28 không đời nào đóng), yêu cầu dọn cache nến rồi tải lại. Đã xoá, MT5
+   đang đóng:
+     <Terminal>\bases\Exness-MT5Trial7\history\XAUUSDm\   (100 MB)
+     <Terminal>\bases\Exness-MT5Trial7\ticks\XAUUSDm\     (62 MB)
+     <Terminal>\Tester\cache\                             (3,8 MB)
+     %APPDATA%\MetaQuotes\Tester\<GUID>\bases\...\XAUUSDm\ (5,8 MB)
+   Lưu ý: Remove-Item của PowerShell bị sandbox chặn trên đường dẫn AppData,
+   phải dùng rm của bash.
+2. Tải lại từ server rồi đo lại, KẾT QUẢ Y HỆT:
+   - Bảng phiên T2 vẫn là 00:00-18:28 | 22:01-00:00.
+   - Nến M1 từ 18:20 đến 20:40 ngày 03/08: 141 nến, LIÊN TỤC, không thiếu phút
+     nào, và có khối lượng thật (18:29 vol=101, 18:30 vol=111, 18:31 vol=100).
+3. KẾT LUẬN CUỐI: server TỰ MÂU THUẪN. Bảng phiên nói thứ Hai ngừng giao dịch
+   lúc 18:28, nhưng lịch sử M1 của chính server đó lại có nến kèm volume chạy
+   đều tới 20:40. Không phải cache hỏng ở máy.
+4. Diễn giải: cái "đóng cửa" ở đây KHÔNG phải thị trường vàng đóng, mà là BẢNG
+   CẤU HÌNH PHIÊN của symbol XAUUSDm trên server demo Exness-MT5Trial7 bị sai.
+   Strategy Tester lấy bảng đó làm luật cho phép/từ chối lệnh, nên mọi lệnh sau
+   18:28 bị trả retcode 10018 dù giá vẫn chạy bình thường.
+   Hiện tượng người dùng thấy (tạm dừng rồi kéo thanh giá thì nến chạy tiếp)
+   cũng khớp: dữ liệu nến sau 18:28 CÓ THẬT, chart vẽ được, chỉ phần khớp lệnh
+   bị chặn.
+
+[Hệ quả và việc còn treo]
+- Mỗi thứ Hai có 3,5 tiếng (18:28-22:01) bot không quản lý được vị thế trong
+  backtest -> kết quả các ngày thứ Hai đang BI QUAN HƠN thực tế.
+- VIỆC CẦN LÀM TIẾP: đổi tester sang tài khoản/server THẬT (hoặc
+  Exness-MT5Trial17 đang có sẵn thư mục bases) rồi chạy lại script đổ bảng phiên.
+  Nếu server thật cho thứ Hai chạy tới 23:xx thì lỗi chỉ nằm ở server demo này
+  và nên backtest trên server kia.
+- CHƯA làm tính năng "đóng lệnh trước giờ nghỉ phiên" (Inp_CloseBeforeSessionEnd_
+  Min) đã đề xuất ở entry trước. Lý do: nó đọc chính bảng phiên vừa chứng minh là
+  không đáng tin trên server này — bật lên thì mỗi thứ Hai bot sẽ tự đóng sạch
+  lệnh lúc 18:2x, hành vi sai do dữ liệu sàn sai. Phải xác minh bảng phiên trên
+  server thật trước.
+
+Nhật ký 2026-09-07 (bổ sung 2) — BOT_TLS_GetChart
+
+[ĐỐI CHỨNG 2 SÀN — chốt hạ hoàn toàn vụ SL 03/08]
+Người dùng cài thêm MT5 của IC Markets (data folder 010E047102812FC0C18890992854220E,
+tài khoản demo ICMarketsSC-Demo) để đối chứng độc lập.
+
+1. TRƯỚC HẾT PHẢI QUY ĐỔI MÚI GIỜ, nếu không so sánh là sai hoàn toàn:
+     Exness server = GMT+0   |   IC Markets server = GMT+3
+   Kiểm chứng bằng chính bảng phiên, không phải đoán:
+     IC mở tuần T2 01:02 (GMT+3) = CN 22:02 GMT  -> trùng Exness CN 22:01
+     IC đóng tuần T6 23:57 (GMT+3) = T6 20:57 GMT -> trùng Exness T6 20:58
+   Và đối chiếu giá: nến M1 Exness 18:00 close = 4030.791, nến IC 21:00 close =
+   4030.68 -> LỆCH 0,11 USD. Hai nguồn giá giống nhau, KHÔNG có chuyện bóp giá.
+   (Lần chạy đầu quên quy đổi nên thấy chênh 25 USD, suýt kết luận sai.)
+
+2. BẢNG PHIÊN, quy về cùng thời điểm thì hai sàn TRÙNG KHÍT ở mọi mốc — trừ đúng
+   một chỗ: Exness demo cắt phiên thứ Hai lúc 18:28 GMT, IC Markets chạy liền
+   mạch cả ngày thứ Hai. Sáu dòng còn lại của bảng Exness đều chuẩn.
+
+3. PHÉP THỬ QUYẾT ĐỊNH — EA dò SL tối giản (GCB_SLProbe): chỉ mở 1 lệnh SELL tại
+   một thời điểm cố định với SL cách +9.5 giá rồi ghi log, KHÔNG có logic chiến
+   lược nào. Chạy trên cả 2 sàn tại CÙNG một thời điểm thực (15:08 GMT):
+                          Exness demo          IC Markets
+     Gia vao              4033.30              4033.49   (lech 0,19)
+     SL dat               4042.802             4042.99
+     SL no luc            22:01:00 GMT         18:52:29 GMT  <-- dung luc gia cham
+     Truot gia            11,93 gia = 119 pips 0,02 gia = 0,2 pip
+     PnL                  -107.14              -47.60
+   Giá THẬT SỰ chạm SL lúc 18:52 GMT — trùng khít thời điểm lưới SL ảo của bot
+   bắt được (18:52:39). IC khớp ngay tại đó; Exness demo để treo thêm 3 tiếng 9
+   phút rồi khớp ở giá mở cửa lại, LỖ GẤP 2,25 LẦN.
+
+4. KẾT LUẬN: không phải lỗi bot, không phải lỗi MT5, không phải cache hỏng ở máy.
+   Chỉ có bảng phiên thứ Hai của hệ demo Exness (kiểm trên 2 server Trial7 và
+   Trial14 đều giống nhau) là sai. Đóng hồ sơ.
+
+[Hệ quả với việc đánh giá chiến lược]
+- Mọi backtest chạy trên dữ liệu demo Exness đều méo ở khung 18:28-22:01 GMT MỖI
+  THỨ HAI: lệnh không đóng được, SL nổ trễ, ăn gap. Kết quả các ngày thứ Hai bi
+  quan hơn thực tế.
+- Từ nay nên backtest bot này trên dữ liệu IC Markets (hoặc sàn nào có bảng phiên
+  khớp dữ liệu), rồi mới đọc số liệu để tối ưu tham số. Lưu ý khi so sánh: IC là
+  GMT+3 nên mọi input liên quan tới giờ (Inp_NewsTimes) phải cộng 3 tiếng.
+- BOT_TLS trên VPS đang chạy DEMO (người dùng xác nhận), nên không có thiệt hại
+  tiền thật từ lỗ hổng này.
+
+[Công cụ chẩn đoán — nếu cần dùng lại]
+- GCB_SessionDump.mq5: đổ bảng phiên báo giá/giao dịch 7 ngày + giờ server + số
+  nến M1 quanh một mốc. Đã xoá khỏi cả 2 terminal sau khi dùng.
+- GCB_SLProbe.mq5: mở 1 lệnh tại thời điểm cố định với SL cho trước rồi ghi log
+  thời điểm/giá/độ trượt khi SL nổ. Đây là công cụ đối chứng sàn tốt nhất vì
+  không dính logic chiến lược. Đã xoá khỏi cả 2 terminal.
+- Chạy tester headless cho sàn khác: file .ini thêm mục [Common] Login/Password/
+  Server, và mục [TesterInputs] để truyền input cho EA. PHẢI xoá file .ini sau
+  khi chạy vì nó chứa mật khẩu.
+
+================================================================
+Nhật ký 2026-09-09 — BOT_TLS_GetChart — TỔNG KẾT VÀ DỪNG PHÁT TRIỂN
+================================================================
+
+[QUYẾT ĐỊNH]
+Người dùng chốt: DỪNG phát triển bot này. Không phải vì bot lỗi — code chạy đúng
+thiết kế, lỗi vận hành gần như bằng 0 — mà vì đã chứng minh được bằng số liệu là
+chiến lược KHÔNG CÓ LỢI THẾ BỀN VỮNG. Ghi lại đầy đủ để sau này không ai phải
+chạy lại 19 lượt backtest mới biết điều này.
+
+[BẰNG CHỨNG QUYẾT ĐỊNH: kiểm ngoài mẫu]
+Dữ liệu IC Markets XAUUSD, every-tick, 02/2025 - 08/2026 (19 tháng). Ba cấu hình
+tốt nhất, Zone M5 / Trend M15 / TP200:
+                     Balance   Lai/Lo   Lenh   2025(ngoai mau)  2026(trong mau)
+  Pinbar             11432     +14.3%   335    36% thang        53% thang
+  Engulfing chat     11566     +15.7%   151    39% thang        64% thang
+  Engulfing long     11438     +14.4%   172    38% thang        68% thang
+
+Ngưỡng thắng hoà vốn của cấu hình này khoảng 39-40% (suy ngược từ chính S1: 41%
+thắng ra +14.3%). Nghĩa là:
+  - 2025 (11 tháng CHƯA TỪNG dùng để chọn tham số): 36-39% -> lỗ hoặc huề
+  - 2026 (8 tháng đã dò 19 cấu hình trên đó):       53-68% -> lãi mạnh
+Toàn bộ lợi nhuận đến từ năm trong mẫu. Nếu chiến lược có edge thật thì tỷ lệ
+thắng hai giai đoạn phải xấp xỉ nhau; chênh 36% so với 53-68% là quá lớn để gọi
+là dao động ngẫu nhiên. Đây là dấu vân tay của curve-fitting.
+
+[NHỮNG GÌ ĐÃ KIỂM CHỨNG ĐƯỢC — dùng lại cho bot sau]
+Đo trên 8 tháng 2026, Zone M1, mỗi kết luận là một phép ABLATION (bỏ đúng một bộ
+phận rồi xem kết quả xấu đi hay tốt lên), không phải dò tham số:
+
+1. LỌC NẾN LÀ BỘ PHẬN GIÁ TRỊ NHẤT.
+   Không lọc nến -47.2% (2145 lệnh) -> có Pinbar -11.3% (762 lệnh). Cải thiện
+   35.9 điểm. Chi tiết đắt nhất: bản không lọc nến bị lá chắn lỗ ngày 3% chặn
+   678 lần; bản có lọc nến 0 lần.
+
+2. BỘ LỌC XU HƯỚNG (chữ T của T-L-S) CÓ GIÁ TRỊ THẬT.
+   Tắt đi: -26.7% -> -38.9%, và số setup tăng vọt 3988 -> 6764. Đáng giữ.
+
+3. ĐỆM SL +20 PIPS CÓ GIÁ TRỊ THẬT.
+   Bỏ đệm: tỷ lệ thắng rơi 49% -> 42%, kết quả -12.7% -> -22.4%. Cái đệm này
+   (thừa hưởng từ công thức SL của BOT_ChartSnapshot) thật sự đỡ được các cú
+   quét SL. KHÔNG được bỏ ở bot sau.
+
+4. ENGULFING CHẶT > ENGULFING LỎNG (ở M1).
+   Đòi thêm "nến trước ngược chiều lệnh": -10.5% -> -4.0%, loại 81 lệnh kém
+   (421 -> 340). NHƯNG ở M5 chỉ +1.3 điểm trên 151-172 lệnh = nằm trong nhiễu,
+   KHÔNG tái lập được. Bằng chứng chỉ chắc ở M1.
+
+5. ENGULFING ĐƠN LẺ TỐT HƠN PINBAR ĐƠN LẺ (ở M1).
+   Engulfing chặt -4.0% / 340 lệnh so với Pinbar -11.3% / 762 lệnh. Bất ngờ,
+   vì suốt các lượt trước Pinbar bị coi là bộ lọc chủ lực. Engulfing bị đánh
+   giá thấp chỉ vì luôn bị test chung với Pinbar ở chế độ "hoặc".
+
+[NHỮNG GÌ ĐÃ CHỨNG MINH LÀ SAI HOẶC VÔ GIÁ TRỊ]
+1. CHẾ ĐỘ "PINBAR HOẶC ENGULFING" NÊN BỎ. -17% và -18%, TỆ HƠN CẢ HAI chế độ
+   đơn lẻ (-11.3% và -4.0%). Phép "hoặc" gộp mọi tín hiệu thành 838 lệnh và pha
+   loãng chất lượng.
+2. MỐC 50% KHÔNG CHỨNG MINH ĐƯỢC GIÁ TRỊ. Giữ nó tốt hơn ở TP100 (+1.4 điểm),
+   tệ hơn ở TP200 (-10.8 điểm). Tín hiệu mâu thuẫn.
+3. TP DÀI HƠN KHÔNG PHẢI LỜI GIẢI. TP100 -> TP200 ở M1: tỷ lệ thắng sụp
+   48% -> 33%. Giá quanh Zone M1 hiếm khi đi được 20 giá.
+4. RÚT NGẮN SL CŨNG KHÔNG PHẢI LỜI GIẢI (xem mục 3 phần trên).
+   => Cả hai đòn bẩy để sửa R:R đều thất bại. Với R:R ~1:1 và thắng 48-49%,
+   chiến lược này về bản chất là tung đồng xu trừ spread.
+
+[PHÁT HIỆN QUAN TRỌNG VỀ THIẾT KẾ, đúng cho mọi bot sau]
+1. ZONE M1 QUÁ NHIỄU. ~500 setup/tháng, tức 20 setup mỗi ngày — quá nhiều cho
+   một chiến lược SMC. Càng lên khung lớn càng ít lệnh càng đỡ lỗ:
+   M1 762 lệnh -11.3% | M5 93 lệnh +14.5% | M15 18 lệnh -1.9%
+2. TP TÍNH BẰNG PIPS CỐ ĐỊNH KHÔNG TƯƠNG THÍCH VỚI ĐA KHUNG.
+   Độ rộng Zone trung vị đo được: M1 = 53 pips, M5 = 109, M15 = 171.
+   Cấu hình tốt nhất có TP ~1.9 lần độ rộng Zone. Khi giữ TP=100 cố định mà đổi
+   sang M15, luật "giá chạy tới TP thì khoá mốc" khoá 288/294 mốc TRƯỚC KHI giá
+   kịp quay về -> chỉ vào được 3 lệnh trong 8 tháng. Bot sau phải để TP theo TỶ
+   LỆ độ rộng Zone (hoặc theo R), không để pips cố định.
+3. GIẢ ĐỊNH GỐC CÓ THỂ SAI: ở M1, 244/306 lệnh chờ bị huỷ vì giá chạy thẳng tới
+   TP mà không hồi về mép Zone. Gần một nửa số setup đoán ĐÚNG hướng nhưng bot
+   không vào được. Đặt limit tại mép Zone là quá tham.
+
+[TRẠNG THÁI CODE — mọi thứ đã compile sạch, 0 errors]
+- TLS_GetChart_Bot.mq5: 41 input, .set đã diff khớp tên và thứ tự.
+- Đổi mặc định Inp_Engulf_PrevOpposite = true (bằng chứng ở mục 4 phần trên,
+  kèm cảnh báo là chỉ chắc ở M1).
+- Bot KHÔNG có lỗi vận hành: trong các lượt có lọc nến, gửi lệnh hỏng 0-3 lần,
+  lỗi kéo BE 0, không retcode lạ nào.
+- Lưới SL ảo, hàng đợi retry, chặn spam khi thị trường đóng: đều hoạt động đúng.
+
+[VIỆC CÒN TREO — nếu sau này quay lại]
+- Chưa test cấu hình đóng băng trên symbol khác (EURUSD) hoặc sàn khác. Đây là
+  phép thử duy nhất còn lại có thể cứu chiến lược này.
+- Chưa làm Inp_CloseBeforeSessionEnd_Min (đóng lệnh trước giờ nghỉ phiên).
+- Chưa tạo EA_TLS/Tools/ (bộ script backtest headless) — người dùng chưa quyết.
+
+[PHƯƠNG PHÁP BACKTEST HEADLESS — ghi lại vì script chỉ nằm trong thư mục tạm
+ của phiên, hết phiên là mất; phần dưới đủ để dựng lại]
+
+Chạy tester không cần mở giao diện:
+    & '<duong dan>\terminal64.exe' /config:"<file>.ini"
+File .ini:
+    [Common]  Login= / Password= / Server=          (đăng nhập tự động)
+    [Tester]  Expert= / Symbol= / Period= / Model=0 (0 = every tick)
+              FromDate= / ToDate= / Deposit= / Leverage=
+              Visual=0 / ShutdownTerminal=1
+    [TesterInputs]  từng input một, mỗi dòng một cái
+
+Log của tester KHÔNG nằm trong thư mục Terminal mà ở:
+    %APPDATA%\MetaQuotes\Tester\<GUID>\Agent-127.0.0.1-3000\logs\<ngày>.log
+File UTF-16, phải iconv sang UTF-8 mới grep được tiếng Việt.
+
+Dò đường dẫn trên máy mới (KHÔNG dùng lại đường dẫn cũ, mỗi máy một khác):
+    Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Filter terminal64.exe -Recurse
+    # origin.txt trong mỗi thư mục GUID ghi rõ nó thuộc bản cài nào:
+    Get-ChildItem "$env:APPDATA\MetaQuotes\Terminal" -Directory |
+      ForEach-Object { "$($_.Name) -> $(Get-Content "$($_.FullName)\origin.txt")" }
+
+[SÁU CÁI BẪY ĐÃ DÍNH — đọc trước khi backtest bot khác]
+
+1. MT5 PHẢI ĐÓNG TRƯỚC. Terminal đang mở thì /config không kích hoạt tester mà
+   chỉ bật lại cửa sổ cũ. Lần đó nó còn tự gắn EA lên chart tài khoản demo thật
+   và bật giao dịch (may là 0 lệnh được đặt).
+
+2. FILE .INI KHÔNG ĐƯỢC CÓ BOM. PowerShell 5.1 `Set-Content -Encoding utf8` ghi
+   UTF-8 CÓ BOM -> MT5 không đọc được mục [Tester] -> chính là nguyên nhân bẫy 1.
+   Dùng [System.IO.File]::WriteAllText với Encoding.ASCII.
+
+3. [TesterInputs] CHỈ GHI ĐÈ NHỮNG INPUT ĐƯỢC LIỆT KÊ. Input không khai báo thì
+   MT5 GIỮ NGUYÊN GIÁ TRỊ CỦA LƯỢT TRƯỚC. Đã làm hỏng nguyên một batch 6 lượt:
+   biến thể G vô tình kế thừa Enable_Trend_Filter=false từ biến thể F.
+   => Phải liệt kê TƯỜNG MINH mọi input liên quan ở MỌI biến thể.
+
+4. PHẢI ĐỌC LẠI INPUT THẬT TỪ LOG, KHÔNG TIN FILE .INI MÌNH VIẾT. Một here-string
+   PowerShell thiếu ký tự xuống dòng cuối đã nuốt mất input đầu tiên của mỗi biến
+   thể (dòng log hiện ra: "Inp_NewsTimes=18:30, 00:00Inp_Signal_Mode=1"), khiến
+   6 lượt chạy sai cấu hình mà kết quả vẫn trông hợp lý. Chỉ lộ ra vì hai lượt ra
+   balance TRÙNG NHAU TỚI TỪNG XU. Tester in toàn bộ input ở đầu mỗi lượt — đọc
+   chỗ đó mà đối chiếu.
+
+5. TẮT CHẾ ĐỘ NGỦ TRƯỚC KHI CHẠY DÀI. Máy để ngủ sau 5 phút khi cắm sạc đã giết
+   một lượt chạy 4.4 tiếng ngay giữa chừng (log: "tester forced to close").
+       powercfg /change standby-timeout-ac 0    # nhớ khôi phục sau
+   Và luôn kiểm lượt chạy có dòng "final balance" hay không; thiếu = bị cắt ngang,
+   phải chạy lại.
+
+6. ĐẾM SỐ LỆNH TRƯỚC KHI TIN CON SỐ %. Một cấu hình từng cho "+0.25%" trông như
+   có lãi — thực tế đúng 3 LỆNH trong 8 tháng. Dưới ~100 lệnh thì mọi con số %
+   đều là nhiễu. Mật độ lệnh đo được trên bot này: Zone M1 ~95 lệnh/tháng,
+   M5 ~12, M15 ~2. Khung càng lớn phải test càng dài.
+
+[BẪY THỨ 7 — KHÔNG PHẢI KỸ THUẬT MÀ LÀ PHƯƠNG PHÁP]
+Đã thử 19 cấu hình trên cùng tập dữ liệu 2026. Càng thử nhiều, xác suất tìm được
+một cấu hình "có lãi" thuần do ngẫu nhiên càng cao. Bắt buộc phải để dành một
+khoảng thời gian CHƯA TỪNG ĐỤNG TỚI để kiểm lại — và ở đây chính phép kiểm đó
+(năm 2025) đã lật ngược kết luận.

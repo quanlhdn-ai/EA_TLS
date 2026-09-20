@@ -1,0 +1,1317 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © TradingZoneTLS
+
+//@version=6
+// =============================================================================
+//  TradingZone_Signal
+//  Pine Script v6 — port cấu trúc SMC từ TLS_SMC_Indicator.mq5 (BOT_TLS)
+//
+//  MỤC TIÊU: phần ĐỌC CẤU TRÚC (swing / trend / protected level / radar D4-D5 /
+//  BOS / CHOCH / SD Zone) chạy TRÙNG KHỚP với bản MQL5 đang dùng cho bot.
+//  Thứ tự xử lý trong mỗi nến giữ y hệt vòng lặp OnCalculate của MQL5:
+//      1) Swing tracking (Major -> Minor)   2) Cập nhật đỉnh/đáy cực đại
+//      3) Khởi tạo trend mồi                4) Radar trigger (HA phá Weak Level)
+//      5) Radar execution (D4/D5)           6) Dọn Zone thủng SL
+//      7) Major CHOCH/BOS                   8) Minor CHOCH/BOS
+//  Sự kiện cấu trúc chỉ chạy trên nến ĐÃ ĐÓNG (MQL5: block if(i>0)); riêng
+//  đỉnh/đáy cực đại cập nhật mọi tick (MQL5 cập nhật cả ở nến i=0).
+//
+//  PHẦN RIÊNG CỦA TRADINGVIEW (MQL5 không có, được giữ lại):
+//      - Order Block + Imbalance (nhóm input "Order Block")
+//
+//  PHẦN CỦA MQL5 KHÔNG PORT (vô nghĩa trên TradingView):
+//      - 30 indicator buffer xuất dữ liệu cho bot
+//      - mZone ngầm (Minor Zone): MQL5 chỉ tính để nạp buffer cho bot, không vẽ,
+//        và không tham gia vào logic cấu trúc. Cấu trúc Minor (mBOS/mCHOCH/
+//        protected minor) vẫn được port đầy đủ.
+// =============================================================================
+indicator("TradingZone_Signal", shorttitle="TradingZone_Signal", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+
+// =============================================================================
+// 1. INPUTS
+// =============================================================================
+g_maj = "--- Hiển thị Major ---"
+ShowEMALine          = input.bool(true,  "Major_Đường EMA (21)",                     group=g_maj)
+ShowHACandles        = input.bool(false, "Major_Nến Heikin Ashi",                    group=g_maj)
+ShowMajorSwingPoints = input.bool(true,  "Major_Điểm Swing High/Low",                group=g_maj)
+ShowMajorBOS         = input.bool(true,  "Major_Đường BOS",                          group=g_maj)
+ShowMajorCHOCH       = input.bool(true,  "Major_Đường CHOCH",                        group=g_maj)
+ShowKeyLevel         = input.bool(true,  "Major_Đường Key Level",                    group=g_maj)
+ShowSDZones          = input.bool(true,  "Major_Vùng Supply/Demand Zone",            group=g_maj)
+ShowTrackingLines    = input.bool(true,  "Major_Đường Tracking (Active/Protected)",  group=g_maj)
+ShowWeakHighLow      = input.bool(false, "Major_Đường Weak High/Low",                group=g_maj)
+ShowLastMajorHighLow = input.bool(false, "Major_Đường mốc Đỉnh/Đáy gần nhất",        group=g_maj)
+LabelOffsetBars      = input.int(50, "Đẩy nhãn mốc ra xa nến cuối (số nến)", minval=0, maxval=480, group=g_maj, tooltip="Áp dụng cho nhãn Active/Protected, Weak High-Low, Last Major. MQL5 đặt các nhãn này sát đúng mép phải cửa sổ chart (GetRightEdgeTime đọc CHART_WIDTH_IN_BARS). Pine KHÔNG có API nào đọc được chiều rộng cửa sổ, nên không tái hiện được — thay vào đó đẩy ra một khoảng cố định tính bằng số nến, đủ xa để nến không đè lên chữ. Kẹp 480 vì Pine chỉ cho vẽ tối đa 500 nến về tương lai.")
+
+g_min = "--- Hiển thị Minor ---"
+ShowMinorSwingPoints = input.bool(false, "Minor_Điểm Swing High/Low",                group=g_min)
+ShowMinorBOSCHOCH    = input.bool(false, "Minor_Đường BOS/CHOCH",                    group=g_min)
+
+g_sw = "--- Swing Settings (Major & Minor) ---"
+PeriodsInMajorSwing  = input.int(9, "Số nến Swing Major", minval=1, maxval=100, group=g_sw)
+PeriodsInMinorSwing  = input.int(5, "Số nến Swing Minor", minval=1, maxval=100, group=g_sw)
+
+g_ob = "--- Order Block (riêng TradingView) ---"
+EnableOB             = input.bool(true, "Bật dò Order Block",                        group=g_ob)
+ShowImbalance        = input.bool(true, "Hiện vùng Imbalance trong OB",              group=g_ob)
+
+g_sync = "--- Phạm vi chạy động cơ ---"
+LimitBars    = input.bool(true, "Chỉ chạy trên N nến gần nhất",  group=g_sync, tooltip="Động cơ mồi xu hướng đúng MỘT lần, tại nến đầu tiên nó nhìn thấy. Nếu để nó chạy trên toàn bộ lịch sử thì mỗi lần bạn cuộn chart lùi lại, TradingView nạp thêm nến, điểm mồi dời đi và toàn bộ BOS/CHOCH/Protected có thể đổi khác — bản Gemini cũ cũng dính đúng lỗi này.\n\nĐếm ngược từ nến cuối nên khoảng cách không đổi dù nạp thêm bao nhiêu lịch sử: kết quả ổn định khi cuộn chart và tự co giãn theo mọi khung thời gian.")
+WarmupBars   = input.int(5000, "Số nến gần nhất",                minval=500, maxval=20000, group=g_sync)
+UseStartTime = input.bool(false, "Hoặc: chạy từ một mốc cụ thể", group=g_sync, tooltip="Dùng khi cần ép TradingView khởi động đúng tại cây nến cũ nhất của chart MT5 để đối chiếu hai bên. Áp dụng ĐỒNG THỜI với giới hạn N nến ở trên.")
+StartTime    = input.time(timestamp("01 Jan 2020 00:00 +0000"), "Mốc bắt đầu", group=g_sync)
+
+g_perf = "--- Giới hạn quét (chống treo script) ---"
+MaxScanBars          = input.int(1500, "Số nến tối đa quét ngược (cấu trúc)",    minval=50, maxval=2000, group=g_perf, tooltip="Trần cho các vòng quét lịch sử tuyến tính: tìm đỉnh/đáy thực tế khi CHOCH, radar D4/D5, neo Zone. Vượt trần thì phần quá cũ bị cắt bỏ. Không vượt quá độ sâu bộ đệm lịch sử (2500 nến).")
+MaxScanOB            = input.int(300,  "Số nến tối đa quét ngược (Order Block)", minval=20, maxval=1000, group=g_perf, tooltip="Vòng quét OB có chi phí bình phương (N^2). Để 300 là an toàn; tăng cao dễ dính lỗi 'loop takes too long' của TradingView.")
+MaxBOSKeep           = input.int(60,   "Số đường BOS giữ lại mỗi chiều",        minval=1,  maxval=120,  group=g_perf, tooltip="MQL5 cố định ở 5 (const MaxBOSLines). Đặt cao hơn để chart giống bản Gemini cũ — bản đó không giới hạn gì cả. KHÔNG bỏ giới hạn hẳn được: Pine chặn cứng 500 line và 500 box mỗi script, mà mỗi đường BOS tốn 1 line + 1 box chứa chữ; vượt trần thì TradingView tự xoá ngầm, chart hỏng khó đoán.")
+MaxMinorBOSKeep      = input.int(40,   "Số đường mBOS giữ lại mỗi chiều",       minval=1,  maxval=120,  group=g_perf, tooltip="MQL5 cố định ở 3 (const MaxMinorBOSLines).")
+
+// --- Công tắc chẩn đoán (cố ý KHÔNG đưa ra màn hình Inputs) ---
+// Đổi thành true rồi lưu lại script khi cần soi sai lệch Zone với MT5: mỗi Zone
+// sẽ được gắn nhãn in ra nến gốc (ext), nến tạo zone, biên trên/dưới, và giá HA
+// thật của nến gốc — đủ để tách lỗi thuật toán khỏi lỗi đọc nến lịch sử.
+DebugZone = false
+
+// --- Cố định (giữ đúng giá trị const của bản MQL5) ---
+MaxBOSLines      = MaxBOSKeep
+MaxMinorBOSLines = MaxMinorBOSKeep
+MaxZones         = 1
+EMAPeriods       = 21
+HistCap          = 2500          // Độ sâu bộ đệm lịch sử tự quản (xem mục 3B)
+c_MajorSwing     = color.rgb(80, 80, 80)
+c_TrackingLine   = color.fuchsia
+c_LastMajorLine  = color.blue
+c_BOS_Up         = color.rgb(30, 144, 255)
+c_BOS_Down       = color.red
+c_KeyLevel       = color.orange
+c_WeakLevel      = color.orange
+c_BuyZone        = color.new(color.rgb(190, 235, 210), 50)
+c_SellZone       = color.new(color.rgb(255, 200, 200), 50)
+c_Minor_BOS_Up   = color.rgb(120, 220, 220)
+c_Minor_BOS_Dn   = color.rgb(255, 180, 180)
+c_EMA            = color.rgb(80, 80, 80)
+c_BullHA         = color.rgb(8, 153, 129)
+c_BearHA         = color.rgb(242, 54, 69)
+c_OB             = color.new(color.rgb(255, 250, 205), 50)
+
+// =============================================================================
+// 2. KIỂU DỮ LIỆU & TRẠNG THÁI
+//    Mọi mốc đều lưu bằng bar_index tuyệt đối (không đổi khi có nến mới), nên
+//    không cần cơ chế dịch index "+= shift" như bên MQL5.
+// =============================================================================
+type SDZone
+    box   bx
+    float entry
+    float stop
+    label dbg
+
+type ActiveOB
+    box   bx
+    label lbl
+    label imb_lbl
+    line  imb_top_ln
+    line  imb_bot_ln
+    float top
+    float bottom
+    float imb_top
+    float imb_bot
+    bool  has_imb
+    bool  isBull
+    int   origin_b
+
+// --- Major ---
+var int   maj_trend       = 0
+var float maj_prot_h      = na, var int maj_prot_h_b  = -1
+var float maj_prot_l      = na, var int maj_prot_l_b  = -1
+var float maj_ext_h       = na, var int maj_ext_h_b   = -1
+var float maj_ext_l       = na, var int maj_ext_l_b   = -1
+var float last_maj_h      = na, var int last_maj_h_b  = -1
+var float last_maj_l      = na, var int last_maj_l_b  = -1
+var float maj_cext_h      = na, var int maj_cext_h_b  = -1   // Weak High = confirmed extreme
+var float maj_cext_l      = na, var int maj_cext_l_b  = -1   // Weak Low
+var float act_h           = na, var int act_h_b       = -1, var bool act_h_on = false
+var float act_l           = na, var int act_l_b       = -1, var bool act_l_on = false
+var bool  pend_prot_h     = false, var bool pend_prot_l = false
+var int   prot_anchor_b   = -1, var int prot_break_b  = -1
+var int   done_weak_h_b   = -1, var int done_weak_l_b = -1
+var int   done_sw_h_b     = -1, var int done_sw_l_b   = -1
+var int   last_break_dir  = 0,  var int last_break_type = 0
+var int   brk_up_b        = -1, var float brk_up_lvl  = na
+var int   brk_dn_b        = -1, var float brk_dn_lvl  = na
+
+// --- Minor ---
+var int   min_trend       = 0
+var float min_prot_h      = na, var int min_prot_h_b  = -1
+var float min_prot_l      = na, var int min_prot_l_b  = -1
+var float min_ext_h       = na, var int min_ext_h_b   = -1
+var float min_ext_l       = na, var int min_ext_l_b   = -1
+var float last_min_h      = na, var int last_min_h_b  = -1
+var float last_min_l      = na, var int last_min_l_b  = -1
+var float min_cext_h      = na, var int min_cext_h_b  = -1
+var float min_cext_l      = na, var int min_cext_l_b  = -1
+var float mact_h          = na, var int mact_h_b      = -1, var bool mact_h_on = false
+var float mact_l          = na, var int mact_l_b      = -1, var bool mact_l_on = false
+var bool  min_pend_prot_h = false, var bool min_pend_prot_l = false
+var int   min_prot_anchor_b = -1, var int min_prot_break_b = -1
+var int   min_done_weak_h_b = -1, var int min_done_weak_l_b = -1
+
+// --- Hàng đợi đồ hoạ ---
+var array<line>     bos_up_ln  = array.new<line>()
+var array<box>      bos_up_tx  = array.new<box>()
+var array<line>     bos_dn_ln  = array.new<line>()
+var array<box>      bos_dn_tx  = array.new<box>()
+var array<line>     mbos_up_ln = array.new<line>()
+var array<box>      mbos_up_tx = array.new<box>()
+var array<line>     mbos_dn_ln = array.new<line>()
+var array<box>      mbos_dn_tx = array.new<box>()
+var array<SDZone>   buy_zones  = array.new<SDZone>()
+var array<SDZone>   sell_zones = array.new<SDZone>()
+var array<ActiveOB> liveOBs    = array.new<ActiveOB>()
+
+var line  choch_up_ln  = na, var box   choch_up_tx  = na
+var line  choch_dn_ln  = na, var box   choch_dn_tx  = na
+var line  mchoch_up_ln = na, var box   mchoch_up_tx = na
+var line  mchoch_dn_ln = na, var box   mchoch_dn_tx = na
+var line  key_ln       = na, var box   key_tx       = na
+
+var bool  pending_ob_purge = false
+
+// =============================================================================
+// 3. DỮ LIỆU NỀN (Heikin Ashi, EMA, Pivot)
+// =============================================================================
+var float ha_open = na
+ha_close = (open + high + low + close) / 4.0
+ha_open := na(ha_open[1]) ? (open + close) / 2.0 : (ha_open[1] + ha_close[1]) / 2.0
+ha_high  = math.max(high, math.max(ha_open, ha_close))
+ha_low   = math.min(low,  math.min(ha_open, ha_close))
+ha_bull  = ha_close >= ha_open
+
+plotcandle(ShowHACandles ? ha_open : na, ShowHACandles ? ha_high : na, ShowHACandles ? ha_low : na, ShowHACandles ? ha_close : na, title="Heikin Ashi", color=ha_bull ? c_BullHA : c_BearHA, wickcolor=ha_bull ? c_BullHA : c_BearHA, bordercolor=ha_bull ? c_BullHA : c_BearHA)
+
+ema_val = ta.ema(close, EMAPeriods)
+plot(ShowEMALine ? ema_val : na, "EMA 21", color=c_EMA)
+
+// --- Pivot theo đúng luật ArrayMaximum/ArrayMinimum của MQL5 ---
+// MQL5 đánh dấu swing tại index i+P khi ArrayMaximum(high, i, 2P+1) == i+P.
+// ArrayMaximum trả về vị trí lớn nhất ĐẦU TIÊN khi quét từ nến mới -> cũ, nên:
+//   - nến MỚI HƠN trong cửa sổ phải nhỏ hơn HẲN (bằng nhau thì nến mới thắng)
+//   - nến CŨ HƠN được phép bằng
+// ta.pivothigh() loại mọi trường hợp bằng nhau nên KHÔNG dùng thay thế được.
+f_pivot_high(int P) =>
+    float v = high[P]
+    bool ok = not na(v) and bar_index >= 2 * P
+    if ok
+        for j = 0 to P - 1
+            if high[j] >= v
+                ok := false
+                break
+    if ok
+        for j = P + 1 to 2 * P
+            if high[j] > v
+                ok := false
+                break
+    ok ? v : na
+
+f_pivot_low(int P) =>
+    float v = low[P]
+    bool ok = not na(v) and bar_index >= 2 * P
+    if ok
+        for j = 0 to P - 1
+            if low[j] <= v
+                ok := false
+                break
+    if ok
+        for j = P + 1 to 2 * P
+            if low[j] < v
+                ok := false
+                break
+    ok ? v : na
+
+// Giá trị pivot phát ra tại nến hiện tại, trỏ về nến (bar_index - P)
+piv_maj_h = f_pivot_high(PeriodsInMajorSwing)
+piv_maj_l = f_pivot_low(PeriodsInMajorSwing)
+piv_min_h = f_pivot_high(PeriodsInMinorSwing)
+piv_min_l = f_pivot_low(PeriodsInMinorSwing)
+
+// CHỈ vẽ chấm swing trên nến ĐÃ ĐÓNG.
+// Bên MQL5 vòng đánh dấu swing bỏ qua i=0, nghĩa là cửa sổ 2P+1 nến không bao giờ
+// chứa nến đang hình thành. Nếu vẽ theo nến đang chạy thì chấm sẽ hiện sớm rồi
+// biến mất khi râu của cây nến thứ P vượt qua đỉnh/đáy ứng viên (nhấp nháy).
+// Động cơ cấu trúc ở mục 6 vốn đã chặn bằng barstate.isconfirmed nên không đổi.
+// engine_on: giới hạn phạm vi chạy của động cơ (xem nhóm input "Phạm vi chạy động cơ").
+// last_bar_index - bar_index = khoảng cách tới nến cuối, KHÔNG đổi khi TradingView
+// nạp thêm lịch sử (nạp thêm thì cả hai chỉ số cùng tăng), nên cửa sổ chạy luôn
+// trỏ vào đúng tập nến đó dù bạn cuộn chart tới đâu.
+engine_on = (not LimitBars or last_bar_index - bar_index <= WarmupBars) and (not UseStartTime or time >= StartTime)
+bar_done  = barstate.isconfirmed and engine_on
+plotchar(bar_done and ShowMajorSwingPoints and not na(piv_maj_h) ? piv_maj_h : na, "Major Swing High", "●", location.absolute, c_MajorSwing, offset=-PeriodsInMajorSwing, size=size.tiny)
+plotchar(bar_done and ShowMajorSwingPoints and not na(piv_maj_l) ? piv_maj_l : na, "Major Swing Low",  "●", location.absolute, c_MajorSwing, offset=-PeriodsInMajorSwing, size=size.tiny)
+plotchar(bar_done and ShowMinorSwingPoints and not na(piv_min_h) ? piv_min_h : na, "Minor Swing High", "·", location.absolute, c_MajorSwing, offset=-PeriodsInMinorSwing, size=size.tiny)
+plotchar(bar_done and ShowMinorSwingPoints and not na(piv_min_l) ? piv_min_l : na, "Minor Swing Low",  "·", location.absolute, c_MajorSwing, offset=-PeriodsInMinorSwing, size=size.tiny)
+
+// =============================================================================
+// 3B. BỘ ĐỆM LỊCH SỬ TỰ QUẢN  (BẮT BUỘC - ĐỪNG GỠ)
+// =============================================================================
+// max_bars_back của indicator() chỉ bảo đảm bộ đệm sâu cho các series DỰNG SẴN
+// (open/high/low/close). Với biến do script tự khai báo — ha_open, ha_high,
+// ha_low, ha_bull, các chuỗi pivot — truy cập bằng offset ĐỘNG vượt bộ đệm mặc
+// định sẽ trả về NẾN SAI mà Pine KHÔNG báo lỗi (triệu chứng: biên Zone nhảy lên
+// bằng giá nến hiện tại).
+// Vì vậy ha_open và 4 chuỗi pivot được lưu tay vào mảng cuộn: index 0 = nến hiện
+// tại. ha_close/ha_high/ha_low tại nến bất kỳ được dựng lại từ ha_open + giá
+// dựng sẵn, nên không cần đệm riêng.
+var array<float> a_hao = array.new<float>()
+var array<float> a_pmh = array.new<float>()
+var array<float> a_pml = array.new<float>()
+var array<float> a_pnh = array.new<float>()
+var array<float> a_pnl = array.new<float>()
+
+a_hao.unshift(ha_open)
+a_pmh.unshift(piv_maj_h)
+a_pml.unshift(piv_maj_l)
+a_pnh.unshift(piv_min_h)
+a_pnl.unshift(piv_min_l)
+if a_hao.size() > HistCap
+    a_hao.pop()
+    a_pmh.pop()
+    a_pml.pop()
+    a_pnh.pop()
+    a_pnl.pop()
+
+// =============================================================================
+// 4. HÀM TIỆN ÍCH
+// =============================================================================
+// bar_index tuyệt đối -> offset lịch sử (dùng cho series DỰNG SẴN)
+f_off(int b) => math.max(0, math.min(bar_index - b, HistCap - 1))
+
+// Đọc mảng cuộn tại vị trí i; ngoài phạm vi -> na (index luôn được kẹp để
+// array.get không bao giờ vượt biên, kể cả khi nhánh ternary bị đánh giá sớm)
+f_buf(array<float> a, int i) =>
+    int n = a.size()
+    float v = n > 0 ? a.get(math.max(0, math.min(i, n - 1))) : na
+    i >= 0 and i < n ? v : na
+
+// --- Giá Heikin Ashi tại một nến bất kỳ (dựng lại từ ha_open + giá dựng sẵn) ---
+f_hao(int b) => f_buf(a_hao, bar_index - b)
+f_hac(int b) =>
+    int o = f_off(b)
+    (open[o] + high[o] + low[o] + close[o]) / 4.0
+f_hah(int b) => math.max(high[f_off(b)], math.max(f_hao(b), f_hac(b)))
+f_hal(int b) => math.min(low[f_off(b)],  math.min(f_hao(b), f_hac(b)))
+f_habull(int b) => f_hac(b) >= f_hao(b)
+
+// Nến b có phải swing không? (pivot của nến b được phát ra tại nến b+P)
+f_sw_maj_h(int b) => f_buf(a_pmh, bar_index - b - PeriodsInMajorSwing)
+f_sw_maj_l(int b) => f_buf(a_pml, bar_index - b - PeriodsInMajorSwing)
+f_sw_min_h(int b) => f_buf(a_pnh, bar_index - b - PeriodsInMinorSwing)
+f_sw_min_l(int b) => f_buf(a_pnl, bar_index - b - PeriodsInMinorSwing)
+
+// Chặn đáy vùng quét: không cho vòng lặp chạy quá "cap" nến về quá khứ
+f_floor(int from_b, int to_b, int cap) => math.max(to_b, from_b - cap)
+
+// Chữ của đường cấu trúc được đặt bằng một BOX cao bằng 0 nằm chồng lên đường,
+// nền và viền trong suốt — chỉ mượn khả năng canh lề chữ của box.
+// Đây là thứ label KHÔNG làm được: box có text_halign/text_valign, tương đương
+// đúng hai ô "Text alignment" của công cụ Trendline trên TradingView.
+//   text_below = false -> valign BOTTOM -> chữ nằm sát TRÊN đường
+//   text_below = true  -> valign TOP    -> chữ nằm sát DƯỚI đường
+// halign CENTER -> chữ luôn canh giữa chiều dài đường.
+//
+// Quy ước chọn phía (xem 8 lời gọi ở mục 6):
+//   Major: UP nằm trên, DOWN nằm dưới.
+//   Minor: NGƯỢC LẠI Major (UP nằm dưới, DOWN nằm trên) để mBOS/mCHOCH không
+//          chồng lên BOS/CHOCH khi hai tầng cùng phá một mức giá.
+f_struct_text(int b1, float price, int b2, color c, string txt, bool text_below) =>
+    box.new(b1, price, b2, price, border_color=color.new(color.white, 100), border_width=0, bgcolor=color.new(color.white, 100), text=txt, text_color=c, text_size=size.small, text_halign=text.align_center, text_valign=text_below ? text.align_top : text.align_bottom)
+
+// Chữ cho các đường mốc kéo dài sang phải: Key Level, Tracking, Weak, Last Major.
+// Cùng kỹ thuật box, chỉ khác canh lề ngang — giữ đúng quy ước của MQL5:
+//   at_right = false -> canh TRÁI  (Key Level, MQL5 dùng ANCHOR_LEFT_*)
+//   at_right = true  -> canh PHẢI  (nhóm mốc, MQL5 dùng ANCHOR_RIGHT_*)
+// Không canh giữa như BOS/CHOCH vì các đường này kéo dài vô hạn sang phải, canh
+// giữa sẽ ném chữ vào giữa vùng nến.
+f_level_text(int b1, int b2, float price, color c, string txt, bool text_below, bool at_right) =>
+    box bx = na
+    if at_right
+        bx := box.new(b1, price, b2, price, border_color=color.new(color.white, 100), border_width=0, bgcolor=color.new(color.white, 100), text=txt, text_color=c, text_size=size.small, text_halign=text.align_right, text_valign=text_below ? text.align_top : text.align_bottom)
+    else
+        bx := box.new(b1, price, b2, price, border_color=color.new(color.white, 100), border_width=0, bgcolor=color.new(color.white, 100), text=txt, text_color=c, text_size=size.small, text_halign=text.align_left, text_valign=text_below ? text.align_top : text.align_bottom)
+    bx
+f_add_struct_line(array<line> ln, array<box> tx, int b1, float price, int b2, color c, string txt, bool dotted, int w, bool text_below, int maxn) =>
+    line l = line.new(b1, price, b2, price, color=c, style=dotted ? line.style_dotted : line.style_solid, width=w)
+    ln.push(l)
+    tx.push(f_struct_text(b1, price, b2, c, txt, text_below))
+    while ln.size() > maxn
+        line.delete(ln.shift())
+        box.delete(tx.shift())
+
+f_clear_struct_lines(array<line> ln, array<box> tx) =>
+    while ln.size() > 0
+        line.delete(ln.shift())
+        box.delete(tx.shift())
+
+// Dọn các đường cấu trúc BẮT ĐẦU từ nến cut_b trở về trước.
+// cut_b = nến Protected Level = mép TRÁI của đường CHOCH vừa vẽ.
+// Đường bắt đầu trước mốc đó nằm trọn phía trước đường CHOCH trên trục ngang
+// -> thuộc xu hướng cũ -> bỏ. Đường bắt đầu SAU mốc đó tuy hình thành trước thời
+// điểm CHOCH nhưng hiển thị nằm trong phạm vi con sóng hiện tại -> giữ.
+// MQL5 KHÔNG có bước này (chỉ ClearQueue hàng đợi ngược chiều rồi để MaxBOSLines
+// bào mòn dần), nên đây là phần bổ sung riêng của bản TradingView.
+f_prune_struct_lines(array<line> ln, array<box> tx, int cut_b) =>
+    if ln.size() > 0
+        for i = ln.size() - 1 to 0
+            line l = ln.get(i)
+            if line.get_x1(l) <= cut_b
+                line.delete(l)
+                box.delete(tx.get(i))
+                ln.remove(i)
+                tx.remove(i)
+
+f_kill_zone(SDZone z) =>
+    if not na(z.bx)
+        z.bx.delete()
+    if not na(z.dbg)
+        z.dbg.delete()
+
+f_clear_zone_q(array<SDZone> q) =>
+    while q.size() > 0
+        f_kill_zone(q.shift())
+
+f_push_zone(array<SDZone> q, SDZone z) =>
+    q.push(z)
+    while q.size() > MaxZones
+        f_kill_zone(q.shift())
+
+// --- Port của CreateZone() bên MQL5 ---
+// Tính vùng SD từ nến gốc (swing_b) tới nến phá (bos_b), vẽ box và đẩy vào hàng đợi.
+// Zone vẫn được tính & đẩy vào hàng đợi khi ShowSDZones = false (chỉ không vẽ box),
+// đúng như MQL5 luôn tính Entry/SL để nạp buffer cho bot.
+f_add_zone(int swing_b_in, int bos_b, bool isSell, float broken_level) =>
+    int swing_b = f_floor(bos_b, swing_b_in, MaxScanBars)
+    int ext_b = swing_b
+    if bos_b >= 0 and swing_b <= bos_b
+        // ArrayMaximum/ArrayMinimum: quét nến mới -> cũ, so sánh CHẶT (nến mới thắng khi bằng)
+        float best = isSell ? high[f_off(bos_b)] : low[f_off(bos_b)]
+        ext_b := bos_b
+        for b = bos_b to swing_b
+            float v = isSell ? high[f_off(b)] : low[f_off(b)]
+            if isSell ? v > best : v < best
+                best := v
+                ext_b := b
+
+    float lvl = broken_level
+    if (na(lvl) or lvl <= 0) and bos_b >= 0 and swing_b < bos_b
+        float brk = isSell ? low[f_off(bos_b - 1)] : high[f_off(bos_b - 1)]
+        for b = bos_b - 1 to swing_b
+            float v = isSell ? low[f_off(b)] : high[f_off(b)]
+            if isSell ? v < brk : v > brk
+                brk := v
+        lvl := brk
+
+    // Gom cụm nến HA cùng màu quanh nến cực trị.
+    // MQL5: targetColor = isSellZone ? 0 : 1, với 0 = nến HA tăng.
+    // => Sell zone gom cụm nến TĂNG, Buy zone gom cụm nến GIẢM.
+    bool  targetBull = isSell
+    float zHigh = f_hah(ext_b)
+    float zLow  = f_hal(ext_b)
+    int   k     = ext_b
+    int   guard = ext_b - 10
+    while k > 0 and k >= guard and f_habull(k) != targetBull
+        k -= 1
+    if k >= guard and k >= 0
+        if isSell
+            zLow := f_hal(k)
+            while k >= 0 and (ext_b - k) <= 300 and f_habull(k) == targetBull
+                zLow := math.min(zLow, f_hal(k))
+                k -= 1
+            zHigh := math.max(zHigh, f_hah(ext_b))
+        else
+            zHigh := f_hah(k)
+            while k >= 0 and (ext_b - k) <= 300 and f_habull(k) == targetBull
+                zHigh := math.max(zHigh, f_hah(k))
+                k -= 1
+            zLow := math.min(zLow, f_hal(ext_b))
+
+    // Zone trùm qua mức đã bị phá -> thu về đúng 1 nến cực trị
+    if not na(lvl) and lvl > 0
+        if isSell and zLow <= lvl + syminfo.mintick
+            zHigh := f_hah(ext_b)
+            zLow  := f_hal(ext_b)
+        else if not isSell and zHigh >= lvl - syminfo.mintick
+            zHigh := f_hah(ext_b)
+            zLow  := f_hal(ext_b)
+
+    box bx = na
+    if ShowSDZones
+        bx := box.new(ext_b, zHigh, bar_index + 10, zLow, border_color=na, bgcolor=isSell ? c_SellZone : c_BuyZone)
+    label dbg = na
+    if DebugZone
+        string txt = (isSell ? "SELL" : "BUY") + "  ext=" + str.tostring(ext_b) + "  tao@" + str.tostring(bar_index) + "  swing=" + str.tostring(swing_b) + "  bos=" + str.tostring(bos_b) + "\nzHigh=" + str.tostring(zHigh, format.mintick) + "  zLow=" + str.tostring(zLow, format.mintick) + "\nhaH[ext]=" + str.tostring(f_hah(ext_b), format.mintick) + "  haL[ext]=" + str.tostring(f_hal(ext_b), format.mintick) + "\nH[ext]=" + str.tostring(high[f_off(ext_b)], format.mintick) + "  L[ext]=" + str.tostring(low[f_off(ext_b)], format.mintick) + "  k=" + str.tostring(k)
+        dbg := label.new(ext_b, zHigh, txt, color=color.new(color.yellow, 20), textcolor=color.black, style=label.style_label_down, size=size.small)
+    SDZone z = SDZone.new(bx, isSell ? zLow : zHigh, isSell ? zHigh : zLow, dbg)
+    if isSell
+        f_push_zone(sell_zones, z)
+    else
+        f_push_zone(buy_zones, z)
+
+// =============================================================================
+// 5. ORDER BLOCK (phần riêng của TradingView)
+// =============================================================================
+f_draw_ob(float top, float bot, bool isBull, int origin_b, float imb_t, float imb_b) =>
+    box b = box.new(origin_b, top, bar_index + 10, bot, border_color=na, bgcolor=c_OB)
+    label imb_lbl = na
+    line  imb_lt  = na
+    line  imb_lb2 = na
+    bool has_imb = ShowImbalance and imb_t > imb_b
+    if has_imb
+        imb_lbl := label.new(origin_b + math.round((bar_index + 10 - origin_b) / 2), (imb_t + imb_b) / 2, "Imbalance", color=color.new(color.white, 100), textcolor=color.gray, style=label.style_label_center, size=size.tiny)
+        imb_lt  := line.new(origin_b, imb_t, bar_index + 10, imb_t, color=color.new(color.black, 50), style=line.style_dashed)
+        imb_lb2 := line.new(origin_b, imb_b, bar_index + 10, imb_b, color=color.new(color.black, 50), style=line.style_dashed)
+    label l = label.new(bar_index + 10, (top + bot) / 2, isBull ? "Buy OB" : "Sell OB", color=color.new(color.white, 100), textcolor=color.gray, style=label.style_label_right, size=size.tiny)
+    liveOBs.push(ActiveOB.new(b, l, imb_lbl, imb_lt, imb_lb2, top, bot, imb_t, imb_b, has_imb, isBull, origin_b))
+
+f_purge_ob(int threshold_b) =>
+    if liveOBs.size() > 0
+        for i = liveOBs.size() - 1 to 0
+            ActiveOB ob = liveOBs.get(i)
+            if ob.origin_b < threshold_b
+                ob.bx.delete()
+                ob.lbl.delete()
+                if ob.has_imb
+                    ob.imb_lbl.delete()
+                    ob.imb_top_ln.delete()
+                    ob.imb_bot_ln.delete()
+                liveOBs.remove(i)
+
+f_check_ob(int offset, bool isBull, int limit_offset) =>
+    if offset + 1 < bar_index and offset - 1 >= limit_offset
+        if isBull
+            if close[offset + 1] < open[offset + 1] and low[offset] < low[offset + 1] and high[offset + 1] < low[offset - 1]
+                float ob_top  = high[offset + 1]
+                float ob_bot  = low[offset]
+                float imb_top = low[offset - 1]
+                float imb_bot = high[offset + 1]
+                bool mitigated = false
+                for m = offset - 1 to limit_offset
+                    if low[m] <= ob_top
+                        mitigated := true
+                        break
+                    if low[m] < imb_top
+                        imb_top := low[m]
+                if not mitigated
+                    f_draw_ob(ob_top, ob_bot, true, bar_index - (offset + 1), imb_top, imb_bot)
+        else
+            if close[offset + 1] > open[offset + 1] and high[offset] > high[offset + 1] and low[offset + 1] > high[offset - 1]
+                float ob_top  = high[offset]
+                float ob_bot  = low[offset + 1]
+                float imb_top = low[offset + 1]
+                float imb_bot = high[offset - 1]
+                bool mitigated = false
+                for m = offset - 1 to limit_offset
+                    if high[m] >= ob_bot
+                        mitigated := true
+                        break
+                    if high[m] > imb_bot
+                        imb_bot := high[m]
+                if not mitigated
+                    f_draw_ob(ob_top, ob_bot, false, bar_index - (offset + 1), imb_top, imb_bot)
+
+// Quét OB trong đoạn [origin_b .. break_b]. Chi phí O(N^2) nên bắt buộc chặn trần.
+f_scan_obs(int origin_b, int break_b, bool isBull) =>
+    if EnableOB and origin_b != -1 and origin_b <= break_b
+        int back_break  = bar_index - break_b
+        int back_origin = math.min(bar_index - origin_b, back_break + MaxScanOB)
+        if back_origin > back_break
+            for j = back_origin to back_break
+                f_check_ob(j, isBull, back_break)
+
+// =============================================================================
+// 6. ĐỘNG CƠ CẤU TRÚC — giữ nguyên thứ tự xử lý của OnCalculate (MQL5)
+// =============================================================================
+
+// ---- 6.1 Swing tracking (Major) ----
+if bar_done and not na(piv_maj_h)
+    int sb = bar_index - PeriodsInMajorSwing
+    act_h := piv_maj_h
+    act_h_b := sb
+    act_h_on := true
+    last_maj_h := piv_maj_h
+    last_maj_h_b := sb
+    if maj_trend == 1 and piv_maj_h == maj_ext_h
+        maj_cext_h := piv_maj_h
+        maj_cext_h_b := sb
+    if sb > done_sw_h_b
+        done_sw_h_b := sb
+        // Zone pullback sau BOS giảm
+        if last_break_dir == -1 and last_break_type == 1 and brk_dn_b != -1 and sb <= brk_dn_b
+            f_add_zone(sb, brk_dn_b, true, brk_dn_lvl)
+
+if bar_done and not na(piv_maj_l)
+    int sb = bar_index - PeriodsInMajorSwing
+    act_l := piv_maj_l
+    act_l_b := sb
+    act_l_on := true
+    last_maj_l := piv_maj_l
+    last_maj_l_b := sb
+    if maj_trend == -1 and piv_maj_l == maj_ext_l
+        maj_cext_l := piv_maj_l
+        maj_cext_l_b := sb
+    if sb > done_sw_l_b
+        done_sw_l_b := sb
+        // Zone pullback sau BOS tăng
+        if last_break_dir == 1 and last_break_type == 1 and brk_up_b != -1 and sb <= brk_up_b
+            f_add_zone(sb, brk_up_b, false, brk_up_lvl)
+
+// ---- 6.2 Swing tracking (Minor) ----
+if bar_done and not na(piv_min_h)
+    int sb = bar_index - PeriodsInMinorSwing
+    mact_h := piv_min_h
+    mact_h_b := sb
+    mact_h_on := true
+    last_min_h := piv_min_h
+    last_min_h_b := sb
+    if min_trend == 1 and piv_min_h == min_ext_h
+        min_cext_h := piv_min_h
+        min_cext_h_b := sb
+
+if bar_done and not na(piv_min_l)
+    int sb = bar_index - PeriodsInMinorSwing
+    mact_l := piv_min_l
+    mact_l_b := sb
+    mact_l_on := true
+    last_min_l := piv_min_l
+    last_min_l_b := sb
+    if min_trend == -1 and piv_min_l == min_ext_l
+        min_cext_l := piv_min_l
+        min_cext_l_b := sb
+
+// ---- 6.3 Cập nhật đỉnh/đáy cực đại (chạy mọi tick, như nến i=0 bên MQL5) ----
+if engine_on and maj_trend == 1
+    if na(maj_ext_h) or high > maj_ext_h
+        maj_ext_h := high
+        maj_ext_h_b := bar_index
+else if engine_on and maj_trend == -1
+    if na(maj_ext_l) or low < maj_ext_l
+        maj_ext_l := low
+        maj_ext_l_b := bar_index
+
+if engine_on and min_trend == 1
+    if na(min_ext_h) or high > min_ext_h
+        min_ext_h := high
+        min_ext_h_b := bar_index
+else if engine_on and min_trend == -1
+    if na(min_ext_l) or low < min_ext_l
+        min_ext_l := low
+        min_ext_l_b := bar_index
+
+bool is_maj_choch_up = false
+bool is_maj_choch_dn = false
+bool is_min_choch_up = false
+bool is_min_choch_dn = false
+
+if bar_done
+    // ---- 6.4 Khởi tạo trend mồi (deadlock prevention) ----
+    if maj_trend == 0
+        if act_h_on and ha_close > act_h
+            maj_trend := 1
+            maj_ext_h := high
+            maj_ext_h_b := bar_index
+            maj_prot_l := na(last_maj_l) ? low : last_maj_l
+            maj_prot_l_b := last_maj_l_b != -1 ? last_maj_l_b : bar_index
+        else if act_l_on and ha_close < act_l
+            maj_trend := -1
+            maj_ext_l := low
+            maj_ext_l_b := bar_index
+            maj_prot_h := na(last_maj_h) ? high : last_maj_h
+            maj_prot_h_b := last_maj_h_b != -1 ? last_maj_h_b : bar_index
+
+    if min_trend == 0
+        if mact_h_on and ha_close > mact_h
+            min_trend := 1
+            min_ext_h := high
+            min_ext_h_b := bar_index
+            min_prot_l := na(last_min_l) ? low : last_min_l
+            min_prot_l_b := last_min_l_b != -1 ? last_min_l_b : bar_index
+        else if mact_l_on and ha_close < mact_l
+            min_trend := -1
+            min_ext_l := low
+            min_ext_l_b := bar_index
+            min_prot_h := na(last_min_h) ? high : last_min_h
+            min_prot_h_b := last_min_h_b != -1 ? last_min_h_b : bar_index
+
+    // ---- 6.5 Radar trigger Major: HA đóng cửa phá Weak Level ----
+    // Uptrend phá Weak High -> chốt ngay Protected Low = last_maj_low, kèm quét D5.
+    // Vòng quét chạy từ nến CŨ -> MỚI và so sánh chặt, khớp tie-break của MQL5.
+    if maj_trend == 1 and not na(maj_cext_h) and ha_close > maj_cext_h and done_weak_h_b != maj_cext_h_b
+        done_weak_h_b := maj_cext_h_b
+        if not na(last_maj_l) and last_maj_l_b != -1
+            float d5 = last_maj_l
+            int   d5_b = last_maj_l_b
+            int   from_b = f_floor(bar_index, last_maj_l_b, MaxScanBars)
+            for b = from_b to bar_index
+                float lv = low[f_off(b)]
+                if lv < d5
+                    d5 := lv
+                    d5_b := b
+            maj_prot_l := d5 < last_maj_l ? d5 : last_maj_l
+            maj_prot_l_b := d5 < last_maj_l ? d5_b : last_maj_l_b
+            pend_prot_l := true
+            prot_anchor_b := last_maj_l_b
+            prot_break_b := bar_index
+
+    // Downtrend phá Weak Low -> chốt ngay Protected High = last_maj_high, kèm quét D5
+    if maj_trend == -1 and not na(maj_cext_l) and ha_close < maj_cext_l and done_weak_l_b != maj_cext_l_b
+        done_weak_l_b := maj_cext_l_b
+        if not na(last_maj_h) and last_maj_h_b != -1
+            float d5 = last_maj_h
+            int   d5_b = last_maj_h_b
+            int   from_b = f_floor(bar_index, last_maj_h_b, MaxScanBars)
+            for b = from_b to bar_index
+                float hv = high[f_off(b)]
+                if hv > d5
+                    d5 := hv
+                    d5_b := b
+            maj_prot_h := d5 > last_maj_h ? d5 : last_maj_h
+            maj_prot_h_b := d5 > last_maj_h ? d5_b : last_maj_h_b
+            pend_prot_h := true
+            prot_anchor_b := last_maj_h_b
+            prot_break_b := bar_index
+
+    // ---- 6.6 Radar execution Major ----
+    // D4 = swing MỚI NHẤT trong [anchor .. breakout]; D5 = cực trị thô trong [D4 .. breakout].
+    // Quét lại từ đầu mỗi nến cho tới khi qua đủ PeriodsInMajorSwing nến kể từ breakout.
+    if maj_trend == 1 and pend_prot_l and prot_break_b != -1
+        if prot_anchor_b != -1 and prot_break_b >= prot_anchor_b
+            float d4 = na
+            int   d4_b = -1
+            int   floor_b = f_floor(prot_break_b, prot_anchor_b, MaxScanBars)
+            for b = prot_break_b to floor_b
+                float sv = f_sw_maj_l(b)
+                if not na(sv)
+                    d4 := sv
+                    d4_b := b
+                    break
+            if not na(d4)
+                float d5 = na
+                int   d5_b = -1
+                for b = prot_break_b to d4_b
+                    float lv = low[f_off(b)]
+                    if na(d5) or lv < d5
+                        d5 := lv
+                        d5_b := b
+                if not na(d5) and d5 < d4
+                    maj_prot_l := d5
+                    maj_prot_l_b := d5_b
+                else
+                    maj_prot_l := d4
+                    maj_prot_l_b := d4_b
+            if bar_index - prot_break_b >= PeriodsInMajorSwing
+                pend_prot_l := false
+        else
+            pend_prot_l := false
+
+    if maj_trend == -1 and pend_prot_h and prot_break_b != -1
+        if prot_anchor_b != -1 and prot_break_b >= prot_anchor_b
+            float d4 = na
+            int   d4_b = -1
+            int   floor_b = f_floor(prot_break_b, prot_anchor_b, MaxScanBars)
+            for b = prot_break_b to floor_b
+                float sv = f_sw_maj_h(b)
+                if not na(sv)
+                    d4 := sv
+                    d4_b := b
+                    break
+            if not na(d4)
+                float d5 = na
+                int   d5_b = -1
+                for b = prot_break_b to d4_b
+                    float hv = high[f_off(b)]
+                    if na(d5) or hv > d5
+                        d5 := hv
+                        d5_b := b
+                if not na(d5) and d5 > d4
+                    maj_prot_h := d5
+                    maj_prot_h_b := d5_b
+                else
+                    maj_prot_h := d4
+                    maj_prot_h_b := d4_b
+            if bar_index - prot_break_b >= PeriodsInMajorSwing
+                pend_prot_h := false
+        else
+            pend_prot_h := false
+
+    // ---- 6.7 Radar Minor (fractal) ----
+    if min_trend == 1 and not na(min_cext_h) and ha_close > min_cext_h and min_done_weak_h_b != min_cext_h_b
+        min_done_weak_h_b := min_cext_h_b
+        if not na(last_min_l) and last_min_l_b != -1
+            float d5 = last_min_l
+            int   d5_b = last_min_l_b
+            int   from_b = f_floor(bar_index, last_min_l_b, MaxScanBars)
+            for b = from_b to bar_index
+                float lv = low[f_off(b)]
+                if lv < d5
+                    d5 := lv
+                    d5_b := b
+            min_prot_l := d5 < last_min_l ? d5 : last_min_l
+            min_prot_l_b := d5 < last_min_l ? d5_b : last_min_l_b
+            min_pend_prot_l := true
+            min_prot_anchor_b := last_min_l_b
+            min_prot_break_b := bar_index
+
+    if min_trend == -1 and not na(min_cext_l) and ha_close < min_cext_l and min_done_weak_l_b != min_cext_l_b
+        min_done_weak_l_b := min_cext_l_b
+        if not na(last_min_h) and last_min_h_b != -1
+            float d5 = last_min_h
+            int   d5_b = last_min_h_b
+            int   from_b = f_floor(bar_index, last_min_h_b, MaxScanBars)
+            for b = from_b to bar_index
+                float hv = high[f_off(b)]
+                if hv > d5
+                    d5 := hv
+                    d5_b := b
+            min_prot_h := d5 > last_min_h ? d5 : last_min_h
+            min_prot_h_b := d5 > last_min_h ? d5_b : last_min_h_b
+            min_pend_prot_h := true
+            min_prot_anchor_b := last_min_h_b
+            min_prot_break_b := bar_index
+
+    if min_trend == 1 and min_pend_prot_l and min_prot_break_b != -1
+        if min_prot_anchor_b != -1 and min_prot_break_b >= min_prot_anchor_b
+            float d4 = na
+            int   d4_b = -1
+            int   floor_b = f_floor(min_prot_break_b, min_prot_anchor_b, MaxScanBars)
+            for b = min_prot_break_b to floor_b
+                float sv = f_sw_min_l(b)
+                if not na(sv)
+                    d4 := sv
+                    d4_b := b
+                    break
+            if not na(d4)
+                float d5 = na
+                int   d5_b = -1
+                for b = min_prot_break_b to d4_b
+                    float lv = low[f_off(b)]
+                    if na(d5) or lv < d5
+                        d5 := lv
+                        d5_b := b
+                if not na(d5) and d5 < d4
+                    min_prot_l := d5
+                    min_prot_l_b := d5_b
+                else
+                    min_prot_l := d4
+                    min_prot_l_b := d4_b
+            if bar_index - min_prot_break_b >= PeriodsInMinorSwing
+                min_pend_prot_l := false
+        else
+            min_pend_prot_l := false
+
+    if min_trend == -1 and min_pend_prot_h and min_prot_break_b != -1
+        if min_prot_anchor_b != -1 and min_prot_break_b >= min_prot_anchor_b
+            float d4 = na
+            int   d4_b = -1
+            int   floor_b = f_floor(min_prot_break_b, min_prot_anchor_b, MaxScanBars)
+            for b = min_prot_break_b to floor_b
+                float sv = f_sw_min_h(b)
+                if not na(sv)
+                    d4 := sv
+                    d4_b := b
+                    break
+            if not na(d4)
+                float d5 = na
+                int   d5_b = -1
+                for b = min_prot_break_b to d4_b
+                    float hv = high[f_off(b)]
+                    if na(d5) or hv > d5
+                        d5 := hv
+                        d5_b := b
+                if not na(d5) and d5 > d4
+                    min_prot_h := d5
+                    min_prot_h_b := d5_b
+                else
+                    min_prot_h := d4
+                    min_prot_h_b := d4_b
+            if bar_index - min_prot_break_b >= PeriodsInMinorSwing
+                min_pend_prot_h := false
+        else
+            min_pend_prot_h := false
+
+    // ---- 6.8 Dọn Zone bị thủng SL ----
+    if buy_zones.size() > 0
+        for i = buy_zones.size() - 1 to 0
+            SDZone z = buy_zones.get(i)
+            if ha_close < z.stop
+                f_kill_zone(z)
+                buy_zones.remove(i)
+    if sell_zones.size() > 0
+        for i = sell_zones.size() - 1 to 0
+            SDZone z = sell_zones.get(i)
+            if ha_close > z.stop
+                f_kill_zone(z)
+                sell_zones.remove(i)
+
+    // ---- 6.9 MAJOR CHOCH ----
+    if maj_trend == 1 and not na(maj_prot_l) and ha_close < maj_prot_l
+        if ShowMajorCHOCH
+            if not na(choch_up_ln)
+                line.delete(choch_up_ln)
+                box.delete(choch_up_tx)
+                choch_up_ln := na
+                choch_up_tx := na
+            if not na(choch_dn_ln)
+                line.delete(choch_dn_ln)
+                box.delete(choch_dn_tx)
+            choch_dn_ln := line.new(maj_prot_l_b, maj_prot_l, bar_index, maj_prot_l, color=c_BOS_Down, width=2)
+            choch_dn_tx := f_struct_text(maj_prot_l_b, maj_prot_l, bar_index, c_BOS_Down, "CHOCH", true)
+        f_clear_zone_q(buy_zones)
+
+        // Đỉnh thực tế trong đoạn [Protected Low .. nến hiện tại] (nến mới thắng khi bằng)
+        float actual_ext_h = maj_ext_h
+        int   actual_ext_b = maj_ext_h_b
+        if maj_prot_l_b != -1 and maj_prot_l_b <= bar_index
+            int floor_b = f_floor(bar_index, maj_prot_l_b, MaxScanBars)
+            actual_ext_h := high
+            actual_ext_b := bar_index
+            for b = bar_index to floor_b
+                float hv = high[f_off(b)]
+                if hv > actual_ext_h
+                    actual_ext_h := hv
+                    actual_ext_b := b
+
+        if ShowKeyLevel
+            if not na(key_ln)
+                line.delete(key_ln)
+                box.delete(key_tx)
+            key_ln := line.new(actual_ext_b, actual_ext_h, bar_index + 10, actual_ext_h, color=c_KeyLevel, width=2, extend=extend.right)
+            key_tx := f_level_text(actual_ext_b, bar_index + 10, actual_ext_h, c_KeyLevel, "Major Key Level Down", false, false)
+
+        last_break_dir := -1
+        last_break_type := 2
+        brk_dn_b := bar_index
+        brk_dn_lvl := maj_prot_l
+
+        // Neo Zone: swing high mới nhất trong [actual_ext .. (nến hiện tại - P)]
+        int anchor_b = actual_ext_b
+        if actual_ext_b != -1 and bar_index - PeriodsInMajorSwing >= actual_ext_b
+            int floor_b = f_floor(bar_index - PeriodsInMajorSwing, actual_ext_b, MaxScanBars)
+            for b = bar_index - PeriodsInMajorSwing to floor_b
+                if not na(f_sw_maj_h(b))
+                    anchor_b := b
+                    break
+        if anchor_b != -1
+            f_add_zone(anchor_b, bar_index, true, maj_prot_l)
+
+        f_scan_obs(actual_ext_b, bar_index, false)
+        pending_ob_purge := true
+
+        if act_l_b == maj_prot_l_b
+            act_l_on := false
+        // MQL5: ClearQueue(BOSUpQueue) — dọn sạch hàng đợi BOS ngược chiều.
+        f_clear_struct_lines(bos_up_ln, bos_up_tx)
+        // Bổ sung riêng TradingView: hàng đợi cùng chiều chỉ bỏ những đường nằm
+        // trọn phía trước mép trái đường CHOCH (= nến Protected Low).
+        f_prune_struct_lines(bos_dn_ln, bos_dn_tx, maj_prot_l_b)
+
+        maj_trend := -1
+        maj_ext_l := low
+        maj_ext_l_b := bar_index
+        maj_cext_h := na
+        maj_cext_h_b := -1
+        maj_prot_h := actual_ext_h
+        maj_prot_h_b := actual_ext_b
+        maj_prot_l := na
+        maj_prot_l_b := -1
+        pend_prot_h := true
+        prot_anchor_b := actual_ext_b
+        prot_break_b := bar_index
+        pend_prot_l := false
+        is_maj_choch_dn := true
+
+    else if maj_trend == -1 and not na(maj_prot_h) and ha_close > maj_prot_h
+        if ShowMajorCHOCH
+            if not na(choch_dn_ln)
+                line.delete(choch_dn_ln)
+                box.delete(choch_dn_tx)
+                choch_dn_ln := na
+                choch_dn_tx := na
+            if not na(choch_up_ln)
+                line.delete(choch_up_ln)
+                box.delete(choch_up_tx)
+            choch_up_ln := line.new(maj_prot_h_b, maj_prot_h, bar_index, maj_prot_h, color=c_BOS_Up, width=2)
+            choch_up_tx := f_struct_text(maj_prot_h_b, maj_prot_h, bar_index, c_BOS_Up, "CHOCH", false)
+        f_clear_zone_q(sell_zones)
+
+        float actual_ext_l = maj_ext_l
+        int   actual_ext_b = maj_ext_l_b
+        if maj_prot_h_b != -1 and maj_prot_h_b <= bar_index
+            int floor_b = f_floor(bar_index, maj_prot_h_b, MaxScanBars)
+            actual_ext_l := low
+            actual_ext_b := bar_index
+            for b = bar_index to floor_b
+                float lv = low[f_off(b)]
+                if lv < actual_ext_l
+                    actual_ext_l := lv
+                    actual_ext_b := b
+
+        if ShowKeyLevel
+            if not na(key_ln)
+                line.delete(key_ln)
+                box.delete(key_tx)
+            key_ln := line.new(actual_ext_b, actual_ext_l, bar_index + 10, actual_ext_l, color=c_KeyLevel, width=2, extend=extend.right)
+            key_tx := f_level_text(actual_ext_b, bar_index + 10, actual_ext_l, c_KeyLevel, "Major Key Level Up", true, false)
+
+        last_break_dir := 1
+        last_break_type := 2
+        brk_up_b := bar_index
+        brk_up_lvl := maj_prot_h
+
+        int anchor_b = actual_ext_b
+        if actual_ext_b != -1 and bar_index - PeriodsInMajorSwing >= actual_ext_b
+            int floor_b = f_floor(bar_index - PeriodsInMajorSwing, actual_ext_b, MaxScanBars)
+            for b = bar_index - PeriodsInMajorSwing to floor_b
+                if not na(f_sw_maj_l(b))
+                    anchor_b := b
+                    break
+        if anchor_b != -1
+            f_add_zone(anchor_b, bar_index, false, maj_prot_h)
+
+        f_scan_obs(actual_ext_b, bar_index, true)
+        pending_ob_purge := true
+
+        if act_h_b == maj_prot_h_b
+            act_h_on := false
+        // MQL5: ClearQueue(BOSDnQueue)
+        f_clear_struct_lines(bos_dn_ln, bos_dn_tx)
+        // Bổ sung riêng TradingView (xem ghi chú ở nhánh CHOCH giảm)
+        f_prune_struct_lines(bos_up_ln, bos_up_tx, maj_prot_h_b)
+
+        maj_trend := 1
+        maj_ext_h := high
+        maj_ext_h_b := bar_index
+        maj_cext_l := na
+        maj_cext_l_b := -1
+        maj_prot_l := actual_ext_l
+        maj_prot_l_b := actual_ext_b
+        maj_prot_h := na
+        maj_prot_h_b := -1
+        pend_prot_l := true
+        prot_anchor_b := actual_ext_b
+        prot_break_b := bar_index
+        pend_prot_h := false
+        is_maj_choch_up := true
+
+    // ---- 6.10 MAJOR BOS ----
+    if act_h_on and ha_close > act_h
+        if not is_maj_choch_up
+            if ShowMajorBOS
+                f_add_struct_line(bos_up_ln, bos_up_tx, act_h_b, act_h, bar_index, c_BOS_Up, "BOS", false, 2, false, MaxBOSLines)
+            last_break_dir := 1
+            last_break_type := 1
+            brk_up_b := bar_index
+            brk_up_lvl := act_h
+            if last_maj_l_b != -1
+                f_add_zone(last_maj_l_b, bar_index, false, act_h)
+                if pending_ob_purge
+                    f_purge_ob(last_maj_l_b)
+                    pending_ob_purge := false
+                f_scan_obs(last_maj_l_b, bar_index, true)
+        act_h_on := false
+
+    if act_l_on and ha_close < act_l
+        if not is_maj_choch_dn
+            if ShowMajorBOS
+                f_add_struct_line(bos_dn_ln, bos_dn_tx, act_l_b, act_l, bar_index, c_BOS_Down, "BOS", false, 2, true, MaxBOSLines)
+            last_break_dir := -1
+            last_break_type := 1
+            brk_dn_b := bar_index
+            brk_dn_lvl := act_l
+            if last_maj_h_b != -1
+                f_add_zone(last_maj_h_b, bar_index, true, act_l)
+                if pending_ob_purge
+                    f_purge_ob(last_maj_h_b)
+                    pending_ob_purge := false
+                f_scan_obs(last_maj_h_b, bar_index, false)
+        act_l_on := false
+
+    // ---- 6.11 MINOR CHOCH ----
+    if min_trend == 1 and not na(min_prot_l) and ha_close < min_prot_l
+        if ShowMinorBOSCHOCH
+            if not na(mchoch_up_ln)
+                line.delete(mchoch_up_ln)
+                box.delete(mchoch_up_tx)
+                mchoch_up_ln := na
+                mchoch_up_tx := na
+            if not na(mchoch_dn_ln)
+                line.delete(mchoch_dn_ln)
+                box.delete(mchoch_dn_tx)
+            mchoch_dn_ln := line.new(min_prot_l_b, min_prot_l, bar_index, min_prot_l, color=c_Minor_BOS_Dn, style=line.style_dotted, width=1)
+            mchoch_dn_tx := f_struct_text(min_prot_l_b, min_prot_l, bar_index, c_Minor_BOS_Dn, "mCHOCH", false)
+
+        float actual_ext_h = min_ext_h
+        int   actual_ext_b = min_ext_h_b
+        if min_prot_l_b != -1 and min_prot_l_b <= bar_index
+            int floor_b = f_floor(bar_index, min_prot_l_b, MaxScanBars)
+            actual_ext_h := high
+            actual_ext_b := bar_index
+            for b = bar_index to floor_b
+                float hv = high[f_off(b)]
+                if hv > actual_ext_h
+                    actual_ext_h := hv
+                    actual_ext_b := b
+
+        if mact_l_b == min_prot_l_b
+            mact_l_on := false
+        // MQL5: ClearQueue(MinorBOSUpQueue)
+        f_clear_struct_lines(mbos_up_ln, mbos_up_tx)
+        // Bổ sung riêng TradingView (xem ghi chú ở nhánh CHOCH giảm tầng Major)
+        f_prune_struct_lines(mbos_dn_ln, mbos_dn_tx, min_prot_l_b)
+
+        min_trend := -1
+        min_ext_l := low
+        min_ext_l_b := bar_index
+        min_cext_h := na
+        min_cext_h_b := -1
+        min_prot_h := actual_ext_h
+        min_prot_h_b := actual_ext_b
+        min_prot_l := na
+        min_prot_l_b := -1
+        min_pend_prot_h := true
+        min_prot_anchor_b := actual_ext_b
+        min_prot_break_b := bar_index
+        min_pend_prot_l := false
+        is_min_choch_dn := true
+
+    else if min_trend == -1 and not na(min_prot_h) and ha_close > min_prot_h
+        if ShowMinorBOSCHOCH
+            if not na(mchoch_dn_ln)
+                line.delete(mchoch_dn_ln)
+                box.delete(mchoch_dn_tx)
+                mchoch_dn_ln := na
+                mchoch_dn_tx := na
+            if not na(mchoch_up_ln)
+                line.delete(mchoch_up_ln)
+                box.delete(mchoch_up_tx)
+            mchoch_up_ln := line.new(min_prot_h_b, min_prot_h, bar_index, min_prot_h, color=c_Minor_BOS_Up, style=line.style_dotted, width=1)
+            mchoch_up_tx := f_struct_text(min_prot_h_b, min_prot_h, bar_index, c_Minor_BOS_Up, "mCHOCH", true)
+
+        float actual_ext_l = min_ext_l
+        int   actual_ext_b = min_ext_l_b
+        if min_prot_h_b != -1 and min_prot_h_b <= bar_index
+            int floor_b = f_floor(bar_index, min_prot_h_b, MaxScanBars)
+            actual_ext_l := low
+            actual_ext_b := bar_index
+            for b = bar_index to floor_b
+                float lv = low[f_off(b)]
+                if lv < actual_ext_l
+                    actual_ext_l := lv
+                    actual_ext_b := b
+
+        if mact_h_b == min_prot_h_b
+            mact_h_on := false
+        // MQL5: ClearQueue(MinorBOSDnQueue)
+        f_clear_struct_lines(mbos_dn_ln, mbos_dn_tx)
+        // Bổ sung riêng TradingView (xem ghi chú ở nhánh CHOCH giảm tầng Major)
+        f_prune_struct_lines(mbos_up_ln, mbos_up_tx, min_prot_h_b)
+
+        min_trend := 1
+        min_ext_h := high
+        min_ext_h_b := bar_index
+        min_cext_l := na
+        min_cext_l_b := -1
+        min_prot_l := actual_ext_l
+        min_prot_l_b := actual_ext_b
+        min_prot_h := na
+        min_prot_h_b := -1
+        min_pend_prot_l := true
+        min_prot_anchor_b := actual_ext_b
+        min_prot_break_b := bar_index
+        min_pend_prot_h := false
+        is_min_choch_up := true
+
+    // ---- 6.12 MINOR BOS ----
+    if mact_h_on and ha_close > mact_h
+        if not is_min_choch_up and ShowMinorBOSCHOCH
+            f_add_struct_line(mbos_up_ln, mbos_up_tx, mact_h_b, mact_h, bar_index, c_Minor_BOS_Up, "mBOS", true, 1, true, MaxMinorBOSLines)
+        mact_h_on := false
+
+    if mact_l_on and ha_close < mact_l
+        if not is_min_choch_dn and ShowMinorBOSCHOCH
+            f_add_struct_line(mbos_dn_ln, mbos_dn_tx, mact_l_b, mact_l, bar_index, c_Minor_BOS_Dn, "mBOS", true, 1, false, MaxMinorBOSLines)
+        mact_l_on := false
+
+    // ---- 6.13 OB mới hình thành tại swing vừa confirm (riêng TradingView) ----
+    if EnableOB
+        if not na(piv_maj_l) and maj_trend == 1
+            f_check_ob(PeriodsInMajorSwing, true, 0)
+        if not na(piv_maj_h) and maj_trend == -1
+            f_check_ob(PeriodsInMajorSwing, false, 0)
+
+// =============================================================================
+// 7. CẬP NHẬT ĐỒ HOẠ REAL-TIME
+// =============================================================================
+// --- OB: kéo dài sang phải, xoá khi bị mitigate ---
+if liveOBs.size() > 0
+    for i = liveOBs.size() - 1 to 0
+        ActiveOB ob = liveOBs.get(i)
+        bool killed = ob.isBull ? low <= ob.top : high >= ob.bottom
+        if killed
+            ob.bx.delete()
+            ob.lbl.delete()
+            if ob.has_imb
+                ob.imb_lbl.delete()
+                ob.imb_top_ln.delete()
+                ob.imb_bot_ln.delete()
+            liveOBs.remove(i)
+        else
+            ob.bx.set_right(bar_index + 10)
+            ob.lbl.set_x(bar_index + 10)
+            if ob.has_imb
+                ob.imb_top_ln.set_x2(bar_index + 10)
+                ob.imb_bot_ln.set_x2(bar_index + 10)
+                ob.imb_lbl.set_x(ob.origin_b + math.round((bar_index + 10 - ob.origin_b) / 2))
+                ob.imb_lbl.set_y((ob.imb_top + ob.imb_bot) / 2)
+                if ob.isBull and low < ob.imb_top
+                    ob.imb_top := low
+                    if ob.imb_top <= ob.imb_bot
+                        ob.imb_lbl.delete()
+                        ob.imb_top_ln.delete()
+                        ob.imb_bot_ln.delete()
+                        ob.has_imb := false
+                    else
+                        ob.imb_top_ln.set_y1(ob.imb_top)
+                        ob.imb_top_ln.set_y2(ob.imb_top)
+                if not ob.isBull and high > ob.imb_bot
+                    ob.imb_bot := high
+                    if ob.imb_bot >= ob.imb_top
+                        ob.imb_lbl.delete()
+                        ob.imb_top_ln.delete()
+                        ob.imb_bot_ln.delete()
+                        ob.has_imb := false
+                    else
+                        ob.imb_bot_ln.set_y1(ob.imb_bot)
+                        ob.imb_bot_ln.set_y2(ob.imb_bot)
+
+// --- Nhóm mốc Tracking / Weak / Last Major (gộp nhãn khi trùng giá, như MQL5) ---
+var line  lvl_ln_0 = na, var box   lvl_tx_0 = na
+var line  lvl_ln_1 = na, var box   lvl_tx_1 = na
+var line  lvl_ln_2 = na, var box   lvl_tx_2 = na
+var line  lvl_ln_3 = na, var box   lvl_tx_3 = na
+var line  lvl_ln_4 = na, var box   lvl_tx_4 = na
+var line  lvl_ln_5 = na, var box   lvl_tx_5 = na
+
+if barstate.islast
+    // Kéo dài Zone ra mép phải
+    if buy_zones.size() > 0
+        for i = 0 to buy_zones.size() - 1
+            SDZone z = buy_zones.get(i)
+            if not na(z.bx)
+                z.bx.set_right(bar_index + 10)
+    if sell_zones.size() > 0
+        for i = 0 to sell_zones.size() - 1
+            SDZone z = sell_zones.get(i)
+            if not na(z.bx)
+                z.bx.set_right(bar_index + 10)
+
+    // Vị trí đặt nhãn mốc: đẩy ra khỏi vùng nến một khoảng cố định (xem mục 1)
+    int edge_b = bar_index + LabelOffsetBars
+
+    // Xoá toàn bộ mốc của lần vẽ trước
+    line.delete(lvl_ln_0)
+    box.delete(lvl_tx_0)
+    line.delete(lvl_ln_1)
+    box.delete(lvl_tx_1)
+    line.delete(lvl_ln_2)
+    box.delete(lvl_tx_2)
+    line.delete(lvl_ln_3)
+    box.delete(lvl_tx_3)
+    line.delete(lvl_ln_4)
+    box.delete(lvl_tx_4)
+    line.delete(lvl_ln_5)
+    box.delete(lvl_tx_5)
+
+    // Phía High: [0] Tracking (Protected High khi downtrend, fallback Active High)
+    //            [1] Weak High   [2] Last Major High
+    float h0 = na
+    int   h0_b = -1
+    string h0_t = ""
+    if maj_trend == -1 and not na(maj_prot_h)
+        h0 := maj_prot_h
+        h0_b := maj_prot_h_b
+        h0_t := "Protected High"
+    else if act_h_on
+        h0 := act_h
+        h0_b := act_h_b
+        h0_t := "Active High"
+    float h1 = maj_trend == 1 ? maj_cext_h : na
+    int   h1_b = maj_cext_h_b
+    float h2 = last_maj_h
+    int   h2_b = last_maj_h_b
+
+    bool h0_on = ShowTrackingLines and not na(h0) and h0_b != -1
+    bool h1_on = ShowWeakHighLow and not na(h1) and h1_b != -1
+    bool h2_on = ShowLastMajorHighLow and not na(h2) and h2_b != -1
+
+    string h0_txt = h0_t
+    if h0_on and h1_on and math.abs(h1 - h0) < syminfo.mintick
+        h0_txt := h0_txt + " | Weak High"
+        h1_on := false
+    if h0_on and h2_on and math.abs(h2 - h0) < syminfo.mintick
+        h0_txt := h0_txt + " | Last Major High"
+        h2_on := false
+    string h1_txt = "Weak High"
+    if h1_on and h2_on and math.abs(h2 - h1) < syminfo.mintick
+        h1_txt := h1_txt + " | Last Major High"
+        h2_on := false
+
+    if h0_on
+        lvl_ln_0 := line.new(h0_b, h0, bar_index + 10, h0, color=c_TrackingLine, style=line.style_dotted, extend=extend.right)
+        lvl_tx_0 := f_level_text(h0_b, edge_b, h0, c_TrackingLine, h0_txt, true, true)
+    if h1_on
+        lvl_ln_1 := line.new(h1_b, h1, bar_index + 10, h1, color=c_WeakLevel, style=line.style_dotted, extend=extend.right)
+        lvl_tx_1 := f_level_text(h1_b, edge_b, h1, c_WeakLevel, h1_txt, true, true)
+    if h2_on
+        lvl_ln_2 := line.new(h2_b, h2, bar_index + 10, h2, color=c_LastMajorLine, style=line.style_dotted, extend=extend.right)
+        lvl_tx_2 := f_level_text(h2_b, edge_b, h2, c_LastMajorLine, "Last Major High", true, true)
+
+    // Phía Low
+    float l0 = na
+    int   l0_b = -1
+    string l0_t = ""
+    if maj_trend == 1 and not na(maj_prot_l)
+        l0 := maj_prot_l
+        l0_b := maj_prot_l_b
+        l0_t := "Protected Low"
+    else if act_l_on
+        l0 := act_l
+        l0_b := act_l_b
+        l0_t := "Active Low"
+    float l1 = maj_trend == -1 ? maj_cext_l : na
+    int   l1_b = maj_cext_l_b
+    float l2 = last_maj_l
+    int   l2_b = last_maj_l_b
+
+    bool l0_on = ShowTrackingLines and not na(l0) and l0_b != -1
+    bool l1_on = ShowWeakHighLow and not na(l1) and l1_b != -1
+    bool l2_on = ShowLastMajorHighLow and not na(l2) and l2_b != -1
+
+    string l0_txt = l0_t
+    if l0_on and l1_on and math.abs(l1 - l0) < syminfo.mintick
+        l0_txt := l0_txt + " | Weak Low"
+        l1_on := false
+    if l0_on and l2_on and math.abs(l2 - l0) < syminfo.mintick
+        l0_txt := l0_txt + " | Last Major Low"
+        l2_on := false
+    string l1_txt = "Weak Low"
+    if l1_on and l2_on and math.abs(l2 - l1) < syminfo.mintick
+        l1_txt := l1_txt + " | Last Major Low"
+        l2_on := false
+
+    if l0_on
+        lvl_ln_3 := line.new(l0_b, l0, bar_index + 10, l0, color=c_TrackingLine, style=line.style_dotted, extend=extend.right)
+        lvl_tx_3 := f_level_text(l0_b, edge_b, l0, c_TrackingLine, l0_txt, false, true)
+    if l1_on
+        lvl_ln_4 := line.new(l1_b, l1, bar_index + 10, l1, color=c_WeakLevel, style=line.style_dotted, extend=extend.right)
+        lvl_tx_4 := f_level_text(l1_b, edge_b, l1, c_WeakLevel, l1_txt, false, true)
+    if l2_on
+        lvl_ln_5 := line.new(l2_b, l2, bar_index + 10, l2, color=c_LastMajorLine, style=line.style_dotted, extend=extend.right)
+        lvl_tx_5 := f_level_text(l2_b, edge_b, l2, c_LastMajorLine, "Last Major Low", false, true)

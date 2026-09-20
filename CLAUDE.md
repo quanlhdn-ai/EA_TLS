@@ -12,15 +12,18 @@ MetaTrader 5 (MT5) algorithmic trading system written in MQL5. The repo is organ
 | `BOT_TLS/` | `TLS_SMC_CSV_Bot.mq5`, `TLS_SMC_Indicator.mq5` | SMC bot. Reference implementation for order limits, Shield, Telegram — other bots port mechanisms from here. |
 | `BOT_OB_Radar/` | `BOT_OB_Radar.mq5` | Order Block radar. Also carries its own `OB_CSMC_Engine.mqh`. |
 | `BOT_ChartSnapshot/` | `Combo_Structure_ChartSnapshot_Bot.mq5` | Chart snapshot bot, uses `Telegram_ChartBot.mqh`. |
+| `BOT_TLS_GetChart/` | `TLS_GetChart_Bot.mq5` | Trading version of the ChartSnapshot "Đặt LIMIT chờ" signal, filtered T-L-S. **Self-contained folder** — see the note below. **Development stopped 2026-09-09** — 19 configurations backtested; the only profitable ones failed out-of-sample. Do not resume tuning without reading the final journal entry first. |
+| `Lib_Signal_Candle/` | `Signal_Candle.mqh`, `Test_Signal_Candle.mq5` | Shared candle-signal library (Topic_Signal_Candle): pinbar + engulfing, shape only — position rules stay in each bot. Definitions agreed with the user 2026-09-11; the header comment is the spec. **Master copy** — see the mirror rule below. Used by `BOT_CRT` since v1.66, behind two default-off inputs (`Inp_Lib_Pinbar`, `Inp_Lib_Engulfing`); `BOT_TLS_GetChart` still carries its own older, different rules. |
+| `Tools/` | `Run-Backtest.ps1`, `Run-Batch.ps1`, `Analyze-Trades.ps1` | Headless backtest toolkit shared by every bot. See `Tools/README.md`. |
 | `Docs/` | — | `CRT_Ebook`, strategy spreadsheets. Reference only. |
-| `Indicator_TradingView/` | `ChibaoTradingView.txt` | Pine Script v6 SMC indicator. Reference only; never compiled. |
+| `Indicator_TradingView/` | `TradingZone_Signal.txt` | Pine Script v6. **Current** indicator — the structure engine is a faithful port of `BOT_TLS/TLS_SMC_Indicator.mq5` (Major + Minor), plus Order Block/Imbalance which MQL5 does not have. `ChibaoTradingView.txt` is the superseded predecessor, kept only for comparison — do not develop it. Never compiled by tooling here; it is pasted into TradingView's Pine Editor. Read the 2026-09-20 entry in `BOT_TLS/Nhatky_BOT_TLS.txt` before editing — it records the Pine history-buffer trap and two dead ends already tried. |
 | `OlderVersion/` | — | Archived sources. Do not edit; do not treat as current. |
 
 Each bot folder has a `Nhatky_<BOT>.txt` journal in Vietnamese. **Read the relevant journal before making changes** — it records past decisions, deliberate non-fixes, and the reasoning behind rules that look wrong out of context.
 
 ## Shared includes — must never diverge
 
-`CSMC_Engine.mqh` and `Telegram_Radar.mqh` are **byte-identical copies** kept in `BOT_CRT/`, `BOT_TLS/`, and `BOT_OB_Radar/`.
+`CSMC_Engine.mqh` and `Telegram_Radar.mqh` are **byte-identical copies** kept in `BOT_CRT/`, `BOT_TLS/`, `BOT_OB_Radar/`, and `BOT_TLS_GetChart/` — **four** copies since 2026-09-06.
 
 Editing one means mirroring it to every other copy in the same change. Verify afterwards:
 
@@ -30,7 +33,15 @@ md5sum BOT_*/CSMC_Engine.mqh BOT_*/Telegram_Radar.mqh
 
 All hashes for a given filename must match. A silent divergence here breaks bots that were not being worked on and is very hard to trace later.
 
+`Signal_Candle.mqh` follows the same rule but has fewer copies: the master lives in `Lib_Signal_Candle/`, and since 2026-09-12 `BOT_CRT/` carries a copy (angle-bracket include). Any edit must reach the master, every bot copy, and `MQL5/Include/`:
+
+```bash
+md5sum Lib_Signal_Candle/Signal_Candle.mqh BOT_*/Signal_Candle.mqh
+```
+
 Both are included with angle brackets (`#include <CSMC_Engine.mqh>`), so the compiler resolves them from `<MT5 data folder>/MQL5/Include/`, **not** from the bot folder.
+
+**`BOT_TLS_GetChart/` is the exception.** At the user's request (2026-09-06) that folder must be runnable by copying the folder alone to another machine, so it includes its copies with **quotes** (`#include "CSMC_Engine.mqh"`) and the compiler takes them from the bot folder. Deploy it by copying the whole folder into `<MT5 data folder>/MQL5/Experts/` and compiling in place — do **not** copy its `.mqh` files into `MQL5/Include/`, and do not "fix" the quoted includes back to angle brackets. It still takes part in the mirror rule above: an edit to either shared file must reach all four folders.
 
 ## Build
 
@@ -66,7 +77,11 @@ Gotchas:
 - Three warnings are pre-existing and harmless across these bots: `POSITION_COMMISSION is deprecated` (×2) and a `ushort`→`uchar` conversion in `Telegram_Radar.mqh`.
 - Compiling writes `.ex5` next to the `.mq5` inside the MT5 folder. The Strategy Tester picks it up on the next run; no manual copy needed.
 
-Backtesting still needs the MT5 GUI (Strategy Tester). `WebRequest` is blocked there, so `TELEGRAM POST ERROR: Code -1 | Error: 4014` is normal in backtests and is not a bug.
+Backtests run **headless** through `Tools/` (`Run-Backtest.ps1` for one run or a parallel optimization, `Run-Batch.ps1` for a job file, `Analyze-Trades.ps1` / `Analyze-Features.ps1` to rebuild and analyse every trade from the log). Read `Tools/README.md` before running anything: it carries the funnel workflow, the methodology rules that overturned earlier conclusions, and every trap already hit.
+
+**`Run-Backtest.ps1` force-closes the MT5 install it targets.** Never backtest on an install that is running a live or demo bot — `Run-Batch.ps1` refuses, calling `Run-Backtest.ps1` directly does not. Credentials live in the gitignored `Tools/account.local.ini`.
+
+`WebRequest` is blocked in the tester, so `TELEGRAM POST ERROR: Code -1 | Error: 4014` is normal in backtests and is not a bug.
 
 ## Working conventions
 

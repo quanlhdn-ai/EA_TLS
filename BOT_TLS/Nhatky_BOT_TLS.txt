@@ -1,3 +1,119 @@
+Nhật ký 2026-09-20 — BOT_TLS
+
+[Indicator_TradingView/TradingZone_Signal.txt — chỉ báo Pine v6 mới, port cấu
+ trúc từ TLS_SMC_Indicator.mq5]
+1. Viết mới hoàn toàn, thay bản ChibaoTradingView.txt (TLS_SMC_Gemini_2005).
+   Bản cũ GIỮ LẠI để đối chiếu, không xoá. Mục tiêu: phần đọc cấu trúc chạy
+   trùng khớp MQL5; các thứ riêng của TradingView (Order Block + Imbalance)
+   thì giữ lại. Thứ tự xử lý trong mỗi nến chép y vòng lặp OnCalculate.
+2. Rà bản cũ trước khi viết, phát hiện 4 nhóm lỗi, đều đã xử lý ở bản mới:
+   - Bộ lọc zigzag (final_ph/final_pl) tính xong không ai dùng -> input
+     "Filter H/L Pivots" hoàn toàn vô hiệu. Bỏ hẳn: MQL5 không có bộ lọc này.
+   - Nhóm Minor rỗng (ShowMinor, p_MinSwing khai báo rồi bỏ không) -> bản mới
+     implement đủ tầng Minor: mBOS/mCHOCH, protected minor, radar minor.
+   - Vòng quét OB có chi phí O(N^2) và offset lịch sử không chặn trần ->
+     thêm input MaxScanBars / MaxScanOB.
+   - Hai động cơ trend độc lập (major_trend vs z_major_trend) làm SD Zone
+     lệch với đường Protected -> gộp còn một động cơ duy nhất.
+3. Các điểm bản Pine CŨ đọc cấu trúc SAI so với MQL5, đã sửa:
+   - Bản cũ tự thêm cú scan D4/D5 ngay tại CHOCH. MQL5 KHÔNG có; nó chỉ bật
+     cờ pending rồi để radar xử lý từ nến sau. Đã bỏ.
+   - Radar D4: MQL5 quét lại từ đầu MỖI nến suốt P nến sau breakout, lấy
+     swing mới nhất trong [anchor..breakout]. Bản cũ chỉ cập nhật khi có
+     pivot mới. Đã port đúng.
+   - Luật pivot: MQL5 dùng ArrayMaximum (nến mới thắng khi giá bằng nhau,
+     nến cũ được phép bằng). ta.pivothigh() loại mọi trường hợp bằng nhau
+     nên KHÔNG dùng thay được -> viết tay f_pivot_high/f_pivot_low.
+   - Key Level: MQL5 chỉ giữ 1 đường, thay mỗi lần CHOCH. Bản cũ giữ 2.
+4. CÁI BẪY LỚN NHẤT CỦA PINE — đọc kỹ trước khi sửa file này:
+   max_bars_back của indicator() CHỈ bảo đảm bộ đệm lịch sử sâu cho series
+   DỰNG SẴN (open/high/low/close). Với biến do script tự khai báo (ha_open,
+   ha_high, ha_low, ha_bull, các chuỗi pivot), truy cập bằng offset ĐỘNG
+   vượt bộ đệm mặc định sẽ trả về NẾN SAI mà Pine KHÔNG báo lỗi gì cả.
+   Triệu chứng gặp thực tế: biên Zone nhảy lên bằng đúng giá nến hiện tại.
+   Cách phát hiện: in cùng một offset ra hai series, high[o] đúng nến còn
+   ha_low[o] trả về giá trị LỚN HƠN low[o] — bất khả thi, vì ha_low luôn
+   <= low. Cách chữa (mục 3B trong file): tự nuôi mảng cuộn sâu 2500 nến cho
+   ha_open + 4 chuỗi pivot, ha_close/high/low/bull dựng lại từ ha_open cộng
+   giá dựng sẵn. ĐỪNG gỡ mục 3B.
+5. Nghiệm thu bằng số với Data Window MT5: Buy Zone Entry 4355.87 / SL
+   4334.05 (Exness) so với zHigh 4355.77 / zLow 4334.30 (FXCM) — lệch vài
+   chục cent do khác feed. Chấp nhận.
+6. Đồ hoạ, các điểm CỐ Ý khác MQL5 (thuần hiển thị, không đụng cấu trúc):
+   - Chữ BOS/CHOCH đặt bằng BOX cao bằng 0 nền trong suốt, KHÔNG dùng label:
+     label của Pine không canh lề được, chỉ box mới có text_halign/valign.
+   - Vị trí chữ theo CHIỀU đường: UP nằm trên, DOWN nằm dưới. Tầng Minor đặt
+     NGƯỢC lại Major để mBOS/mCHOCH không chồng lên BOS/CHOCH.
+   - Nhãn mốc (Active/Protected, Weak, Last Major) đẩy ra xa nến cuối một
+     khoảng cố định (input LabelOffsetBars, mặc định 50 nến). MQL5 bám đúng
+     mép phải cửa sổ qua GetRightEdgeTime(); Pine KHÔNG tái hiện được —
+     chart.right_visible_bar_time trả về thời gian NẾN CUỐI nhìn thấy, không
+     phải mép cửa sổ, nên khi bên phải là vùng trống thì nó luôn bằng time
+     hiện tại. Đã thử và thất bại, đừng thử lại.
+7. Điểm mồi xu hướng phụ thuộc độ sâu lịch sử — vấn đề THẬT, không phải bug:
+   động cơ mồi trend đúng MỘT lần tại nến đầu tiên nhìn thấy (if trend == 0).
+   TradingView nạp thêm nến mỗi lần cuộn chart lùi -> điểm mồi dời -> toàn bộ
+   BOS/CHOCH/Protected có thể đổi khác. Đã quan sát trực tiếp: cùng M5, ảnh
+   12:30 không có CHOCH, ảnh 12:50 (đã cuộn lùi) thì có. Bản Gemini cũ dính
+   y hệt, nó không có cơ chế nào chặn.
+   Xử lý: nhóm input "Phạm vi chạy động cơ", mặc định BẬT, chỉ chạy trên
+   5000 nến gần nhất. Dùng last_bar_index - bar_index (khoảng cách tới nến
+   cuối) chứ KHÔNG đếm xuôi từ nến đầu — hiệu số này không đổi khi nạp thêm
+   lịch sử, nên kết quả ổn định khi cuộn và tự co giãn theo mọi TF. Kèm tuỳ
+   chọn tắt sẵn "chạy từ một mốc cụ thể" để ép trùng nến cũ nhất của MT5 khi
+   cần đối chiếu số.
+8. Lưu bản chốt: Backup_TradingZone_Signal_20092026.txt (md5 trùng bản live).
+
+[TLS_SMC_Indicator.mq5 — port ngược 2 cải tiến từ bản TradingView]
+9. Thêm PruneBOS(queue, cut_time): khi CHOCH, ngoài ClearQueue() hàng đợi
+   NGƯỢC chiều như cũ, dọn thêm ở hàng đợi CÙNG chiều những đường có mốc
+   BẮT ĐẦU <= nến Protected Level (= mép TRÁI đường CHOCH). Đường bắt đầu
+   SAU mốc đó tuy hình thành trước thời điểm CHOCH nhưng hiển thị nằm trong
+   phạm vi sóng hiện tại nên GIỮ.
+   Lưu ý cái bẫy đã vấp: cắt theo THỜI ĐIỂM XẢY RA CHOCH thì giết luôn các
+   đường BOS hợp lệ của sóng mới; phải cắt theo MÉP TRÁI. Áp cho cả 4 nhánh
+   (Major/Minor × tăng/giảm).
+10. MaxBOSLines 5 -> 60, MaxMinorBOSLines 3 -> 40. Trước đây chart sạch là do
+    may (vừa đủ 5 đường mới đẩy đường cũ ra); giờ PruneBOS lo phần dọn, hai
+    hằng số này chỉ còn là trần an toàn.
+11. Biên dịch: 0 errors, 0 warnings. Compile thẳng trong repo (chỉ báo này
+    không #include gì) để KHÔNG ghi .ex5 vào terminal IC Markets Global đang
+    chạy demo BOT_TLS live. Đã xoá .ex5 sau khi kiểm tra.
+
+[CSMC_Engine.mqh — ĐÃ PORT, cùng ngày]
+12. Thêm method PruneBOS(queue, cut_time) vào CSMC_Engine.mqh, logic y hệt mục
+    9, gọi ở đủ 4 nhánh CHOCH (Major/Minor × tăng/giảm). Có thêm guard
+    m_showGraphics vì engine chạy được ở chế độ không vẽ.
+    Cần biết: file này KHÔNG phải thư viện tính toán thuần — nó có 45 lệnh
+    ObjectCreate/Delete và mang hàng đợi BOS riêng (BOSUpQueue, ClearQueue,
+    PushBOS, MaxBOSLines), tức là bản sao đầy đủ của động cơ kèm phần vẽ. Nhưng
+    bot đọc MajorEvent[]/OriginIdx[]/entry-stop từ mảng nội bộ chứ không đọc
+    chart, nên thay đổi này KHÔNG đổi quyết định vào lệnh nào.
+13. Mirror đủ 4 bản (BOT_CRT, BOT_TLS, BOT_OB_Radar, BOT_TLS_GetChart),
+    md5 46807dc2 trùng nhau. Đã copy vào MQL5\Include của cả hai terminal, và
+    vào MQL5\Experts\BOT_TLS_GetChart\ (thư mục đó include bằng dấu nháy).
+14. Biên dịch lại cả 4 bot, tất cả 0 errors. Warning đều là loại đã biết
+    (POSITION_COMMISSION + ushort→uchar trong Telegram_Radar.mqh) — KHÔNG có
+    warning nào phát sinh từ CSMC_Engine:
+      CRT_MultiTF_EA 3 · TLS_SMC_CSV_Bot 6 · TLS_GetChart_Bot 4 · OB_Radar 1
+15. Phát hiện khi làm: BOT_OB_Radar include CẢ HAI `<CSMC_Engine.mqh>` VÀ
+    `<OB_CSMC_Engine.mqh>` — nó CÓ chịu ảnh hưởng, đừng tưởng nó chỉ dùng engine
+    riêng. OB_CSMC_Engine.mqh (7,9 KB) không chứa hàng đợi BOS nên không sửa.
+16. Trần số đường KHÔNG port sang engine: MaxBOSLines/MaxMinorBOSLines ở đây là
+    THAM SỐ do từng bot truyền qua Init() (hiện 5 và 3), không phải const như
+    trong indicator. Nâng lên thì phải sửa từng lời gọi Init() trong 4 source
+    bot — chưa làm. Giờ PruneBOS lo phần dọn nên hai số này chỉ còn là trần
+    an toàn.
+17. Đã ghi nhật ký riêng cho BOT_CRT, BOT_OB_Radar, BOT_TLS_GetChart.
+
+[VIỆC CÒN LẠI]
+18. Trạng thái triển khai KHÔNG đồng đều giữa hai terminal, có từ trước:
+      CRT_MultiTF_EA   : chỉ có ở "MetaTrader 5", chưa có ở IC
+      BOT_OB_Radar     : chưa copy vào terminal nào
+      TLS_SMC_CSV_Bot  : bản ở "MetaTrader 5" trước đó lệch repo, hôm nay đã
+                         đồng bộ lại từ repo trước khi biên dịch
+    Chưa xử lý vì nằm ngoài phạm vi việc đang làm.
+
 Nhật ký 2026-08-06 — BOT_TLS
 
 [TLS_SMC_Indicator.mq5 — gọn hoá bảng Inputs]

@@ -1,0 +1,22 @@
+; Thong tin tai khoan de chay backtest. Copy file nay thanh account.local.ini
+; roi dien so that. account.local.ini KHONG duoc dua vao git (xem .gitignore).
+
+; Duong dan terminal64.exe cua ban cai MT5 muon dung.
+; Do bang: Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Filter terminal64.exe -Recurse
+Terminal=C:\Program Files\MetaTrader 5 IC Markets Global\terminal64.exe
+
+; Tai khoan demo dung de backtest.
+Login=00000000
+Password=doi-mat-khau-o-day
+Server=Ten-Server-MT5
+
+; Tuy chon. Bo trong thi script tu do DataFolder qua origin.txt trong
+; %APPDATA%\MetaQuotes\Terminal\<GUID>. Moi may mot GUID khac nhau.
+DataFolder=
+
+; Mac dinh cho moi luot chay, co the ghi de bang tham so dong lenh.
+Symbol=XAUUSD
+Period=M1
+Deposit=10000
+Leverage=1:100
+Currency=USD

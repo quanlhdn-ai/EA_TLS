@@ -1,0 +1,29 @@
+; Tai khoan rieng cho dot backtest BOT_CRT. Copy file nay thanh account.crt.ini
+; roi dien so that. account.crt.ini KHONG duoc dua vao git (xem Tools/.gitignore).
+;
+; VI SAO CO FILE RIENG: account.local.ini dang tro toi ban cai IC Markets, la ban ma
+; Topic_BOT_TLS_By_GETCHART dang chay backtest. De hai topic khong giam chan nhau,
+; BOT_CRT chay o ban cai con lai (MetaTrader 5 / Exness). Run-Backtest.ps1 tu 09/2026
+; chi tat DUNG ban MT5 no sap dung, nen hai ben chay doc lap duoc.
+;
+; Dung bang: .\Run-Backtest.ps1 -Bot BOT_CRT -Account account.crt.ini ...
+
+Terminal=C:\Program Files\MetaTrader 5\terminal64.exe
+
+; Tai khoan demo dung de backtest.
+Login=00000000
+Password=doi-mat-khau-o-day
+Server=Ten-Server-MT5
+
+; Bo trong thi script tu do qua origin.txt. Ban cai nay ung voi GUID
+; D0E8209F77C8CF37AD8BF550E51FF075 tren may hien tai — nhung moi may mot khac,
+; dung chep cung gia tri sang may moi.
+DataFolder=
+
+; Ky hieu vang cua Exness co hau to 'm'. Ban IC Markets thi la XAUUSD — day chinh la
+; ly do phai tach file tai khoan, khong dung chung duoc.
+Symbol=XAUUSDm
+Period=M15
+Deposit=10000
+Leverage=1:100
+Currency=USD

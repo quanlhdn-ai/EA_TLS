@@ -1,3 +1,33 @@
+Nhật ký 2026-09-20 — BOT_OB_Radar · CẬP NHẬT FILE DÙNG CHUNG CSMC_Engine.mqh
+
+Bot này KHÔNG bị sửa. Chỉ ghi lại vì nó dùng `#include <CSMC_Engine.mqh>` — file
+dùng chung vừa đổi, nên chart của bot sẽ nhìn khác đi một chút.
+
+1. CSMC_Engine.mqh thêm method PruneBOS(queue, cut_time). Khi CHOCH, ngoài
+   ClearQueue() hàng đợi BOS NGƯỢC chiều như cũ, nay dọn thêm ở hàng đợi CÙNG
+   chiều những đường có mốc BẮT ĐẦU <= nến Protected Level (= mép TRÁI đường
+   CHOCH). Đường bắt đầu SAU mốc đó thì GIỮ. Áp cho cả 4 nhánh Major/Minor ×
+   tăng/giảm. Cạm bẫy: cắt theo THỜI ĐIỂM XẢY RA CHOCH sẽ giết luôn các đường
+   BOS hợp lệ của sóng mới — phải cắt theo MÉP TRÁI.
+2. THUẦN ĐỒ HOẠ, không đổi tín hiệu — bot đọc dữ liệu từ mảng nội bộ của engine
+   chứ không đọc chart.
+3. OB_CSMC_Engine.mqh (7,9 KB, engine phụ riêng của bot này) KHÔNG phải sửa: đã
+   kiểm tra, nó không chứa hàng đợi BOS nào.
+4. Làm rõ một hiểu nhầm dễ mắc: bot này include CẢ HAI —
+   `<CSMC_Engine.mqh>` VÀ `<OB_CSMC_Engine.mqh>` — nên nó CÓ chịu ảnh hưởng của
+   engine chung, không phải chỉ dùng engine riêng.
+5. Trần số đường vẫn là max_bos = 5, max_mbos = 3 truyền qua Init() (bot này gọi
+   Init cho nhiều khung: M1, M5, ...). Bên TradingView đã nâng 60/40. Giờ
+   PruneBOS lo phần dọn nên hai số này chỉ còn là trần an toàn.
+6. Biên dịch kiểm tra: 0 errors, 1 warning (ushort→uchar trong Telegram_Radar,
+   đã có từ trước). Không có warning nào từ CSMC_Engine.
+7. Lưu ý triển khai: BOT_OB_Radar.mq5 CHƯA được copy vào terminal nào trên máy
+   này. Khi triển khai nhớ mang theo OB_CSMC_Engine.mqh — thiếu nó thì compile
+   báo `error 106: file 'Include\OB_CSMC_Engine.mqh' not found` (đã vấp hôm nay;
+   nay đã copy sẵn vào MQL5\Include của terminal "MetaTrader 5").
+8. Nguồn gốc thay đổi: port ngược từ chỉ báo TradingView TradingZone_Signal.
+   Chi tiết đầy đủ ở nhật ký 2026-09-20 của BOT_TLS.
+
 Nhật ký 2026-08-02 — BOT_OB_Radar
 
 [Gom bot từ thư mục backup cũ "BOT RADAR SCAN OB_09042024_CoQuan"]
