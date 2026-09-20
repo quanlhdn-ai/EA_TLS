@@ -74,7 +74,20 @@ Nhật ký 2026-09-20 — BOT_TLS
     vòng lặp trong một nến, dễ dính lỗi 'loop takes too long'.
     Mặc định giữ nguyên 60/40/300, tức giờ người dùng chỉ giảm được chứ không
     tăng vượt mức an toàn. Backup ngày 20/09 đã ghi đè lại theo bản vá này.
-8c. Chốt hướng phát hành: publish Invite-only (ẩn code + tự duyệt username),
+8d. ĐÃ PUBLISH 20/09/2026:
+      https://www.tradingview.com/script/1NCCce6W-TradingZone-Signal/
+    Chế độ: Privacy = Private (chỉ người có link thấy, KHÔNG lên thư viện công
+    khai, KHÔNG qua kiểm duyệt) + Visibility = Protected (ẩn code).
+    Invite-only KHÔNG dùng được: gói Essential chặn, TradingView đòi Premium.
+    Hệ quả phải chấp nhận: AI CÓ LINK LÀ DÙNG ĐƯỢC, và KHÔNG thu hồi quyền theo
+    từng người được. Coi cái link như mật khẩu, đừng đăng vào nhóm công khai.
+    Muốn duyệt/thu hồi từng username thì phải nâng lên Premium rồi đổi sang
+    Invite-only.
+  ** SỬA CODE LẦN SAU: Pine Editor -> Publish -> tab "UPDATE EXISTING SCRIPT",
+     chọn đúng script này. TUYỆT ĐỐI không "Publish new script" — làm vậy là ra
+     một script khác với link khác, link cũ đã phát cho nhóm thành vô dụng. **
+8c. Chốt hướng phát hành: publish Private + closed-source, KHÔNG tách bản
+    public riêng. (Ban đầu định Invite-only, xem 8d.)
     KHÔNG tách bản public riêng. Đã cân nhắc và loại phương án hai bản, vì
     Pine không có cách nào ẩn input theo tài khoản: không có biến nào cho biết
     ai đang xem, và input.* là khai báo tĩnh nên không thể gọi có điều kiện.
