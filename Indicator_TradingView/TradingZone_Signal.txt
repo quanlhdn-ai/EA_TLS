@@ -63,9 +63,9 @@ StartTime    = input.time(timestamp("01 Jan 2020 00:00 +0000"), "Mốc bắt đ�
 
 g_perf = "--- Giới hạn quét (chống treo script) ---"
 MaxScanBars          = input.int(1500, "Số nến tối đa quét ngược (cấu trúc)",    minval=50, maxval=2000, group=g_perf, tooltip="Trần cho các vòng quét lịch sử tuyến tính: tìm đỉnh/đáy thực tế khi CHOCH, radar D4/D5, neo Zone. Vượt trần thì phần quá cũ bị cắt bỏ. Không vượt quá độ sâu bộ đệm lịch sử (2500 nến).")
-MaxScanOB            = input.int(300,  "Số nến tối đa quét ngược (Order Block)", minval=20, maxval=1000, group=g_perf, tooltip="Vòng quét OB có chi phí bình phương (N^2). Để 300 là an toàn; tăng cao dễ dính lỗi 'loop takes too long' của TradingView.")
-MaxBOSKeep           = input.int(60,   "Số đường BOS giữ lại mỗi chiều",        minval=1,  maxval=120,  group=g_perf, tooltip="MQL5 cố định ở 5 (const MaxBOSLines). Đặt cao hơn để chart giống bản Gemini cũ — bản đó không giới hạn gì cả. KHÔNG bỏ giới hạn hẳn được: Pine chặn cứng 500 line và 500 box mỗi script, mà mỗi đường BOS tốn 1 line + 1 box chứa chữ; vượt trần thì TradingView tự xoá ngầm, chart hỏng khó đoán.")
-MaxMinorBOSKeep      = input.int(40,   "Số đường mBOS giữ lại mỗi chiều",       minval=1,  maxval=120,  group=g_perf, tooltip="MQL5 cố định ở 3 (const MaxMinorBOSLines).")
+MaxScanOB            = input.int(300,  "Số nến tối đa quét ngược (Order Block)", minval=20, maxval=500,  group=g_perf, tooltip="Vòng quét OB có chi phí bình phương (N^2). Để 300 là an toàn; tăng cao dễ dính lỗi 'loop takes too long' của TradingView.")
+MaxBOSKeep           = input.int(60,   "Số đường BOS giữ lại mỗi chiều",        minval=1,  maxval=60,   group=g_perf, tooltip="MQL5 cố định ở 5 (const MaxBOSLines). Đặt cao hơn để chart giống bản Gemini cũ — bản đó không giới hạn gì cả. KHÔNG bỏ giới hạn hẳn được: Pine chặn cứng 500 line và 500 box mỗi script, mà mỗi đường BOS tốn 1 line + 1 box chứa chữ; vượt trần thì TradingView tự xoá ngầm, chart hỏng khó đoán.")
+MaxMinorBOSKeep      = input.int(40,   "Số đường mBOS giữ lại mỗi chiều",       minval=1,  maxval=40,   group=g_perf, tooltip="MQL5 cố định ở 3 (const MaxMinorBOSLines).")
 
 // --- Công tắc chẩn đoán (cố ý KHÔNG đưa ra màn hình Inputs) ---
 // Đổi thành true rồi lưu lại script khi cần soi sai lệch Zone với MT5: mỗi Zone

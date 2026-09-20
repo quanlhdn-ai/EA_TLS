@@ -63,6 +63,23 @@ Nhật ký 2026-09-20 — BOT_TLS
    chọn tắt sẵn "chạy từ một mốc cụ thể" để ép trùng nến cũ nhất của MT5 khi
    cần đối chiếu số.
 8. Lưu bản chốt: Backup_TradingZone_Signal_20092026.txt (md5 trùng bản live).
+8b. Chuẩn bị publish invite-only cho người ngoài dùng -> siết biên trên 3 input
+    để người dùng không vặn hỏng chart: MaxBOSKeep maxval 120 -> 60,
+    MaxMinorBOSKeep 120 -> 40, MaxScanOB 1000 -> 500.
+    Lý do: Pine chặn CỨNG 500 line và 500 box mỗi script, mỗi đường BOS tốn
+    1 line + 1 box chữ. Để maxval 120 cả hai thì kịch bản xấu nhất là
+    120x2 + 120x2 = 480 box, cộng Zone + Order Block là vượt trần, TradingView
+    âm thầm xoá bớt và chart hỏng khó đoán. Sau khi siết, xấu nhất 60x2 + 40x2
+    = 200, thừa chỗ. MaxScanOB hạ vì vòng quét OB là O(N^2): 1000 -> nửa triệu
+    vòng lặp trong một nến, dễ dính lỗi 'loop takes too long'.
+    Mặc định giữ nguyên 60/40/300, tức giờ người dùng chỉ giảm được chứ không
+    tăng vượt mức an toàn. Backup ngày 20/09 đã ghi đè lại theo bản vá này.
+8c. Chốt hướng phát hành: publish Invite-only (ẩn code + tự duyệt username),
+    KHÔNG tách bản public riêng. Đã cân nhắc và loại phương án hai bản, vì
+    Pine không có cách nào ẩn input theo tài khoản: không có biến nào cho biết
+    ai đang xem, và input.* là khai báo tĩnh nên không thể gọi có điều kiện.
+    Hệ quả chấp nhận: người được duyệt thấy và chỉnh được TOÀN BỘ input, gồm
+    cả PeriodsInMajorSwing/MinorSwing (9/5) — tham số cốt lõi của phương pháp.
 
 [TLS_SMC_Indicator.mq5 — port ngược 2 cải tiến từ bản TradingView]
 9. Thêm PruneBOS(queue, cut_time): khi CHOCH, ngoài ClearQueue() hàng đợi
