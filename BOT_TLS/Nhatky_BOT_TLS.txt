@@ -1,3 +1,97 @@
+Nhật ký 2026-09-22 — BOT_TLS (chỉ báo TradingView)
+
+[Indicator_TradingView/TradingZone_Signal.txt]
+1. Nến Heikin Ashi: gỡ input "Major_Nến Heikin Ashi" khỏi màn hình Inputs,
+   thay bằng hằng số ShowHACandles = false. CODE VẼ GIỮ NGUYÊN — người dùng cần
+   bật lại nến HA khi backtest riêng, và yêu cầu rõ: KHÔNG được gỡ code vẽ, vì
+   thêm lại sau dễ gây lỗi. (Có một vòng tôi đã gỡ hẳn plotcandle + ha_high/
+   ha_low/ha_bull/c_BullHA/c_BearHA, sau đó khôi phục lại y nguyên — ĐỪNG lặp
+   lại.)
+   Để tab Style không còn dòng "Heikin Ashi" khi tắt: thêm editable=
+   ShowHACandles vào plotcandle. Tắt -> ẩn cả nến lẫn dòng Style; bật -> hiện
+   cả hai. Dòng plotcandle trùng khít bản 20/09, chỉ thêm đúng tham số đó.
+   Heikin Ashi luôn được TÍNH bất kể công tắc (xác nhận phá vỡ, dựng Zone).
+   CẢNH BÁO quy trình: đổi sang true để backtest thì phải trả về false TRƯỚC
+   khi "Update existing script", kẻo bản của cả nhóm cũng hiện nến HA.
+2. GỘP đường High/Low khung lớn vào (mục 8 mới, cuối file): High/Low của nến H4
+   và D1 gần nhất đã đóng. Nhóm input mới "Đường High/Low khung lớn":
+     H4 mặc định BẬT (giữ như chỉ báo H4 riêng người dùng đang chạy)
+     D1 mặc định TẮT (theo yêu cầu)
+     Khoảng cách nhãn H4 = 60 nến, D1 = 90 nến.
+   Hai con số này cố ý đặt SAU ô "Đẩy nhãn mốc" (50): nhãn Active/Protected canh
+   phải kết thúc ở 50, nhãn H4 bắt đầu ở 60, nhãn D1 ở 90 -> ba lớp nhãn trải
+   từ trái sang phải, không đè nhau kể cả khi các mức giá sát nhau.
+   Nhãn giữ kiểu của bản gốc (nền màu, chữ trắng, có giá). D1 màu đậm + nét 2.
+   Độc lập với động cơ cấu trúc — không chịu giới hạn engine_on.
+2b. SỬA ĐIỂM BẮT ĐẦU ĐƯỜNG (cùng ngày, sau khi người dùng báo "đang cách 1 nến",
+   rồi "bắt vào đúng cây M1"). Bản đầu lấy GIÁ bằng request.security(high[1],
+   lookahead_on) — giá đúng — nhưng gắn điểm bắt đầu vào bar_index lúc MỞ khung
+   mới, tức cây đầu tiên của khung SAU: chart H4 lệch 1 nến, chart M1 lệch tới
+   239 cây. Thêm nữa High và Low thường ở hai cây khác nhau mà lại dùng chung
+   một điểm bắt đầu.
+   Cách mới: type HTFLevel + hàm f_htf_track tự theo dõi High/Low của khung lớn
+   ĐANG chạy ngay trên từng nến của chart, ghi luôn bar_index của cây có râu
+   (hi_b và lo_b riêng); sang khung mới thì chốt lại. Giá và vị trí cùng lấy từ
+   chính cây nến trên chart -> đường luôn chạm đúng đầu râu: chart M1 là đúng
+   cây M1, chart M5 là cây M5 chứa râu, chart H4 là cây H4 trước. Bằng giá thì
+   lấy cây sớm nhất. BỎ request.security — thành thừa, vì High của nến khung
+   lớn chính là max High của các nến nhỏ bên trong, cùng nguồn dữ liệu.
+   Thêm chặn khung: chart phải <= khung cần vẽ (chart D1 thì ẩn H4, vì mỗi nến
+   D1 đều là một khung H4 mới -> số vô nghĩa).
+   Giới hạn đã biết: khung đầu tiên trong lịch sử nạp được có thể bị cắt dở nên
+   High/Low của nó thiếu — chỉ ảnh hưởng mốc cũ nhất, không ảnh hưởng mốc đang
+   vẽ.
+3. Alert: 2 alert H4 giữ NGUYÊN tên như bản Ver4.0, thêm 2 alert D1. Bỏ plot ẩn
+   của bản gốc vì plot display.none vẫn chiếm một dòng trong tab Style;
+   alertcondition() không cần plot. Giá trị H4/D1 luôn cập nhật kể cả khi tắt
+   hiển thị -> alert vẫn chạy khi ẩn đường.
+4. Hai cạm bẫy Pine v6 đã tránh khi port từ bản v5:
+   - v6 KHÔNG cho ép int->bool, nên không dùng "if ta.change(time(...))" như
+     bản v5; thay bằng timeframe.change("240") trả bool.
+   - v6 đánh giá "and" lười: đặt ta.crossover sau "and" có thể bị bỏ qua ở vài
+     nến và làm hỏng lịch sử nội bộ của nó -> tính crossover ra biến riêng mỗi
+     nến rồi mới đưa vào alertcondition.
+5. ĐÃ PUBLISH (Update existing script) ngày 22/09/2026. Bản đang public giờ là
+   Backup_TradingZone_Signal_22092026.txt (md5 a84d09a9, trùng bản live trong
+   repo). Bản 20/09 (md5 c0114c95) giữ nguyên để quay lại nếu cần — đó là bản
+   public trước lần Update này.
+   Quy trình Update: Pine Editor -> dán file -> kiểm tra ShowHACandles = false
+   -> Publish -> tab "Update existing script" -> chọn TradingZone_Signal.
+   Mô tả mới cho lần Update (thay câu "An optional Heikin Ashi overlay" đã sai):
+     TradingZone_Signal is a market-structure overlay. It marks swing points,
+     break of structure (BOS), change of character (CHOCH), protected and key
+     levels, supply/demand zones, and order blocks with their imbalance, on two
+     swing layers (Major and Minor). It also shows a 21 EMA and the high/low of
+     the last closed H4 and D1 candles.
+     Structure is evaluated on closed bars only, so it does not repaint once a
+     bar has closed. Inputs let you show or hide each element, set the swing
+     length for each layer, and toggle the H4 and D1 levels.
+     The indicator describes market structure only. It places no orders and
+     makes no claim about future performance.
+5b. Cạm bẫy Pine Editor đã vấp: mở một bản trong LỊCH SỬ phiên bản thì editor
+   khoá chỉ đọc ("This is a historical version of the script" / "This script
+   is read-only"). Không phải lỗi quyền. Cách thoát: bấm "restore this version"
+   rồi Ctrl+A -> dán file mới -> Ctrl+S (ghi đè sạch, bản khôi phục không quan
+   trọng); hoặc mở lại script từ menu cạnh tên script để nạp bản mới nhất.
+5c. Thu hồi chỉ báo đã publish (đã tư vấn, CHƯA làm gì):
+   - Toàn bộ: (1) xoá bản publish qua menu "..." trên trang script — bản
+     PRIVATE thường cho tác giả xoá, bản public thì không; hoặc (2) chắc chắn
+     chạy được: "Update existing script" bằng một bản "đã ngừng" không vẽ gì.
+     Vì script closed-source chạy từ máy chủ TradingView, mọi người nhận bản
+     ngừng ngay khi mở chart, kể cả người đang giữ link.
+   - Từng người: KHÔNG làm được với chế độ Protected (quyền gắn với LINK, không
+     gắn với người). Chỉ còn cách đổi link (gỡ bản cũ, publish bản mới, chỉ gửi
+     link mới cho người được giữ), hoặc nâng Premium -> Invite-only.
+   Code gốc luôn còn trong repo + các file Backup_*, gỡ bản publish không mất gì.
+
+[Indicator_TradingView/ChibaoveduongHigh_Low H4.txt]
+6. Chỉ báo RIÊNG người dùng mang vào hôm nay (Ver4.0, Pine v5, chỉ vẽ H4). Ban
+   đầu hiểu nhầm yêu cầu, đã sửa nó thành Ver5.0 (thêm D1) — sau đó người dùng
+   làm rõ ý là GỘP vào TradingZone_Signal, nên đã TRẢ file này về đúng nguyên
+   bản Ver4.0 (3097 byte, CRLF, trùng khít bản gốc). Chức năng của nó giờ đã
+   nằm trong TradingZone_Signal mục 8, nên có thể gỡ nó khỏi chart để khỏi vẽ
+   trùng hai lần.
+
 Nhật ký 2026-09-20 — BOT_TLS
 
 [Indicator_TradingView/TradingZone_Signal.txt — chỉ báo Pine v6 mới, port cấu

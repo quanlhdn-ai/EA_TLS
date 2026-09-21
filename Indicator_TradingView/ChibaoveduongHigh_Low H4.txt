@@ -1,0 +1,73 @@
+//@version=5
+indicator("Chinh_High-Low H4_Ver4.0", shorttitle="Chinh_High-Low H4_Ver4.0", overlay=true)
+
+// Lấy H4 High và Low nến trước (mới đóng)
+h4High = request.security(syminfo.tickerid, "240", high[1], lookahead=barmerge.lookahead_on)
+h4Low  = request.security(syminfo.tickerid, "240", low[1], lookahead=barmerge.lookahead_on)
+
+// Phát hiện nến H4 mới đóng
+newH4Bar = ta.change(time("240"))
+
+// Biến lưu line và label
+var line highLine = na
+var line lowLine = na
+var label highLabel = na
+var label lowLabel = na
+
+var float lastHigh = na
+var float lastLow = na
+var int lastH4BarIndex = na
+
+// Khoảng cách cố định cách nến hiện tại về bên phải
+extendDistance = 20
+
+if newH4Bar
+    lastHigh := h4High
+    lastLow := h4Low
+    lastH4BarIndex := bar_index
+
+    // Xóa line và label cũ nếu có
+    if not na(highLine)
+        line.delete(highLine)
+    if not na(lowLine)
+        line.delete(lowLine)
+    if not na(highLabel)
+        label.delete(highLabel)
+    if not na(lowLabel)
+        label.delete(lowLabel)
+
+    // Tính vị trí cuối line cách nến hiện tại 20 cây nến về bên phải
+    int xEnd = bar_index + extendDistance
+
+    // Vẽ line ngang từ lastH4BarIndex đến xEnd, không cần extend.right vì tự tính chính xác
+    highLine := line.new(x1=lastH4BarIndex, y1=lastHigh, x2=xEnd, y2=lastHigh, extend=extend.none, color=color.red, width=1)
+    lowLine  := line.new(x1=lastH4BarIndex, y1=lastLow,  x2=xEnd, y2=lastLow,  extend=extend.none, color=color.green, width=1)
+
+    // Vẽ label ở cuối đường line (bên phải) với mũi tên chỉ về trái
+    highLabel := label.new(x=xEnd, y=lastHigh, text="H4 High: " + str.tostring(lastHigh, format.mintick),
+         style=label.style_label_left, color=color.red, textcolor=color.white)
+    lowLabel  := label.new(x=xEnd, y=lastLow,  text="H4 Low: " + str.tostring(lastLow, format.mintick),
+         style=label.style_label_left, color=color.green, textcolor=color.white)
+
+// Mỗi cây nến cập nhật vị trí kéo dài đường và label (để luôn cách nến hiện tại 20 cây nến)
+if not na(highLine) and not na(lastH4BarIndex)
+    int x2 = bar_index + extendDistance
+
+    // Cập nhật tọa độ x2 của line (không cần extend nữa)
+    line.set_x2(highLine, x2)
+    line.set_x2(lowLine, x2)
+
+    // Cập nhật nhãn theo cuối line
+    label.set_x(highLabel, x2)
+    label.set_x(lowLabel, x2)
+
+// Plot ẩn để làm điều kiện alert
+plotHighHidden = plot(lastHigh, title="H4 High", display=display.none)
+plotLowHidden = plot(lastLow, title="H4 Low", display=display.none)
+
+// Alert conditions
+crossAboveHigh = not na(lastHigh) and ta.crossover(close, lastHigh)
+crossBelowLow  = not na(lastLow) and ta.crossunder(close, lastLow)
+
+alertcondition(crossAboveHigh, title="Price Cross Above H4 High", message="Price crossed above H4 High")
+alertcondition(crossBelowLow,  title="Price Cross Below H4 Low",  message="Price crossed below H4 Low")

@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.77"
+#property version   "1.78"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -2903,25 +2903,32 @@ double CalcLots(double slDistancePrice)
       // thẳng số $ chịu mất. Số $ cố định KHÔNG co giãn theo balance — đó là điểm khác
       // biệt duy nhất và cũng là lý do dùng nó: mỗi lệnh thua đúng một khoản đã biết,
       // không phụ thuộc tài khoản đang lãi hay lỗ.
+      // [v1.78] Mỗi đường trả 0 đều nói rõ VÌ SAO. Trước đây tất cả đổ về một dòng
+      // "lots=0 (hết margin hoặc dưới lot tối thiểu)" ở PlaceOneOrder — soi log thật
+      // không đoán nổi là do thiếu tiền, sai thiết lập, hay sàn trả số liệu rỗng.
       if(slDistancePrice <= 0)
-         return 0;   // không có SL thì không suy ra được lot — chỉ lot cố định mới chạy được
+      { Print("[CRT] lot=0: SL distance <= 0 — chế độ tính theo rủi ro bắt buộc phải có SL."); return 0; }
 
       double riskMoney = (Inp_LotMode == LotMode_SoTienUSD)
                             ? Inp_RiskMoneyUSD
                             : BalanceCoSo() * Inp_RiskPercent / 100.0;
       if(riskMoney <= 0)
-         return 0;
+      { PrintFormat("[CRT] lot=0: số tiền rủi ro = %.2f$ — kiểm Inp_RiskMoneyUSD (đang %.2f) hoặc Inp_RiskPercent (đang %.2f%%) / Inp_BalanceCoSo (đang %.2f).",
+                    riskMoney, Inp_RiskMoneyUSD, Inp_RiskPercent, Inp_BalanceCoSo); return 0; }
 
       double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
       double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
       if(tickVal <= 0 || tickSize <= 0)
-         return 0;
+      { PrintFormat("[CRT] lot=0: sàn trả tick rỗng (tickValue=%.5f tickSize=%.5f) — thử lại tick sau.",
+                    tickVal, tickSize); return 0; }
 
       double lossPerLot = slDistancePrice / tickSize * tickVal;
       if(lossPerLot <= 0)
-         return 0;
+      { PrintFormat("[CRT] lot=0: lỗ mỗi lot = %.2f$ (SL %.1f pip).", lossPerLot, slDistancePrice / GetPipSize()); return 0; }
 
       lots = riskMoney / lossPerLot;
+      PrintFormat("[CRT] Tính lot: rủi ro %.2f$ / (SL %.1f pip = %.2f$ mỗi lot) = %.4f lot.",
+                  riskMoney, slDistancePrice / GetPipSize(), lossPerLot, lots);
    }
 
    // [v1.75] Khối giới hạn margin đã gỡ hẳn theo yêu cầu (chỉ cần khi chạy bot quỹ).
@@ -2931,7 +2938,12 @@ double CalcLots(double slDistancePrice)
 
    if(stepL > 0) lots = MathFloor(lots / stepL) * stepL;
    if(lots < minL)
-      return 0;   // không đủ margin/risk cho 1 lot tối thiểu -> bỏ lệnh, KHÔNG ép lên minLot
+   {
+      // KHÔNG ép lên minLot: ép lên là phá vỡ mức rủi ro người dùng đặt.
+      PrintFormat("[CRT] lot=0: sau khi làm tròn còn %.4f < lot tối thiểu %.4f của sàn -> bỏ lệnh thay vì ép lên lot tối thiểu (ép là vỡ mức rủi ro).",
+                  lots, minL);
+      return 0;
+   }
    return MathMin(lots, maxL);
 }
 
