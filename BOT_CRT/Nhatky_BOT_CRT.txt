@@ -1,3 +1,150 @@
+Nhật ký 2026-09-21/24 — BOT_CRT  (CRT_MultiTF_EA v1.78 -> v1.85)
+
+Chặng này đổi MẠNH nhất từ trước tới nay về cách vào lệnh, chia 3 mạch:
+  A. Mở rộng điều kiện nhận setup trên khung quét: thêm 2 nhánh mới, cửa sổ 2 -> 3 cây.
+  B. Tách hẳn việc VÀO LỆNH xuống khung nhỏ M5 — khung quét chỉ còn xác nhận setup.
+  C. Xử lý sự cố vận hành trên VPS (Telegram chết, tài khoản cent, lots=0).
+
+Input 59 -> 73. CẢNH BÁO chung: ba thứ đổi cùng lúc (vào lệnh bằng M5, TP sang RR 2.0,
+SL theo râu M5) nên mọi số liệu backtest cũ KHÔNG còn so sánh được.
+
+=====================================================================
+A. ĐIỀU KIỆN NHẬN SETUP — THÊM 2 NHÁNH, CỬA SỔ 3 CÂY
+=====================================================================
+
+[1.79] Trả 6 công tắc setup 2.1/2.1b/2.2 từ const về input (đã gắn cứng ở 1.75).
+
+[1.80] NHÁNH 2.1c — cây gốc đóng TRONG biên, không đạt pinbar, nhưng CÂY 2 TRÙM cây gốc.
+  Mẫu này trước đây rơi vào KHOẢNG TRỐNG, không nhánh nào phủ: cây gốc đóng trong biên
+  nên bot khoá vào đường 2.1b và chỉ đo cây 2 bằng thước pinbar — mà engulfing mạnh thì
+  thân to, râu mũi không thể đạt >= 60% biên độ nên luôn trượt. Nhánh 2.2 lại chỉ kích
+  khi cây gốc đóng NGOÀI biên.
+  Dùng CHUNG hàm engulfing và CHUNG mốc vào lệnh (50% biên độ cây 2) với 2.2.1: ở cả hai,
+  cây 2 mới là cây quyết định.
+
+[1.80] VÁ BẤT ĐỐI XỨNG "tắt nhánh thì không đốt biên".
+  Luật cũ chỉ bảo vệ đường biên khi nhánh đang tắt ĐỦ điều kiện. Cây 2 trượt thì biên vẫn
+  cháy — tức một nhánh đã tắt vẫn tiêu thụ được đường line, đúng thứ luật này sinh ra để
+  ngăn, và làm hỏng việc so sánh hai lần backtest bật/tắt.
+  Nay nhánh chờ đang tắt thì bỏ setup NGAY Ở CÂY 1, không vào trạng thái chờ, không đụng
+  vào biên. Áp cho cả (2.1b + 2.1c cùng tắt) lẫn (2.2 tắt).
+
+[1.82] SAI — ĐÃ GỠ Ở 1.84. Hiểu nhầm yêu cầu người dùng thành "vô số lượt thử 2 cây, mỗi
+  lượt phải quét sâu hơn lượt trước". Chép lại để không ai làm lại: cơ chế đó bỏ đốt biên
+  khi cây 2 hỏng mà giá còn đóng trong biên, rồi cho mở lượt mới vô hạn.
+
+[1.84] ĐÚNG Ý — CỬA SỔ CỐ ĐỊNH 3 CÂY, chỉ cho họ 2.1. Thêm NHÁNH 2.1d.
+  Cây 1 hỏng -> xét cây 2 (như cũ). Cây 2 hỏng mà giá VẪN đóng trong biên -> gia hạn ĐÚNG
+  một cây thứ 3. Cây 3 phải có ĐỦ HAI điều kiện:
+      · TRÙM cây 2 (engulfing)
+      · RÂU QUÉT SÂU HƠN mút râu sâu nhất của cả cây 1 và cây 2
+  Đạt -> setup được công nhận. Không đạt -> ĐỐT BIÊN, hết, KHÔNG có cây thứ tư.
+  Vế "sâu hơn" là mấu chốt: trùm mà không lấy thêm thanh khoản mới thì chỉ là dao động
+  trong cùng vùng, không phải cú quét thật.
+  CẠM BẪY KHI SỬA: mút râu so sánh phải đọc TRƯỚC dòng cập nhật sweepLowExtreme ở đầu
+  nhánh chờ, nếu không cây 3 sẽ tự so với chính nó và luôn "không sâu hơn".
+  2.2 GIỮ NGUYÊN 2 CÂY: nến gốc của nó đã đóng NGOÀI biên tức biên bị phá từ đầu, không
+  có cửa gia hạn. Cây 2 đóng ngoài biên cũng cắt luôn, không gia hạn.
+  Ca thực tế khơi ra việc này: 2026.09.23 biên dưới 4277.362, một cây quét nông thất bại
+  đã giết đường line, cây sau râu sâu hơn hẳn bị bỏ qua sạch.
+
+[1.85] Công tắc riêng cho 2.1d (Inp_On_21d_LK/SW). Tắt 2.1d thì KHÔNG gia hạn cây 3 —
+  đốt biên ngay tại cây 2, cùng nguyên tắc với vá bất đối xứng ở 1.80.
+  2.1d vẫn dùng CHUNG bộ TP với 2.1c/2.2 (cấu hình engulfing).
+
+  => Nay có 10 công tắc = 5 nhánh (2.1 · 2.1b · 2.1c · 2.1d · 2.2) x 2 nguồn.
+
+=====================================================================
+B. VÀO LỆNH BẰNG KHUNG NHỎ  [1.81, 1.83]
+=====================================================================
+
+Khung quét (M15) CHỈ CÒN XÁC NHẬN SETUP. Việc vào lệnh chuyển hẳn xuống M5.
+
+  M15 xác nhận (2.1/2.1b/2.1c/2.1d/2.2)
+     -> ghi nhận VÙNG GIÁ = [mút râu quét ... giá lúc xác nhận]
+     -> mỗi nến M5 đóng, xét 3 bước:
+          1. giá đã xuyên mút râu chưa?  -> xuyên = cú quét hỏng, bỏ setup
+          2. nến đóng trong vùng chưa?   -> chưa = chờ tiếp
+          3. có phải pinbar/engulfing?   -> có = VÀO LỆNH market
+     -> quá 12 nến không có -> bỏ setup
+
+Dùng CHÍNH thư viện Signal_Candle như khung quét, nên định nghĩa "nến đẹp" nhất quán giữa
+hai khung, không đẻ ra luật thứ hai.
+
+VÀO ĐÚNG 1 LỆNH MARKET, không còn cặp market + limit. Lý do: mốc 50% râu quét sinh ra để
+bắt giá tốt hơn khi vào ngay lúc khung quét xác nhận — nay việc đó đã do khung nhỏ lo, đặt
+thêm limit sâu hơn nữa là nhân đôi rủi ro cho cùng một setup.
+
+Điểm rẽ duy nhất nằm ở VaoLenhHoacChoKhungNho(): cả 5 nhánh đều gọi qua đó nên chỉ cần rẽ
+một chỗ. Tắt Inp_EntryLTF_Enable là về nguyên hành vi cũ.
+
+SL CÓ 2 CÁCH ĐẶT (Inp_EntryLTF_SLMode), cả hai đều cộng Inp_SL_BufferPips:
+  · SLtheo_RauM15     — râu nến CRT khung quét (rộng, như cũ)
+  · SLtheo_RauXacNhan — râu nến M5 vừa cho tín hiệu  <- MẶC ĐỊNH từ 1.83
+Hiện thực bằng tham số slOverride của PlaceOneOrder(); mọi thứ phía sau (lot theo risk,
+TP theo R:R, lọc MaxSL_Pips) dùng chung biến sl nên chỉ cần thay một chỗ.
+
+HỆ QUẢ PHẢI NHỚ: SL theo râu M5 hẹp hơn nhiều, mà rủi ro tiền cố định -> LOT TO HƠN HẲN.
+  SL 117 pip (râu M15) -> 0.25 lot  |  SL 40 pip -> 0.75  |  SL 20 pip -> 1.50
+Cùng số tiền rủi ro nhưng vị thế to gấp 3-6 lần: R:R đẹp hơn, đổi lại dễ bị quét hơn và
+lãi lỗ trong ngày giật mạnh hơn. Cân nhắc hạ Inp_RiskMoneyUSD khi dùng chế độ này.
+
+DÒNG THỜI GIAN MỘT KÈO: tối đa 3 nến M15 (45 phút) + 12 nến M5 (1 giờ) = 1 giờ 45 phút
+từ lúc quét tới lúc vào lệnh. Trước đây vào ngay khi cây M15 thứ 2 đóng.
+
+TP: đổi cả 4 bộ sang RR = 2.0 trong cả hai file .set (trước là Pips 50/100).
+
+=====================================================================
+C. SỰ CỐ VẬN HÀNH TRÊN VPS
+=====================================================================
+
+C.1. TELEGRAM CHẾT — "Code 1009 | Error 5203".
+  Người dùng nghi do đổi tên channel. KHÔNG PHẢI: đổi tên không đổi ID, đã gọi API xác
+  minh channel vẫn sống, bot vẫn admin, can_post_messages = true, và gửi thử thành công
+  từ máy này (message_id 22).
+  Chẩn đoán bằng script Test_WebRequest.mq5 chạy TRÊN VPS. Ba manh mối:
+    · mất 21 giây dù timeout đặt 5 giây -> kẹt ở phân giải tên miền / bắt tay TCP
+    · phản hồi RỖNG -> Telegram chưa hề trả lời
+    · KHÔNG phải lỗi 4014 -> URL đã được whitelist (chưa whitelist thì trả 4014 NGAY,
+      không treo 21 giây)
+  => VPS không ra được internet. Khởi động lại MT5 là thông.
+  BÀI HỌC: phân biệt 4014 (chưa cấp quyền, trả ngay) với 5203 (đã cố kết nối rồi mới bỏ
+  cuộc, tức vấn đề mạng). Thời gian treo là manh mối, không chỉ mã lỗi.
+
+C.2. lots=0 TRÊN EXNESS NHƯNG IC CHẠY BÌNH THƯỜNG — cùng một setup.
+  Giả thuyết ban đầu SAI: tưởng do tài khoản cent nên tick value gấp 100 lần.
+  Script Test_SymbolSpec.mq5 cho thấy: Account currency = USC ĐÚNG là cent, NHƯNG
+  Contract size = 1.00 (1 lot = 1 ounce) chứ không phải 100. Hai cái TRIỆT TIÊU nhau nên
+  phép tính lot ra y hệt tài khoản thường (0.2564 -> 0.25, đúng bằng con số IC).
+  => Nguyên nhân lots=0 vẫn CHƯA TÌM RA. Đã thêm log chi tiết ở 1.78 để lần sau tự chỉ.
+
+C.3. TÀI KHOẢN EXNESS LÀ CENT — mọi con số nhìn thấy đều là USC, chia 100 ra đô thật:
+  Balance 10.139 = ~101 $  ·  nạp 9.999 = ~100 $  ·  rủi ro 300 = 3 $  ·  DD 800 = 8 $
+  Lãi lệnh 21/09: 140 USC = 1,40 $ (kiểm chứng: 0.28 lot x 1 oz x 5,0 giá = 140). Tỷ lệ
+  vẫn đúng ý định (3% mỗi lệnh), chỉ là quy mô nhỏ hơn 100 lần so với con số hiển thị.
+
+C.4. TRẦN SL 200 PIP QUÁ CHẶT. Cùng một setup 21/09 bị loại vế market ở CẢ HAI sàn
+  (205.4 pip trên Exness, 214.0 pip trên IC). Râu quét vàng vượt 200 pip là chuyện
+  thường. ĐỀ XUẤT nâng lên 300 — NGƯỜI DÙNG CHƯA CHỐT, vẫn để 200.
+  Lưu ý: trần này KHÔNG giới hạn tiền. Lot tự co theo SL nên SL rộng chỉ làm lot nhỏ đi,
+  không lỗ nhiều hơn. Nó chỉ để loại setup có cấu trúc quá xấu.
+
+=====================================================================
+D. VIỆC CÒN LẠI
+=====================================================================
+
+· CHƯA BACKTEST LẠI sau toàn bộ chặng này. Ba thay đổi lõi chồng lên nhau (vào lệnh bằng
+  M5, TP RR 2.0, SL theo râu M5) nên nếu kết quả khác xa thì KHÔNG tách được nguyên nhân.
+  Muốn đo từng cái: tắt Inp_EntryLTF_Enable trước để chạy nền cũ làm mốc so sánh.
+· CHƯA rõ vì sao lots=0 trên Exness (xem C.2). Log chi tiết đã sẵn ở 1.78.
+· Inp_MaxSL_Pips vẫn 200, đề xuất 300 chưa chốt.
+· 2.1d dùng chung bộ TP với 2.1c/2.2. Muốn tách riêng thì thêm 4 input.
+· Tài liệu đặc tả (artifact) vẫn ở v1.62 — nay đã lạc hậu rất xa.
+· Token Telegram vẫn hardcode trong .mq5 và 2 file .set.
+· Hai script chẩn đoán còn ở C:\Users\Admin\Downloads\: Test_WebRequest.mq5 và
+  Test_SymbolSpec.mq5. Giữ lại thì lần sau khỏi viết lại.
+
+
 Nhật ký 2026-09-12/20 — BOT_CRT  (CRT_MultiTF_EA v1.66 -> v1.77)
 
 Chặng dài, chia làm 3 mạch: (A) thêm cơ chế quản lý vốn, (B) chuyển kênh Telegram sang

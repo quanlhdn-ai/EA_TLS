@@ -3,7 +3,7 @@
 //|                                                          AnhTuan |
 //+------------------------------------------------------------------+
 #property copyright "AnhTuan"
-#property version   "1.78"
+#property version   "1.85"
 
 // ==============================================================================
 // CRT_Project — Bot AE đa khung thời gian.
@@ -784,6 +784,11 @@ enum ENUM_CRT_LOT_MODE { LotMode_CoDinh, LotMode_PhanTramTK, LotMode_SoTienUSD }
 // Mỗi setup được vào những lệnh nào. "Trực tiếp" = lệnh market tại giá hiện tại;
 // "Limit" = lệnh chờ tại mốc 50% râu quét.
 enum ENUM_CRT_KIEU_VAO { KieuVao_TrucTiep, KieuVao_Limit, KieuVao_CaHai };
+// [v1.81] Nơi đặt SL khi vào lệnh bằng khung nhỏ.
+//   SLtheo_RauM15 : râu nến CRT khung quét vừa quét biên — SL rộng, giống hành vi cũ.
+//   SLtheo_RauXacNhan : râu nến khung nhỏ vừa tạo tín hiệu — SL hẹp hơn nhiều, R:R đẹp
+//   hơn nhưng dễ bị quét hơn. Cả hai đều cộng thêm Inp_SL_BufferPips.
+enum ENUM_CRT_SL_LTF { SLtheo_RauM15, SLtheo_RauXacNhan };
 enum ENUM_CRT_SL_MODE { SLMode_RauQuet, SLMode_KhongDatSL };
 enum ENUM_CRT_TP_MODE { TPMode_MidBienH4, TPMode_RR, TPMode_Pips };
 // Mốc đặt TP khi chọn TPMode_MidBienH4. Hai enum riêng vì 2 nguồn có số lựa chọn khác nhau:
@@ -841,6 +846,10 @@ input double           Inp_BE_TriggerPips   = 50;        // Lãi đạt bao nhi�
 input bool             Inp_BE_TaiBienDoiDien = true;     // Chạm biên đối diện thì kéo SL về hoà vốn
 input bool             Inp_BE_KhiLenhKiaTP  = true;      // Lệnh kia trong cặp chạm TP thì kéo SL về hoà vốn
 input ENUM_CRT_KIEU_VAO Inp_KieuVaoLenh     = KieuVao_CaHai; // Mỗi setup vào những lệnh nào:
+input bool             Inp_EntryLTF_Enable  = true;      // Vào lệnh bằng KHUNG NHỎ (khung quét chỉ xác nhận setup)
+input ENUM_TIMEFRAMES  Inp_EntryLTF_TF      = PERIOD_M5; //   • Khung nhỏ dùng để tìm nến vào lệnh
+input int              Inp_EntryLTF_MaxBars = 12;        //   • Chờ tối đa bao nhiêu nến khung nhỏ rồi bỏ setup
+input ENUM_CRT_SL_LTF  Inp_EntryLTF_SLMode  = SLtheo_RauXacNhan; //   • Đặt SL theo râu nến nào:
 input ENUM_CRT_CANCEL_AT Inp_CancelPendingAt = CancelAt_Middle; // Huỷ lệnh chờ chưa khớp khi giá chạm:
 input double           Inp_Pool_SL_Percent  = 0;         // Nhóm lệnh cùng chiều lỗ quá % này thì đóng cả nhóm (0=tắt)
 
@@ -878,12 +887,16 @@ input ENUM_CRT_FAR_ACTION Inp_FarFromLine_Action = Far_BoLenhMarket; // Khi giá
 //     cũ chỉ đòi đóng vượt mốc nến gốc. Nhánh 2.2.1 sẽ vào ít lệnh hơn.
 const bool             Inp_Lib_Pinbar       = true;       // 2.1/2.1b: dùng pinbar thư viện thay lọc râu cũ
 const bool             Inp_Lib_Engulfing    = true;       // 2.2.1: dùng engulfing thư viện thay điều kiện đủ cũ
-const bool             Inp_On_21_LK         = true;       // BẬT setup [LIỀN KỀ · 2.1 pinbar]
-const bool             Inp_On_21b_LK        = true;       // BẬT setup [LIỀN KỀ · 2.1b pinbar cây 2]
-const bool             Inp_On_22_LK         = true;       // BẬT setup [LIỀN KỀ · 2.2 engulfing]
-const bool             Inp_On_21_SW         = true;       // BẬT setup [SWING · 2.1 pinbar]
-const bool             Inp_On_21b_SW        = true;       // BẬT setup [SWING · 2.1b pinbar cây 2]
-const bool             Inp_On_22_SW         = true;       // BẬT setup [SWING · 2.2 engulfing]
+input bool             Inp_On_21_LK         = true;       // BẬT setup [LIỀN KỀ · 2.1 pinbar]
+input bool             Inp_On_21b_LK        = true;       // BẬT setup [LIỀN KỀ · 2.1b pinbar cây 2]
+input bool             Inp_On_21c_LK        = true;       // BẬT setup [LIỀN KỀ · 2.1c engulfing cây 2 (gốc đóng TRONG biên)]
+input bool             Inp_On_21d_LK        = true;       // BẬT setup [LIỀN KỀ · 2.1d engulfing cây 3 (trùm cây 2 + quét sâu hơn)]
+input bool             Inp_On_22_LK         = true;       // BẬT setup [LIỀN KỀ · 2.2 engulfing]
+input bool             Inp_On_21_SW         = true;       // BẬT setup [SWING · 2.1 pinbar]
+input bool             Inp_On_21b_SW        = true;       // BẬT setup [SWING · 2.1b pinbar cây 2]
+input bool             Inp_On_21c_SW        = true;       // BẬT setup [SWING · 2.1c engulfing cây 2 (gốc đóng TRONG biên)]
+input bool             Inp_On_21d_SW        = true;       // BẬT setup [SWING · 2.1d engulfing cây 3 (trùm cây 2 + quét sâu hơn)]
+input bool             Inp_On_22_SW         = true;       // BẬT setup [SWING · 2.2 engulfing]
 input ENUM_CRT_TP_MODE Inp_TP21_Mode_LK     = TPMode_MidBienH4; // [2.1 · LIỀN KỀ] Cách tính TP:
 input ENUM_CRT_TP      Inp_TP21_Target_LK   = TP_Middle;  //   • nếu MidBienH4 — TP đặt ở:
 input double           Inp_TP21_RR_LK       = 2.0;        //   • nếu RR — tỷ lệ Reward:Risk
@@ -1068,7 +1081,7 @@ struct SCRTSource
    // "Nến gốc" = cây LTF đầu tiên thọc râu ra ngoài biên. Nếu nó đóng lại BÊN TRONG biên
    // -> setup 2.1 (pinbar) ngay. Nếu đóng BÊN NGOÀI -> chờ ĐÚNG 1 cây kế tiếp (2.2).
    bool     m2Waiting;          // đang chờ cây LTF thứ 2 sau nến gốc
-   int      m2WaitKind;         // 1 = nhánh 2.2 (chờ engulfing) · 2 = nhánh 2.1b (chờ cây 2 qua lọc râu)
+   int      m2WaitKind;         // 1 = chờ engulfing (2.2) · 2 = chờ cây 2 (họ 2.1) · 4 = chờ cây 3 (2.1d)
    int      m2Dir;              // +1 = quét biên dưới (chờ BUY) / -1 = quét biên trên
    double   m2OriginHigh;       // High nến gốc — mốc so sánh cho điều kiện đủ ở 2.2.1
    double   m2OriginLow;        // Low nến gốc
@@ -1098,6 +1111,18 @@ struct SCRTSource
    // biên chỉ in đúng 1 dòng, không spam. Reset khi biên đổi hoặc khi có cú quét hợp lệ.
    bool     sweepBlockLogged;
 
+   // [v1.81] Trạng thái CHỜ VÀO LỆNH TRÊN KHUNG NHỎ. Setup đã được khung quét xác nhận
+   // nhưng chưa vào lệnh — bot đợi giá hồi về vùng rồi mới tìm nến xác nhận ở khung nhỏ.
+   bool      ltfWaiting;
+   int       ltfDir;           // +1 BUY / -1 SELL
+   double    ltfZoneFar;       // mép XA của vùng = mút râu quét (cũng là mốc huỷ setup)
+   double    ltfZoneNear;      // mép GẦN  = giá tham chiếu lúc khung quét xác nhận
+   double    ltfSlM15;         // SL tính theo râu khung quét, để sẵn cho chế độ SL thứ 1
+   int       ltfBarsLeft;      // còn bao nhiêu nến khung nhỏ nữa thì bỏ setup
+   datetime  ltfLastBar;       // mốc nến khung nhỏ đã xử lý gần nhất
+   string    ltfSetupName;     // tên nhánh sinh ra setup, để ghi log/tin cho đúng
+   STPConfig ltfCfg;           // bộ TP của chính nhánh đó
+
    string   lastEventMsg;
 };
 
@@ -1124,6 +1149,8 @@ STPConfig TPCfg_Engulfing(SCRTSource &s)
 //+------------------------------------------------------------------+
 bool SetupEnabled_21(SCRTSource &s)  { return s.isSwing ? Inp_On_21_SW  : Inp_On_21_LK;  }
 bool SetupEnabled_21b(SCRTSource &s) { return s.isSwing ? Inp_On_21b_SW : Inp_On_21b_LK; }
+bool SetupEnabled_21c(SCRTSource &s) { return s.isSwing ? Inp_On_21c_SW : Inp_On_21c_LK; }
+bool SetupEnabled_21d(SCRTSource &s) { return s.isSwing ? Inp_On_21d_SW : Inp_On_21d_LK; }
 bool SetupEnabled_22(SCRTSource &s)  { return s.isSwing ? Inp_On_22_SW  : Inp_On_22_LK;  }
 
 
@@ -1280,6 +1307,8 @@ void ResetSourceFull(SCRTSource &s)
    s.armed = false; s.armDir = 0; s.armOppBoundary = 0; s.lastActedBreakTime = 0;
    s.ordersThisRound = 0; s.profitRounds = 0; s.prevOpenCount = 0; s.lastPoolPnl = 0;
    s.lineUsedLow = false; s.lineUsedHigh = false; s.sweepBlockLogged = false;
+   s.ltfWaiting = false; s.ltfDir = 0; s.ltfBarsLeft = 0; s.ltfLastBar = 0; s.ltfSetupName = "";
+
    s.m2Waiting = false; s.m2WaitKind = 0; s.m2Dir = 0;
    s.m2OriginHigh = 0; s.m2OriginLow = 0; s.m2OriginBodyEdge = 0; s.m2OriginTime = 0;
    s.m2OriginOpen = 0; s.m2OriginClose = 0;
@@ -1317,6 +1346,7 @@ void ResetSourceSweepAndArm(SCRTSource &s, bool highChanged, bool lowChanged)
    if(highChanged) s.lineUsedHigh = false;
 
    s.sweepBlockLogged = false;   // biên mới -> cho phép in lại 1 dòng nếu bị chặn
+   s.ltfWaiting       = false;   // [v1.81] biên đổi -> setup đang chờ khung nhỏ mất căn cứ
 
    ObjectDelete(0, g_prefix + "SweepLowArrow_"  + s.tag);
    ObjectDelete(0, g_prefix + "SweepHighArrow_" + s.tag);
@@ -1393,6 +1423,16 @@ void OnTick()
    // phải chạy được cả khi Shield/halt đang chặn vào lệnh mới.
    MoveSLToEntryAtProfitPips(g_srcAdj);
    MoveSLToEntryAtProfitPips(g_srcLM);
+
+   // [v1.81] Chờ nến vào lệnh trên khung nhỏ. Đặt cùng chỗ với các luật quản lý lệnh —
+   // tức NGOÀI khối Inp_EnableTrading bên dưới — vì bản thân hàm đã tự kiểm đủ chốt an
+   // toàn (giống ExecutePairEntry), và chế độ CHỈ THEO DÕI vẫn cần nó chạy để phát tín
+   // hiệu đúng thời điểm khung nhỏ xác nhận.
+   if(Inp_EntryLTF_Enable)
+   {
+      ProcessLTFEntry(g_srcAdj);
+      ProcessLTFEntry(g_srcLM);
+   }
 
    if(Inp_EnableTrading)
    {
@@ -1904,6 +1944,15 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
 
    if(!closedIn)
    {
+      // [v1.80] Cùng lý do với nhánh 2.1b/2.1c: 2.2 là nhánh chờ DUY NHẤT của đường này,
+      // tắt nó thì bỏ setup ngay, đừng vào trạng thái chờ rồi đốt biên ở cây 2.
+      if(!SetupEnabled_22(s))
+      {
+         PrintFormat("[CRT][%s] Nến gốc %s @%s đóng NGOÀI biên nhưng 2.2 đang TẮT -> bỏ setup ngay, biên vẫn còn hiệu lực.",
+                     s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES));
+         return;
+      }
+
       // 2.2 — đóng NGOÀI biên: ghi nhận nến gốc, chờ đúng 1 cây engulfing kế tiếp.
       s.m2Waiting    = true;
       s.m2WaitKind   = 1;
@@ -1925,6 +1974,21 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
    {
       // 2.1 nhưng nến ngược chiều lệnh và râu < 1.5 x thân -> nến xu hướng ngược, không phải
       // cú từ chối. Cho thêm ĐÚNG 1 cây để thị trường thể hiện lực.
+      //
+      // [v1.80] VÁ BẤT ĐỐI XỨNG: nếu CẢ HAI nhánh chờ (2.1b, 2.1c) đều đang tắt thì bỏ
+      // setup NGAY TẠI ĐÂY, không vào trạng thái chờ và KHÔNG đụng vào biên.
+      // Trước đây bot vẫn chờ, và lúc chốt sổ ở cây 2 thì đốt biên TRƯỚC khi xét — chỉ
+      // hoàn lại biên ở đúng nhánh "setup đang tắt nhưng cây 2 ĐỦ điều kiện". Hệ quả:
+      // cây 2 TRƯỢT thì một nhánh đang tắt vẫn tiêu thụ được đường biên, cướp cơ hội của
+      // các nhánh còn bật — đúng thứ mà luật "tắt nhánh thì không đốt biên" sinh ra để
+      // ngăn, và làm hỏng việc so sánh hai lần backtest bật/tắt.
+      if(!SetupEnabled_21b(s) && !SetupEnabled_21c(s))
+      {
+         PrintFormat("[CRT][%s] 2.1 nến gốc %s @%s không đạt, mà CẢ 2.1b lẫn 2.1c đều đang TẮT -> bỏ setup ngay, biên vẫn còn hiệu lực.",
+                     s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES));
+         return;
+      }
+
       s.m2Waiting        = true;
       s.m2WaitKind       = 2;
       s.m2Dir            = dir;
@@ -1966,7 +2030,7 @@ void ClassifyOriginCandle(SCRTSource &s, int dir, double highC, double lowC, dou
                DoubleToString(limitPrice, _Digits));
    ConfirmSweepForMode2(s, dir, tC);
    STPConfig cfg21 = TPCfg_Pinbar(s);
-   ExecutePairEntry(s, dir, limitPrice, "2.1 pinbar", cfg21);
+   VaoLenhHoacChoKhungNho(s, dir, limitPrice, "2.1 pinbar", cfg21);
 }
 
 //+------------------------------------------------------------------+
@@ -1985,14 +2049,27 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
       bool isBuy  = (s.m2Dir > 0);
       s.m2Waiting = false;
 
+      // [v1.83] Giữ mút râu SÂU NHẤT của các cây TRƯỚC cây này — cây thứ 3 phải quét
+      // vượt qua mốc đó mới được công nhận, nên phải đọc trước khi cập nhật bên dưới.
+      double extTruoc = isBuy ? s.sweepLowExtreme : s.sweepHighExtreme;
+
       // Cây này có thể thọc sâu hơn cây trước -> cập nhật mút râu để SL đặt đúng chỗ.
       if(isBuy  && lowC  < s.sweepLowExtreme)  s.sweepLowExtreme  = lowC;
       if(!isBuy && highC > s.sweepHighExtreme) s.sweepHighExtreme = highC;
 
-      //=== Kind 1 & 2: setup đã ngã ngũ -> đốt biên. Riêng trường hợp setup BỊ TẮT thì
-      //=== KHÔNG đốt, để các nhánh còn bật vẫn còn cơ hội ở lần quét sau trên biên này.
-      SetLineUsed(s, s.m2Dir, true);
       bool closedIn = isBuy ? (closeC > lo) : (closeC < hi);   // điều kiện CẦN cho cả 2 nhánh
+
+      // [v1.83] CỬA SỔ TỐI ĐA 3 CÂY, chỉ cho họ 2.1 (a/b/c).
+      // Cây 1 hỏng -> xét cây 2 (như cũ). Cây 2 hỏng mà giá VẪN đóng trong biên -> cho
+      // thêm ĐÚNG cây thứ 3; cây 3 đạt thì setup được công nhận, không đạt thì đốt biên.
+      // Hết cây 3 là chốt sổ, KHÔNG có lượt thứ tư.
+      // Nhánh 2.2 giữ nguyên 2 cây: nến gốc của nó đã đóng NGOÀI biên, tức biên bị phá
+      // ngay từ đầu nên không có cửa gia hạn.
+      // Biên bị đốt ở đây khi: đang là 2.2 (kind 1), hoặc cây vừa rồi đóng NGOÀI biên,
+      // hoặc đây đã là cây thứ 3 (kind 4). Các trường hợp còn lại để dành cho cây 3.
+      bool laCay3 = (s.m2WaitKind == 4);
+      if(s.m2WaitKind == 1 || !closedIn || laCay3)
+         SetLineUsed(s, s.m2Dir, true);
 
       if(s.m2WaitKind == 2)
       {
@@ -2019,18 +2096,122 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
                         DoubleToString(isBuy ? s.m2OriginLow : s.m2OriginHigh, _Digits),
                         DoubleToString(s.m2OriginBodyEdge, _Digits),
                         DoubleToString(limitPrice, _Digits));
+            SetLineUsed(s, s.m2Dir, true);   // [v1.82] vao lenh that -> bien het hieu luc
             ConfirmSweepForMode2(s, s.m2Dir, tC);
             STPConfig cfg21b = TPCfg_Pinbar(s);
-            ExecutePairEntry(s, s.m2Dir, limitPrice, "2.1b pinbar cây 2", cfg21b);
+            VaoLenhHoacChoKhungNho(s, s.m2Dir, limitPrice, "2.1b pinbar cây 2", cfg21b);
+         }
+         // [v1.80] NHÁNH 2.1c — cây 2 không phải pinbar nhưng TRÙM cây gốc.
+         // Trước 1.80 mẫu này rơi vào khoảng trống: cây gốc đóng TRONG biên nên bot khoá
+         // vào đường 2.1b và chỉ đo cây 2 bằng thước pinbar; mà engulfing mạnh thì thân
+         // to, râu mũi không thể đạt >= 60% biên độ -> luôn trượt. Nhánh 2.2 lại chỉ kích
+         // khi cây gốc đóng NGOÀI biên. Kết quả: "quét line, đóng lại trong biên, cây sau
+         // trùm ngược" không nhánh nào phủ.
+         // Dùng CHUNG hàm engulfing với 2.2.1 và CHUNG mốc vào lệnh (50% biên độ cây 2):
+         // ở cả hai nhánh, cây 2 mới là cây quyết định chứ không phải cây gốc.
+         if(closedIn)
+         {
+            SCandle gocC;  gocC.o = s.m2OriginOpen; gocC.h = s.m2OriginHigh;
+                           gocC.l = s.m2OriginLow;  gocC.c = s.m2OriginClose;
+            SCandle cay2C; cay2C.o = openC; cay2C.h = highC; cay2C.l = lowC; cay2C.c = closeC;
+            bool trumGoc = Inp_Lib_Engulfing
+                              ? SC_IsEngulfing(s.m2Dir, gocC, cay2C)
+                              : (isBuy ? (closeC >= s.m2OriginHigh) : (closeC <= s.m2OriginLow));
+            if(trumGoc)
+            {
+               if(!SetupEnabled_21c(s))
+               {
+                  SetLineUsed(s, s.m2Dir, false);   // setup tắt -> coi như chưa dùng biên
+                  PrintFormat("[CRT][%s] 2.1c ENGULFING (cây 2) %s @%s -> setup ĐANG TẮT, bỏ qua (biên vẫn còn hiệu lực).",
+                              s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES));
+                  return;
+               }
+               double limitPrice = (highC + lowC) / 2.0;
+               PrintFormat("[CRT][%s] 2.1c ENGULFING (cây 2) %s @%s · gốc đóng TRONG biên nhưng không đạt pinbar, cây 2 trùm gốc -> vào cặp lệnh (limit @50%% biên độ cây 2 = %s)",
+                           s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES),
+                           DoubleToString(limitPrice, _Digits));
+               SetLineUsed(s, s.m2Dir, true);   // [v1.82] vao lenh that -> bien het hieu luc
+               ConfirmSweepForMode2(s, s.m2Dir, tC);
+               STPConfig cfg21c = TPCfg_Engulfing(s);
+               VaoLenhHoacChoKhungNho(s, s.m2Dir, limitPrice, "2.1c engulfing cây 2", cfg21c);
+               return;
+            }
+         }
+
+         // [v1.83] Cây 2 hỏng. Nếu giá VẪN đóng trong biên thì biên chưa bị phá -> gia hạn
+         // ĐÚNG MỘT cây nữa (cây thứ 3). Đóng ngoài biên thì thôi, biên đã bị phá.
+         // [v1.85] 2.1d TẮT thì KHÔNG gia hạn — đốt biên ngay tại cây 2 như hành vi cũ.
+         // Cùng nguyên tắc với v1.80: một nhánh đang tắt không được phép giữ đường biên
+         // ở trạng thái lửng lơ rồi tiêu thụ nó, vì như vậy hai lần backtest bật/tắt
+         // không còn so sánh được với nhau.
+         if(closedIn && !SetupEnabled_21d(s))
+         {
+            SetLineUsed(s, s.m2Dir, true);
+            PrintFormat("[CRT][%s] Cây 2 không đạt và 2.1d đang TẮT -> không gia hạn cây 3, biên %s coi như đã dùng.",
+                        s.tag, TFToString(Inp_HTF));
+            return;
+         }
+
+         if(closedIn)
+         {
+            s.m2Waiting  = true;
+            s.m2WaitKind = 4;
+            // Cây 3 sẽ so với CÂY 2, nên cây 2 lên làm mốc. Ghi đè m2Origin* là an toàn:
+            // nến gốc chỉ còn cần cho 2.1b/2.1c, mà hai nhánh đó vừa ngã ngũ xong.
+            s.m2OriginHigh  = highC;
+            s.m2OriginLow   = lowC;
+            s.m2OriginOpen  = openC;
+            s.m2OriginClose = closeC;
+            s.m2OriginTime  = tC;
+            PrintFormat("[CRT][%s] Cây 2 không đạt (%s) nhưng vẫn đóng TRONG biên -> gia hạn cây thứ 3 (phải TRÙM cây 2 và quét sâu hơn %s).",
+                        s.tag,
+                        Inp_Lib_Pinbar
+                           ? "không đạt pinbar thư viện, cũng không trùm nến gốc"
+                           : StringFormat("ngược chiều và râu < %.1f x thân, cũng không trùm nến gốc", Inp_WickBodyRatio),
+                        DoubleToString(isBuy ? s.sweepLowExtreme : s.sweepHighExtreme, _Digits));
          }
          else
-            PrintFormat("[CRT][%s] 2.1b KHÔNG ĐỦ ĐK (%s) -> bỏ setup, biên %s coi như đã dùng.",
-                        s.tag,
-                        !closedIn ? "cây 2 đóng ngoài biên"
-                                  : (Inp_Lib_Pinbar
-                                     ? "cây 2 không đạt hình pinbar thư viện"
-                                     : StringFormat("cây 2 ngược chiều và râu < %.1f x thân", Inp_WickBodyRatio)),
-                        TFToString(Inp_HTF));
+            PrintFormat("[CRT][%s] 2.1b/2.1c KHÔNG ĐỦ ĐK (cây 2 đóng NGOÀI biên -> biên coi như bị phá) -> bỏ setup, biên %s hết hiệu lực.",
+                        s.tag, TFToString(Inp_HTF));
+         return;
+      }
+
+      //=== Kind 4: CÂY THỨ BA — cửa cuối của họ 2.1 ===
+      // Điều kiện ĐỦ, phải có cả hai: TRÙM cây 2, và RÂU QUÉT SÂU HƠN mọi cây trước đó.
+      // Vế "sâu hơn" là điểm mấu chốt: trùm mà không lấy thêm thanh khoản mới thì chỉ là
+      // dao động trong cùng vùng, không phải một cú quét thật.
+      if(s.m2WaitKind == 4)
+      {
+         bool sauHon = isBuy ? (lowC < extTruoc) : (highC > extTruoc);
+
+         SCandle cay2; cay2.o = s.m2OriginOpen; cay2.h = s.m2OriginHigh;
+                       cay2.l = s.m2OriginLow;  cay2.c = s.m2OriginClose;
+         SCandle cay3; cay3.o = openC; cay3.h = highC; cay3.l = lowC; cay3.c = closeC;
+         bool trumCay2 = Inp_Lib_Engulfing
+                            ? SC_IsEngulfing(s.m2Dir, cay2, cay3)
+                            : (isBuy ? (closeC >= s.m2OriginHigh) : (closeC <= s.m2OriginLow));
+
+         if(closedIn && sauHon && trumCay2)
+         {
+            SetLineUsed(s, s.m2Dir, true);
+            double limitPrice = (highC + lowC) / 2.0;
+            PrintFormat("[CRT][%s] 2.1d ENGULFING (cây 3) %s @%s · trùm cây 2 VÀ quét sâu hơn (%s < %s) -> vào lệnh (mốc 50%% biên độ cây 3 = %s)",
+                        s.tag, isBuy ? "BUY" : "SELL", TimeToString(tC, TIME_DATE|TIME_MINUTES),
+                        DoubleToString(isBuy ? lowC : highC, _Digits),
+                        DoubleToString(extTruoc, _Digits),
+                        DoubleToString(limitPrice, _Digits));
+            ConfirmSweepForMode2(s, s.m2Dir, tC);
+            STPConfig cfg21d = TPCfg_Engulfing(s);
+            VaoLenhHoacChoKhungNho(s, s.m2Dir, limitPrice, "2.1d engulfing cây 3", cfg21d);
+            return;
+         }
+
+         PrintFormat("[CRT][%s] Cây 3 KHÔNG ĐỦ ĐK (%s) -> hết cửa sổ 3 cây, biên %s coi như đã dùng.",
+                     s.tag,
+                     !closedIn ? "đóng ngoài biên"
+                               : (!sauHon ? StringFormat("không quét sâu hơn %s", DoubleToString(extTruoc, _Digits))
+                                          : "không trùm cây 2"),
+                     TFToString(Inp_HTF));
          return;
       }
 
@@ -2067,7 +2248,7 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
                      DoubleToString(limitPrice, _Digits));
          ConfirmSweepForMode2(s, s.m2Dir, tC);
          STPConfig cfg22 = TPCfg_Engulfing(s);
-         ExecutePairEntry(s, s.m2Dir, limitPrice, "2.2.1 engulfing", cfg22);
+         VaoLenhHoacChoKhungNho(s, s.m2Dir, limitPrice, "2.2.1 engulfing", cfg22);
       }
       else
       {
@@ -2104,6 +2285,10 @@ void ProcessSweepCandleMode(SCRTSource &s, double highC, double lowC, double clo
       return;
    }
    s.sweepBlockLogged = false;
+
+   // [v1.83] Cơ chế "nhiều lượt thử, mỗi lượt phải sâu hơn" của v1.82 đã GỠ BỎ. Thay bằng
+   // cửa sổ CỐ ĐỊNH 3 CÂY (xem nhánh chờ ở trên): hết cây 3 là đốt biên, không có lượt
+   // thứ tư. Luật "phải quét sâu hơn" nay nằm ở điều kiện của chính cây 3.
 
    if(dir > 0) { s.sweepLowExtreme  = lowC;  s.sweepLowStartTime  = tC; }
    else        { s.sweepHighExtreme = highC; s.sweepHighStartTime = tC; }
@@ -2474,6 +2659,179 @@ double CurrentSpreadPoints()
 }
 
 //+------------------------------------------------------------------+
+// [v1.81] Vào lệnh sau khi khung nhỏ đã cho tín hiệu: ĐÚNG 1 lệnh market, không còn cặp
+// market + limit. Lý do: mốc 50% râu quét sinh ra để "bắt giá tốt hơn" khi vào ngay lúc
+// khung quét xác nhận — nay việc đó đã do khung nhỏ lo, đặt thêm limit sâu hơn nữa là
+// nhân đôi rủi ro cho cùng một setup.
+// Chuỗi chốt an toàn giữ y như ExecutePairEntry để hai đường vào không lệch nhau.
+//+------------------------------------------------------------------+
+void ExecuteLTFEntry(SCRTSource &s, int dir, double entry, double slPrice, string setupName, STPConfig &cfg)
+{
+   if(!Inp_EnableTrading)
+   {
+      SendPublicSignal(dir, entry, 0, false, slPrice, true);
+      return;
+   }
+   if(g_halted || g_shieldStopped || g_accountPassed)
+   {
+      PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (Shield/halt đang chặn) — vẫn phát tín hiệu.",
+                  s.tag, setupName);
+      SendPublicSignal(dir, entry, 0, false, slPrice, true);
+      return;
+   }
+   if(IsInNewsWindow())
+   { PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (khung giờ tin tức).", s.tag, setupName); return; }
+   if(Inp_MaxSpreadPoints > 0 && CurrentSpreadPoints() > Inp_MaxSpreadPoints)
+   { PrintFormat("[CRT][%s] %s: bỏ qua vào lệnh (spread quá rộng).", s.tag, setupName); return; }
+
+   if(!PlaceOneOrder(s, dir, entry, false, "", setupName + " · khung nhỏ", cfg, slPrice))
+   {
+      PrintFormat("[CRT][%s] %s: không đặt được lệnh -> không phát tin Telegram.", s.tag, setupName);
+      return;
+   }
+
+   SendPublicSignal(dir, entry, 0, false, slPrice, true);
+   SendChiTiet(StringFormat(
+      "🔎 %s · %s (vào bằng %s)\n"
+      "📦 Market %s lot\n"
+      "💳 Balance: %s$",
+      s.tag, setupName, TFToString(Inp_EntryLTF_TF),
+      DoubleToString(g_lotVuaDat, 2),
+      DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2)));
+}
+
+//+------------------------------------------------------------------+
+// [v1.81] Chạy trên mỗi nến ĐÃ ĐÓNG của khung nhỏ khi đang chờ vào lệnh.
+// Ba việc theo đúng thứ tự: kiểm setup còn sống không -> nến có nằm trong vùng không ->
+// nến có phải tín hiệu đảo chiều không.
+// Dùng CHÍNH thư viện Signal_Candle như khung quét, nên "thế nào là nến đẹp" nhất quán
+// giữa hai khung, không sinh ra luật thứ hai.
+//+------------------------------------------------------------------+
+void ProcessLTFEntry(SCRTSource &s)
+{
+   if(!s.ltfWaiting)
+      return;
+
+   datetime bar0 = iTime(_Symbol, Inp_EntryLTF_TF, 0);
+   if(bar0 == 0 || bar0 == s.ltfLastBar)
+      return;                       // chưa có nến khung nhỏ nào đóng thêm
+   s.ltfLastBar = bar0;
+
+   bool   isBuy = (s.ltfDir > 0);
+   double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   // --- 1. Setup còn sống không? ---
+   // Giá xuyên qua mút râu quét = cú quét thất bại, không còn gì để chờ.
+   bool thungRau = isBuy ? (bid < s.ltfZoneFar) : (ask > s.ltfZoneFar);
+   if(thungRau)
+   {
+      PrintFormat("[CRT][%s] %s: giá xuyên mút râu quét %s -> cú quét hỏng, bỏ chờ khung nhỏ.",
+                  s.tag, s.ltfSetupName, DoubleToString(s.ltfZoneFar, _Digits));
+      s.ltfWaiting = false;
+      return;
+   }
+
+   if(--s.ltfBarsLeft < 0)
+   {
+      PrintFormat("[CRT][%s] %s: hết %d nến %s mà không có nến xác nhận -> bỏ setup.",
+                  s.tag, s.ltfSetupName, Inp_EntryLTF_MaxBars, TFToString(Inp_EntryLTF_TF));
+      s.ltfWaiting = false;
+      return;
+   }
+
+   // --- 2. Nến vừa đóng có nằm trong vùng giá không? ---
+   SCandle k;
+   if(!SC_LoadCandle(_Symbol, Inp_EntryLTF_TF, 1, k))
+      return;
+
+   double zLo = MathMin(s.ltfZoneFar, s.ltfZoneNear);
+   double zHi = MathMax(s.ltfZoneFar, s.ltfZoneNear);
+   if(k.c < zLo || k.c > zHi)
+      return;                       // giá chưa hồi về vùng — cứ chờ tiếp, chưa bỏ setup
+
+   // --- 3. Có phải nến tín hiệu không? ---
+   SCandle kTruoc;
+   bool coTruoc = SC_LoadCandle(_Symbol, Inp_EntryLTF_TF, 2, kTruoc);
+   bool laPin   = SC_IsPinbar(s.ltfDir, k);
+   bool laEng   = coTruoc && SC_IsEngulfing(s.ltfDir, kTruoc, k);
+   if(!laPin && !laEng)
+      return;
+
+   // --- Đủ điều kiện: vào lệnh ---
+   // SL theo lựa chọn: râu khung quét (rộng, như cũ) hoặc râu chính nến xác nhận (hẹp).
+   double slPrice;
+   string slMoTa;
+   if(Inp_EntryLTF_SLMode == SLtheo_RauXacNhan)
+   {
+      double mut = isBuy ? k.l : k.h;
+      slPrice = isBuy ? mut - Inp_SL_BufferPips * GetPipSize()
+                      : mut + Inp_SL_BufferPips * GetPipSize();
+      slMoTa  = StringFormat("râu nến %s", TFToString(Inp_EntryLTF_TF));
+   }
+   else
+   {
+      slPrice = s.ltfSlM15;
+      slMoTa  = StringFormat("râu quét %s", TFToString(Inp_LTF));
+   }
+
+   double entry = isBuy ? ask : bid;
+   PrintFormat("[CRT][%s] %s: nến %s @%s %s trong vùng -> VÀO LỆNH %s @%s · SL %s (%s + %.0f pip)",
+               s.tag, s.ltfSetupName, TFToString(Inp_EntryLTF_TF),
+               TimeToString(iTime(_Symbol, Inp_EntryLTF_TF, 1), TIME_DATE|TIME_MINUTES),
+               laPin ? "PINBAR" : "ENGULFING",
+               isBuy ? "BUY" : "SELL", DoubleToString(entry, _Digits),
+               DoubleToString(slPrice, _Digits), slMoTa, Inp_SL_BufferPips);
+
+   s.ltfWaiting = false;
+   ExecuteLTFEntry(s, s.ltfDir, entry, slPrice, s.ltfSetupName, s.ltfCfg);
+}
+
+//+------------------------------------------------------------------+
+// [v1.81] CỬA VÀO DUY NHẤT sau khi một nhánh CRT xác nhận setup. Tuỳ thiết lập mà đi
+// một trong hai đường:
+//   · Inp_EntryLTF_Enable TẮT  -> vào ngay như cũ (cặp market + limit 50%).
+//   · BẬT -> khung quét CHỈ xác nhận setup; ghi nhận vùng giá rồi chờ khung nhỏ.
+// Bốn nhánh 2.1 / 2.1b / 2.1c / 2.2 đều gọi qua đây nên chỉ cần rẽ ở một chỗ.
+//+------------------------------------------------------------------+
+void VaoLenhHoacChoKhungNho(SCRTSource &s, int dir, double limitPrice, string setupName, STPConfig &cfg)
+{
+   if(!Inp_EntryLTF_Enable)
+   {
+      ExecutePairEntry(s, dir, limitPrice, setupName, cfg);
+      return;
+   }
+
+   bool isBuy = (dir > 0);
+
+   // VÙNG GIÁ HỢP LỆ = [mút râu quét ... giá tham chiếu lúc khung quét xác nhận].
+   // Vào ở bất kỳ đâu trong vùng này đều tốt hơn vào ngay tại giá xác nhận, vì càng gần
+   // mút râu thì SL càng gần mà đích vẫn thế.
+   // Mép XA (mút râu) kiêm luôn MỐC HUỶ: giá xuyên qua nó nghĩa là cú quét đã thất bại,
+   // setup chết, không chờ nữa.
+   double mutRau = isBuy ? s.sweptLow : s.sweptHigh;
+   double giaXN  = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
+                         : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   s.ltfWaiting   = true;
+   s.ltfDir       = dir;
+   s.ltfZoneFar   = mutRau;
+   s.ltfZoneNear  = giaXN;
+   s.ltfSlM15     = isBuy ? mutRau - Inp_SL_BufferPips * GetPipSize()
+                          : mutRau + Inp_SL_BufferPips * GetPipSize();
+   s.ltfBarsLeft  = Inp_EntryLTF_MaxBars;
+   s.ltfLastBar   = iTime(_Symbol, Inp_EntryLTF_TF, 0);
+   s.ltfSetupName = setupName;
+   s.ltfCfg       = cfg;
+
+   PrintFormat("[CRT][%s] %s: setup XÁC NHẬN trên %s -> chuyển sang chờ nến %s trong vùng %s..%s (tối đa %d nến).",
+               s.tag, setupName, TFToString(Inp_LTF), TFToString(Inp_EntryLTF_TF),
+               DoubleToString(MathMin(mutRau, giaXN), _Digits),
+               DoubleToString(MathMax(mutRau, giaXN), _Digits),
+               Inp_EntryLTF_MaxBars);
+}
+
+//+------------------------------------------------------------------+
 // Mode 2 (nến quét LTF): vào ĐÚNG 1 CẶP lệnh — 1 market + 1 limit @ mốc 50%.
 // Hai lệnh đếm 2 đơn vị vào Inp_MaxOrders_* nhưng KHÔNG bị hạn mức đó chặn: luật
 // mạnh hơn là "1 biên = 1 cặp" (s.lineUsed).
@@ -2614,7 +2972,7 @@ double g_lotVuaDat = 0;
 // Lõi đặt 1 lệnh, dùng chung cho cả 2 mode: validate -> tính SL/TP/lot -> gửi lệnh.
 // mocTxt chỉ để ghi log cho dễ hiểu khi lệnh chờ bị từ chối.
 //+------------------------------------------------------------------+
-bool PlaceOneOrder(SCRTSource &s, int dir, double entry, bool useLimit, string mocTxt, string setupName, STPConfig &cfg)
+bool PlaceOneOrder(SCRTSource &s, int dir, double entry, bool useLimit, string mocTxt, string setupName, STPConfig &cfg, double slOverride = 0)
 {
    // Hạn mức số lệnh/vòng là khái niệm của Mode 1 (nhồi lệnh theo nhiều BOS/CHOCH).
    // Mode 2 bị chặn bởi luật mạnh hơn: 1 phía biên = đúng 1 cặp lệnh (lineUsedLow/High).
@@ -2661,7 +3019,11 @@ bool PlaceOneOrder(SCRTSource &s, int dir, double entry, bool useLimit, string m
 
    // SL "ảo" LUÔN được tính (kể cả chế độ không đặt SL) vì còn dùng để tính lot theo risk,
    // tính TP theo R:R và lọc Inp_MaxSL_Pips. Chỉ khác ở chỗ có gửi lên sàn hay không.
-   double sl    = isBuy ? s.sweptLow - buf : s.sweptHigh + buf;
+   // [v1.81] slOverride > 0: vào lệnh bằng khung nhỏ và người dùng chọn SL theo râu nến
+   // xác nhận. Mọi thứ phía sau (lot theo risk, TP theo R:R, lọc Inp_MaxSL_Pips) dùng
+   // chung một biến sl nên chỉ cần thay ở đây là cả chuỗi tự khớp.
+   double sl    = (slOverride > 0) ? slOverride
+                                   : (isBuy ? s.sweptLow - buf : s.sweptHigh + buf);
    double tp    = ComputeTP(s, dir, entry, sl, cfg);
 
    if(isBuy  && tp <= entry) { PrintFormat("[CRT][%s] Bỏ qua BUY: TP không hợp lệ (giá đã vượt biên trên).", s.tag); return false; }
